@@ -1,7 +1,7 @@
 # NanOrgAssM
 NanOrgAssM stands for "Nanopore Organelle Assembly Method". As its name suggests, it assembles organelle genomes from Nanopore (genome skimming) data. Taking advantage of targeted sequencing to enrich for organelle sequences is recommended, especially for larger genomes (I like to call that "Power Skimming").
 
-## Information
+## Workflow
 NanoOrgAssM follows these steps:
 1. Basecall and demultiplex the fast5 with `guppy` in SUP mode to generate the fastq files.
 2. Remove adapters with `porechop` and filter low quality reads with `filtlong`.
@@ -9,7 +9,7 @@ NanoOrgAssM follows these steps:
 4. Assemble the extracted reads with `flye`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
 5. Visualize
 
-## Workflow
+## Installation
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
 ```
 # Create environment
