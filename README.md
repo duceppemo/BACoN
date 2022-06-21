@@ -9,7 +9,7 @@ NanoOrgAssM follows these steps:
 4. Assemble the extracted reads with `flye`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
 5. Visualize
 
-## Installation
+## Workflow
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
 ```
 # Create environment
