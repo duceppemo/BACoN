@@ -1,5 +1,5 @@
 # NanOrgAssM
-NanOrgAssM stands for "Nanopore Organelle Assembly Method". As its name suggests, it's aimed at assembling organelle genomes from Nanopore genome skimming. Hopefully, targeted sequencing with a suitable organelle reference sequencing has been used to enrich organelle sequences in the reads (I like to call that "powerskimming").
+NanOrgAssM stands for "Nanopore Organelle Assembly Method". As its name suggests, it assembles organelle genomes from Nanopore genome skimming data. Hopefully, targeted sequencing with a suitable organelle reference sequencing has been used to enrich organelle sequences in the reads (I like to call that "powerskimming").
 
 ## TODO
 
