@@ -13,7 +13,8 @@ NanoOrgAssM follows these steps:
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
 ```
 # Create environment
-conda create -n nanorgassm -y -c bioconda porechop filtlong minimap2 samtools flye bbmap git
+conda create -n nanorgassm -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
+    samtools flye bbmap git ete3 pysam bandage parsnp
 
 # Activate enviroment
 conda activate nanorgassm
@@ -68,6 +69,35 @@ python nanorgassm.py \
 `-i` is the input reads. Fastq and fasta are supported, gzipped or not.
 `-o` is the output folder.
 `-t` is the number of threads used. `$(nproc)` means to use all availble threads (and should not be used on shared computing resources).
+usage: nanorgassm.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ -o /path/to/output/folder/ [-t 16] [--parallel 2]
+
+Organelle genome assembly from Nanopore genome skimming data.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -r /path/to/reference_organelle/genome.fasta, --reference /path/to/reference_organelle/genome.fasta
+                        Reference genome for read mapping. Mandatory.
+  -i /path/to/input/folder/, --input /path/to/input/folder/
+                        Folder that contains the read files. Mandatory.
+  -o /path/to/output/folder/, --output /path/to/output/folder/
+                        Folder to hold the result files. Mandatory.
+  -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional
+  --parallel 2, -p 2    Number of samples to process in parallel. Default is 2. Optional
 
 ## Usage
+```commandline
+usage: python nanorgassm.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ -o /path/to/output/folder/ [-t 16] [-p 2]
 
+Organelle genome assembly from Nanopore genome skimming data.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -r /path/to/reference_organelle/genome.fasta, --reference /path/to/reference_organelle/genome.fasta
+                        Reference genome for read mapping. Mandatory.
+  -i /path/to/input/folder/, --input /path/to/input/folder/
+                        Folder that contains the read files. Mandatory.
+  -o /path/to/output/folder/, --output /path/to/output/folder/
+                        Folder to hold the result files. Mandatory.
+  -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional
+  -p 2, --parallel 2    Number of samples to process in parallel. Default is 2. Optional
+```
