@@ -2,12 +2,11 @@
 NanOrgAssM stands for "Nanopore Organelle Assembly Method". As its name suggests, it assembles organelle genomes from Nanopore (genome skimming) data. Taking advantage of targeted sequencing to enrich for organelle sequences is recommended, especially for larger genomes (I like to call that "Power Skimming").
 
 ## Workflow
-NanoOrgAssM follows these steps:
-1. Basecall and demultiplex the fast5 with `guppy` in SUP mode to generate the fastq files.
-2. Remove adapters with `porechop` and filter low quality reads with `filtlong`.
-3. Extract organelle reads with `minimap2` using a provided reference sequence (ideally the same used for the targeted sequencing).
-4. Assemble the extracted reads with `flye`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
-5. Visualize
+NanOrgAssM follows these steps:
+1. Extract organelle Nanopore fastq reads with `minimap2` using a provided reference sequence (ideally the same used for the targeted sequencing).
+2. Remove Nanopore adapters with `porechop` and filter low quality extracted reads with `filtlong`.
+3. Assemble the extracted reads with `flye`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
+4. Compare samples with a core SNP approach usinf `parsnp`
 
 ## Installation
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
@@ -54,13 +53,13 @@ guppy_basecaller \
     --trim_adapters \
     --trim_primers
 ```
-2. Run NanOrgAssM to extract and assemble organelle reads matching your reference. Here we're going to extract chloroplast reads from garlic.
+2. Run NanOrgAssM to extract and assemble organelle reads matching your reference.
 ```
 # Change path according to where you cloned NanOrgAssM on your machine.
 # Don't forget to activate your nanorgassm virtual environment if not already done.
 python nanorgassm.py \
   -r /path/to/my_reference.fasta \
-  -i /path/to/my_reads.fastq.gz \
+  -i /path/to/folder/containing/Nanopore/reads \
   -o /path/to/nanorgassm/output/folder \
   -t $(nproc)
   
@@ -101,3 +100,17 @@ optional arguments:
   -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional
   -p 2, --parallel 2    Number of samples to process in parallel. Default is 2. Optional
 ```
+
+## Cheats
+As it's finishing the various steps, check point files are created so NanOrgAssM can resume where it left off is something wrong happened during the run. In order:
+```commandline
+done_extracting
+done_trimming
+done_filtering
+done_assembling
+done_comparing
+```
+This can be exploited to combine multiple NanOrgAssM outputs and run only the last part to get the tree. The steps would be to:
+1. Create a new input folder with all the assemblies to include (created with the reference sequence preferably).
+2. Create a new output folder and create inside that folder the `done_extracting`, `done_trimming`, `done_filtering` and `done_assembling` files (e.g. `touch done_extracting`).
+3. Run NanOrgAssM using the newly populated input and output folders.
