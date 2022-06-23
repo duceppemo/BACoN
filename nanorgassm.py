@@ -143,13 +143,30 @@ class GBS(object):
 
         # Make stats and create SNP VCF file (populations)
         if not os.path.exists(done_comparing):
-            print('Making core SNP tree with parsnp...')
+            print('Making core SNP tree with Parsnp...')
 
             # Create Cores SNP tree
             Methods.run_parsnp(assembly_list, compared_folder, self.reference, self.cpu)
 
             # Plot tree to PDF, .SVG or .PNG
             Methods.plot_newick_tree(compared_folder + 'parsnp.tree', compared_folder + 'parsnp.pdf')
+
+            # Convert xmfa to fasta so we can compute a new tree with bootstraps
+            Methods.convert_xmfa_to_fastq(compared_folder + 'parsnp.xmfa', compared_folder + 'parsnp.fasta')
+
+            # Create ML tree with bootstraps
+            print('Making tree with 1,000 bootstraps...')
+            Methods.make_tree_raxml(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
+            # Plot tree to PDF, .SVG or .PNG
+            # This command wont work for this tree...
+            # Methods.plot_newick_tree(compared_folder + 'RAxML_bipartitionsBranchLabels.raxml.tree',
+            #                          compared_folder + 'raxml.pdf')
+
+            # Create FastTree
+            Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
+            Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
+                                     compared_folder + 'fasttree.pdf')
+
             Methods.flag_done(done_comparing)
         else:
             print('Skipping sample comparison. Already done.')

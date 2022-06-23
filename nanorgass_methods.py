@@ -347,19 +347,33 @@ class Methods(object):
         subprocess.run(cmd)
 
     @staticmethod
-    def make_tree_raxml(aligned_fasta, output_folder, cpu):
-        Methods.make_folder(output_folder)
+    def convert_xmfa_to_fastq(xmfa_input, fasta_output):
+        cmd = ['harvesttools',
+               '-x', xmfa_input,
+               '-M', fasta_output]
+        subprocess.run(cmd)
 
+    @staticmethod
+    def make_tree_raxml(aligned_fasta, output_folder, cpu):
         cmd = ['raxmlHPC-PTHREADS-AVX2',
                '-s', aligned_fasta,
                '-w', output_folder,
-               '-n', '{}.tree'.format('.'.join(os.path.basename(aligned_fasta).split('.')[:-1])),
+               '-n', 'raxml.tree',
                '-m', 'GTRCAT',
-               '-N', str(100),
+               '-N', str(1000),
                '-d', '-f', 'a', '-T', str(cpu),
                '-x', str(1234), '-p', str(123)]
-
         subprocess.run(cmd)
+
+    @staticmethod
+    def make_tree_fasttree(aligned_fasta, output_folder, cpu):
+        cmd = ['FastTree',
+               '-nt',
+               '-gtr',
+               aligned_fasta]
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        with open(output_folder + 'fasttree.tree', 'wb') as f:
+            f.write(p.communicate()[0])
 
     @staticmethod
     def plot_newick_tree(tree_file, output_file):

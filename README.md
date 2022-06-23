@@ -13,7 +13,7 @@ NanOrgAssM follows these steps:
 ```
 # Create environment
 conda create -n nanorgassm -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
-    samtools flye bbmap git ete3 pysam bandage parsnp
+    samtools flye bbmap git ete3 pysam bandage parsnp harvesttools raxml fasttree
 
 # Activate enviroment
 conda activate nanorgassm
