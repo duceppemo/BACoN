@@ -137,7 +137,7 @@ bacon
 * `3_filtered` contains the filtered reads by `filtlong`.
 * `4_assembled` contains the assembly sub-folders for each sample. All assemblies are located in the `all_assemblies` folder. Assembly quality can be assessed quickly from the `assembly_graphs` sub-folder.
 * `5_compared` contains the SNPs and tree files from `parsnp`, `RAxML` and `FastTree`. RAxML and FastTree are provided to add bootstrap values to the tree.
-* The `done` files are checkpoint files. See the `Cheat section for details`.
+* The `done` files are checkpoint files. See the `Cheat` section below for details.
 
 ## Cheats
 As it's finishing the various steps, check point files are created so BACoN can resume where it left off is something wrong happened during the run. In order:
@@ -150,5 +150,5 @@ done_comparing
 ```
 This can be exploited to combine multiple BACoN outputs and run only the last part to get the tree. The steps would be to:
 1. Create a new input folder with all the assemblies to include (created with the reference sequence preferably).
-2. Create a new output folder and create inside that folder the `done_extracting`, `done_trimming`, `done_filtering` and `done_assembling` files (e.g. `touch done_extracting`).
+2. Create a new output folder and create inside that folder the `done_extracting`, `done_trimming`, `done_filtering` and `done_assembling` files (e.g. `touch done_extracting`). Note that we skipped creating the `done_comparing` file.
 3. Run BACoN using the newly populated input and output folders.
