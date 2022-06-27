@@ -2,7 +2,7 @@ import glob
 import os
 from argparse import ArgumentParser
 from multiprocessing import cpu_count
-from nanorgass_methods import Methods
+from bacon_methods import Methods
 
 
 __author__ = 'duceppemo'
