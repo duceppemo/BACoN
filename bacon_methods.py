@@ -19,8 +19,8 @@ class Methods(object):
                            '.fastq', '.fastq.gz',
                            '.fasta', '.fasta.gz',
                            '.fa', '.fa.gz',
-                           '.fna', '.fna.gz',
-                           '.bam']
+                           '.fna', '.fna.gz']
+                           # '.bam']
 
     @staticmethod
     def check_input_folder(folder):
@@ -176,7 +176,7 @@ class Methods(object):
             return f.seek(0, whence=2)
 
     @staticmethod
-    def run_minimap2(sample, ref, fastq_file, cpu, output_folder):
+    def run_minimap2(sample, ref, fastq_file, cpu, output_folder, keep_bam):
         print('\t{}'.format(sample))
 
         output_bam = output_folder + sample + '.bam'
@@ -229,18 +229,49 @@ class Methods(object):
             warnings.warn('No reads were extracted for {}!'.format(sample))
 
         # Remove bam
-        bam_list = glob(output_folder + '*.bam*')
-        for bam in bam_list:
-            os.remove(bam)
+        if not keep_bam:
+            bam_list = glob(output_folder + '*.bam*')
+            for bam in bam_list:
+                os.remove(bam)
 
     @staticmethod
-    def run_minimap2_parallel(output_folder, ref, sample_dict, cpu, parallel):
+    def run_minimap2_parallel(output_folder, ref, sample_dict, cpu, parallel, keep_bam):
+        Methods.make_folder(output_folder)
+
+        with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
+            args = ((sample, ref, path, int(cpu / parallel), output_folder, keep_bam)
+                    for sample, path in sample_dict.items())
+            for results in executor.map(lambda x: Methods.run_minimap2(*x), args):
+                pass
+
+    @staticmethod
+    def bait_bbduk(sample, ref, fastq_file, cpu, output_folder):
+        extracted_fastq = output_folder + sample + '.fastq.gz'
+
+        cmd = ['bbduk.sh',
+               'overwrite=true',
+               'in={}'.format(fastq_file),
+               'ref={}'.format(ref),
+               'threads={}'.format(cpu),
+               'k=31',
+               'qin=33',
+               'maskmiddle=t',
+               'hdist=2',
+               'outm={}'.format(extracted_fastq)]
+        subprocess.run(cmd)
+
+        # Check if gzipped fastq is not empty
+        if Methods.gzipped_file_size(extracted_fastq) == 0:
+            warnings.warn('No reads were extracted for {}!'.format(sample))
+
+    @staticmethod
+    def bait_bbduk_parallel(output_folder, ref, sample_dict, cpu, parallel):
         Methods.make_folder(output_folder)
 
         with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
             args = ((sample, ref, path, int(cpu / parallel), output_folder)
                     for sample, path in sample_dict.items())
-            for results in executor.map(lambda x: Methods.run_minimap2(*x), args):
+            for results in executor.map(lambda x: Methods.bait_bbduk(*x), args):
                 pass
 
     @staticmethod

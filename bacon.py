@@ -18,6 +18,8 @@ class GBS(object):
         self.input_folder = os.path.abspath(args.input)
         self.output_folder = os.path.abspath(args.output)
         self.ref_size = args.size
+        self.keep_bam = args.keep_bam
+        self.method = args.baiting_method
 
         # Performance
         self.cpu = args.threads
@@ -66,14 +68,19 @@ class GBS(object):
 
         ##################
         #
-        # 1- Extract reads by mapping
+        # 1- Bait reads
         #
         ##################
 
         if not os.path.exists(done_extracting):
-            print('Extracting organelle reads with Minimap2...')
-            Methods.run_minimap2_parallel(extracted_folder, self.reference, self.sample_dict['raw'],
-                                          self.cpu, self.parallel)
+            if self.method == 'minimap2':
+                print('Extracting organelle reads with Minimap2...')
+                Methods.run_minimap2_parallel(extracted_folder, self.reference, self.sample_dict['raw'],
+                                              self.cpu, self.parallel, self.keep_bam)
+            else:  # if self.method == 'bbduk':
+                print('Extracting organelle reads with bbduk...')
+                Methods.bait_bbduk_parallel(extracted_folder, self.reference, self.sample_dict['raw'],
+                                            self.cpu, self.parallel)
             Methods.flag_done(done_extracting)
         else:
             print('Skipping extracting. Already done.')
@@ -193,6 +200,11 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output', metavar='/path/to/output/folder/',
                         required=True,
                         help='Folder to hold the result files. Mandatory.')
+    parser.add_argument('-b', '--baiting-method',
+                        required=True,
+                        choices=['minimap2', 'bbduk'],
+                        type=str,
+                        help='Baiting method. Mandatory')
     parser.add_argument('-t', '--threads', metavar=str(max_cpu),
                         required=False,
                         type=int, default=max_cpu,
@@ -205,6 +217,9 @@ if __name__ == "__main__":
                         required=False,
                         type=int,
                         help='Override automatically detected reference size. Optional')
+    parser.add_argument('--keep-bam',
+                        required=False, action='store_true',
+                        help='Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.')
 
     # Get the arguments into an object
     arguments = parser.parse_args()
