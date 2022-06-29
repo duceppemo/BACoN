@@ -1,5 +1,7 @@
 import glob
 import os
+import sys
+import warnings
 from argparse import ArgumentParser
 from multiprocessing import cpu_count
 from bacon_methods import Methods
@@ -15,6 +17,7 @@ class GBS(object):
         self.reference = os.path.abspath(args.reference)
         self.input_folder = os.path.abspath(args.input)
         self.output_folder = os.path.abspath(args.output)
+        self.ref_size = args.size
 
         # Performance
         self.cpu = args.threads
@@ -101,14 +104,15 @@ class GBS(object):
         ##################
 
         # Get reference size
-        ref_size = Methods.fasta_length(self.reference)
+        if not self.ref_size:
+            self.ref_size = Methods.fasta_length(self.reference)
         ref_name = '.'.join(os.path.basename(self.reference).split('.')[:-1])
-        print('Reference ({}): {}bp'.format(ref_name, ref_size))
+        print('Reference ({}): {}bp'.format(ref_name, self.ref_size))
 
         if not os.path.exists(done_filtering):
             print('Filtering lower quality reads with Filtlong...')
             Methods.run_filtlong_parallel(self.sample_dict['trimmed'], filtered_folder,
-                                          ref_size, self.parallel)
+                                          self.ref_size, self.parallel)
             Methods.flag_done(done_filtering)
         else:
             print('Skipping filtering. Already done.')
@@ -126,7 +130,7 @@ class GBS(object):
             print('Assembling extracted reads with Flye...')
 
             Methods.assemble_flye_parallel(self.sample_dict['filtered'], assembled_folder,
-                                           ref_size, self.cpu, self.parallel)
+                                           self.ref_size, self.cpu, self.parallel)
             Methods.flag_done(done_assembling)
         else:
             print('Skipping assembling organelle genomes. Already done.')
@@ -143,6 +147,9 @@ class GBS(object):
 
         # Make stats and create SNP VCF file (populations)
         if not os.path.exists(done_comparing):
+            if len(assembly_list) < 3:
+                warnings.warn('Cannot build a tree with less than three samples!')
+                sys.exit()
             print('Making core SNP tree with Parsnp...')
 
             # Create Cores SNP tree
@@ -194,6 +201,10 @@ if __name__ == "__main__":
                         required=False,
                         type=int, default=2,
                         help='Number of samples to process in parallel. Default is 2. Optional')
+    parser.add_argument('-s', '--size', metavar='150000',
+                        required=False,
+                        type=int,
+                        help='Override automatically detected reference size. Optional')
 
     # Get the arguments into an object
     arguments = parser.parse_args()

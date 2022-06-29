@@ -11,6 +11,7 @@ from ete3 import Tree, TreeStyle
 from ete3.parser.newick import NewickError
 from glob import glob
 import pysam
+import warnings
 
 
 class Methods(object):
@@ -170,6 +171,11 @@ class Methods(object):
                         fastq_entry = list()
 
     @staticmethod
+    def gzipped_file_size(gzipped_file):
+        with gzip.open(gzipped_file, 'rb') as f:
+            return f.seek(0, whence=2)
+
+    @staticmethod
     def run_minimap2(sample, ref, fastq_file, cpu, output_folder):
         print('\t{}'.format(sample))
 
@@ -214,8 +220,13 @@ class Methods(object):
         subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Convert bam to fastq
+        extracted_fastq = output_folder + sample + '.fastq.gz'
         Methods.get_fastq_from_bam(sample, output_bam, fastq_file, output_folder)
         # Methods.convert_bam_to_fastq(sample, output_bam, output_folder)
+
+        # Check if gzipped fastq is not empty
+        if Methods.gzipped_file_size(extracted_fastq) == 0:
+            warnings.warn('No reads were extracted for {}!'.format(sample))
 
         # Remove bam
         bam_list = glob(output_folder + '*.bam*')
@@ -312,18 +323,21 @@ class Methods(object):
         # Rename and move assembly file
         assemblies_folder = output_folder + 'all_assemblies/'
         Methods.make_folder(assemblies_folder)
-        move(output_subfolder + 'assembly.fasta', assemblies_folder + sample + '.fasta')
+        if os.path.exists(output_subfolder + 'assembly.fasta'):
+            move(output_subfolder + 'assembly.fasta', assemblies_folder + sample + '.fasta')
 
-        # Rename and move assembly graph file
-        assembly_graph_folder = output_folder + 'assembly_graphs/'
-        Methods.make_folder(assembly_graph_folder)
-        move(output_subfolder + 'assembly_graph.gfa', assembly_graph_folder + sample + '_graph.gfa')
+            # Rename and move assembly graph file
+            assembly_graph_folder = output_folder + 'assembly_graphs/'
+            Methods.make_folder(assembly_graph_folder)
+            move(output_subfolder + 'assembly_graph.gfa', assembly_graph_folder + sample + '_graph.gfa')
 
-        # Assembly graph
-        cmd_bandage = ['Bandage', 'image',
-                       '{}'.format(assembly_graph_folder + sample + '_graph.gfa'),
-                       '{}'.format(assembly_graph_folder + sample + '_graph.png')]
-        subprocess.run(cmd_bandage)
+            # Assembly graph
+            cmd_bandage = ['Bandage', 'image',
+                           '{}'.format(assembly_graph_folder + sample + '_graph.gfa'),
+                           '{}'.format(assembly_graph_folder + sample + '_graph.png')]
+            subprocess.run(cmd_bandage)
+        else:
+            warnings.warn('No assembly for {}!'.format(sample))
 
     @staticmethod
     def assemble_flye_parallel(sample_dict, output_folder, genome_size, cpu, parallel):
