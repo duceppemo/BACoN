@@ -4,6 +4,7 @@ import sys
 from concurrent import futures
 import pathlib
 from shutil import move
+from psutil import virtual_memory
 from multiprocessing import cpu_count
 import gzip
 from itertools import groupby
@@ -12,6 +13,7 @@ from ete3.parser.newick import NewickError
 from glob import glob
 import pysam
 import warnings
+import pandas as pd
 
 
 class Methods(object):
@@ -20,33 +22,27 @@ class Methods(object):
                            '.fasta', '.fasta.gz',
                            '.fa', '.fa.gz',
                            '.fna', '.fna.gz']
-                           # '.bam']
 
     @staticmethod
-    def check_input_folder(folder):
+    def check_input(my_input):
         error_message_list = ['Please provide a folder as input.',
                               'The input folder provided does not exist.',
-                              'Make sure files in input folder end with {}'.format(Methods.accepted_extensions)
+                              'Make sure files in input folder end with {}'.format(Methods.accepted_extensions),
+
                               ]
 
-        # Check if input folder exists and is a folder
-        isdir_status = os.path.isdir(folder)
-        exists_status = os.path.exists(folder)
+        if not os.path.exists(my_input):
+            raise Exception('Please select an existing file or folder as input.')
 
-        # List content of folder
-        file_list = os.listdir(folder)
+        # Check if folder
+        if os.path.isdir(my_input):
+            file_list = os.listdir(my_input)  # List content of folder
+        else:  # elif os.path.isfile(my_input):
+            file_list = [my_input]
 
         # if folder is not empty and all files have the accepted extensions
-        extension_status_list = [f.endswith(tuple(Methods.accepted_extensions)) for f in file_list]
-
-        if not isdir_status:
-            return error_message_list[0]
-        elif not exists_status:
-            return error_message_list[1]
-        elif not any(extension_status_list):
-            return error_message_list[2]
-        else:
-            return
+        if not all([f.endswith(tuple(Methods.accepted_extensions)) for f in file_list]):
+            raise Exception('Make sure files in input folder end with {}'.format(Methods.accepted_extensions))
 
     @staticmethod
     def check_cpus(requested_cpu, n_proc):
@@ -60,6 +56,19 @@ class Methods(object):
             sys.stderr.write("Number of threads was set to {}".format(2))
 
         return requested_cpu, n_proc
+
+    @staticmethod
+    def check_mem(requested_mem):
+        max_mem = int(virtual_memory().total * 0.85 / 1000000000)  # in GB
+        if requested_mem:
+            if requested_mem > max_mem:
+                requested_mem = max_mem
+                sys.stderr.write("Requested memory was set higher than available system memory ({})".format(max_mem))
+                sys.stderr.write("Memory was set to {}".format(requested_mem))
+        else:
+            requested_mem = max_mem
+
+        return requested_mem
 
     @staticmethod
     def check_version(log_file):
@@ -103,7 +112,8 @@ class Methods(object):
             for filename in filenames:
                 if filename.endswith(tuple(Methods.accepted_extensions)):  # accept a tuple or string
                     file_path = os.path.join(root, filename)
-                    sample = filename.split('.')[0].replace('_pass', '')
+                    file_path = os.path.realpath(file_path)  # follow symbolic links
+                    sample = filename.split('.')[0].replace('_pass', '').replace('_filtered', '')
                     if filename.endswith('gz'):
                         sample = sample.split('.')[0]
                     sample_dict[sample] = file_path
@@ -245,17 +255,18 @@ class Methods(object):
                 pass
 
     @staticmethod
-    def bait_bbduk(sample, ref, fastq_file, cpu, output_folder):
+    def bait_bbduk(sample, ref, fastq_file, cpu, output_folder, kmer, mem):
         extracted_fastq = output_folder + sample + '.fastq.gz'
 
         cmd = ['bbduk.sh',
+               '-Xmx{}g'.format(mem),
                'overwrite=true',
                'in={}'.format(fastq_file),
                'ref={}'.format(ref),
                'threads={}'.format(cpu),
-               'k=31',
+               'k={}'.format(kmer),
+               'maskmiddle=f',
                'qin=33',
-               'maskmiddle=t',
                'hdist=2',
                'outm={}'.format(extracted_fastq)]
         subprocess.run(cmd)
@@ -265,11 +276,11 @@ class Methods(object):
             warnings.warn('No reads were extracted for {}!'.format(sample))
 
     @staticmethod
-    def bait_bbduk_parallel(output_folder, ref, sample_dict, cpu, parallel):
+    def bait_bbduk_parallel(output_folder, ref, sample_dict, cpu, parallel, kmer, mem):
         Methods.make_folder(output_folder)
 
         with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
-            args = ((sample, ref, path, int(cpu / parallel), output_folder)
+            args = ((sample, ref, path, int(cpu / parallel), output_folder, kmer, mem)
                     for sample, path in sample_dict.items())
             for results in executor.map(lambda x: Methods.bait_bbduk(*x), args):
                 pass
@@ -379,6 +390,165 @@ class Methods(object):
                     for sample, path in sample_dict.items())
             for results in executor.map(lambda x: Methods.assemble_flye(*x), args):
                 pass
+
+    @staticmethod
+    def flye_assembly_stats(assembly_folder, output_folder):
+        # Output file
+        output_stats_file = output_folder + '/flye_stats.tsv'
+
+        # Pandas data frame to save values
+        df = pd.DataFrame(columns=['Sample', 'TotalBases', 'ReadsN50', 'AssemblyLength', 'Contigs', 'Coverage'])
+
+        # Find log file(s) and parse info of interest
+        log_list = glob(assembly_folder + '/**/flye.log', recursive=True)
+
+        for log_file in log_list:
+            sample = log_file.split('/')[-2]
+            with open(log_file, 'r') as f:
+                read_len = 0
+                n50 = 0
+                assembly_len = 0
+                contigs = 0
+                mean_cov = 0
+
+                for line in f:
+                    line = line.rstrip()
+                    if 'Total read length:' in line:
+                        read_len = line.split()[-1]
+                    elif 'N50/N90' in line:
+                        n50 = line.split(':')[-1].split('/')[0].strip()
+                    elif 'Total length:' in line:
+                        assembly_len = line.split('\t')[-1]
+                    elif 'Fragments:' in line:
+                        contigs = line.split('\t')[-1]
+                    elif 'Mean coverage:' in line:
+                        mean_cov = line.split('\t')[-1]
+
+                data_dict = {'Sample': sample,
+                             'TotalBases': read_len,
+                             'ReadsN50': n50,
+                             'AssemblyLength': assembly_len,
+                             'Contigs': contigs,
+                             'Coverage':  mean_cov}
+
+                df = df.append(data_dict, ignore_index=True)
+
+        # Convert df to tsv file
+        df.to_csv(output_stats_file, sep='\t', index=False)
+
+    @staticmethod
+    def assemble_shasta(sample, input_fastq, output_folder, min_read_size, cpu):
+        print('\t{}'.format(sample))
+
+        # Create a subfolder for each sample
+        output_subfolder = output_folder + sample + '/'
+
+        # Unzipped fastq file (needed for shasta)
+        unzipped_fastq = output_folder + sample + '.fastq'
+
+        cmd_ungzip = ['pigz', '-dkc', input_fastq]  # To stdout
+        cmd_shasta = ['shasta',
+                      '--config', 'Nanopore-Oct2021',
+                      '--input', unzipped_fastq,
+                      '--assemblyDirectory', output_subfolder,
+                      '--command', 'assemble',
+                      '--threads', str(cpu),
+                      '--Reads.minReadLength', str(min_read_size)]
+        cmd_shasta_clean = ['shasta',
+                            '--assemblyDirectory', output_subfolder,
+                            '--command', 'cleanupBinaryData']
+
+        # Decompress fastq for shasta
+        with open(unzipped_fastq, 'w') as f:
+            subprocess.run(cmd_ungzip, stdout=f)
+
+        # Run shasta assembler
+        shasta_stdout = output_folder + sample + '_shasta_stdout.txt'
+        with open(shasta_stdout, 'w') as f:
+            subprocess.run(cmd_shasta, stdout=f)
+
+        # Cleanup temporary files
+        subprocess.run(cmd_shasta_clean)
+        os.remove(unzipped_fastq)
+
+        # Rename and move assembly file
+        assemblies_folder = output_folder + 'all_assemblies/'
+        Methods.make_folder(assemblies_folder)
+        if os.path.exists(output_subfolder + 'Assembly.fasta'):
+            move(output_subfolder + 'Assembly.fasta', assemblies_folder + sample + '.fasta')
+
+            # Rename and move assembly graph file
+            assembly_graph_folder = output_folder + 'assembly_graphs/'
+            Methods.make_folder(assembly_graph_folder)
+            move(output_subfolder + 'Assembly.gfa', assembly_graph_folder + sample + '.gfa')
+
+            # Assembly graph
+            cmd_bandage = ['Bandage', 'image',
+                           '{}'.format(assembly_graph_folder + sample + '.gfa'),
+                           '{}'.format(assembly_graph_folder + sample + '.png')]
+            subprocess.run(cmd_bandage)
+        else:
+            warnings.warn('No assembly for {}!'.format(sample))
+
+    @staticmethod
+    def assemble_shasta_parallel(sample_dict, output_folder, min_read_size, cpu, parallel):
+        Methods.make_folder(output_folder)
+
+        with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
+            args = ((sample, path, output_folder, min_read_size, int(cpu / parallel))
+                    for sample, path in sample_dict.items())
+            for results in executor.map(lambda x: Methods.assemble_shasta(*x), args):
+                pass
+
+    @staticmethod
+    def shasta_assembly_stats(assembly_folder, output_folder):
+        # Output file
+        output_stats_file = output_folder + '/shasta_stats.tsv'
+
+        # Pandas data frame to save values
+        df = pd.DataFrame(columns=['Sample', 'ReadNumber', 'TotalBases', 'ReadsN50', 'AssemblyLength', 'Contigs'])
+
+        # Find log file(s) and parse info of interest
+        log_list = glob(assembly_folder + '/*_shasta_stdout.txt', recursive=False)
+
+        for log_file in log_list:
+            sample = os.path.basename(log_file).replace("_shasta_stdout.txt", '')
+            with open(log_file, 'r') as f:
+                read_cnt = 0
+                read_len = 0
+                n50 = 0
+                assembly_len = 0
+                contigs = 0
+
+                for line in f:
+                    line = line.rstrip()
+
+                    if 'Total number of reads is' in line:
+                        read_cnt = line.split()[-1].replace('.', '')
+                    elif 'Total number of raw bases is' in line:
+                        read_len = line.split()[-1].replace('.', '')
+                    elif 'N50 for read length is' in line:
+                        n50 = line.split()[-2]
+                    elif 'Total length of assembled sequence is' in line:
+                        assembly_len = line.split()[-1]
+                    elif 'The assembly graph has' in line:
+                        contigs = line.split()[-3]
+
+                data_dict = {'Sample': sample,
+                             'ReadNumber': read_cnt,
+                             'TotalBases': read_len,
+                             'ReadsN50': n50,
+                             'AssemblyLength': assembly_len,
+                             'Contigs': contigs}
+
+                df = df.append(data_dict, ignore_index=True)
+
+        # Convert df to tsv file
+        df.to_csv(output_stats_file, sep='\t', index=False)
+
+        # Remove log files
+        for log_file in log_list:
+            os.remove(log_file)
 
     @staticmethod
     def run_parsnp(assembly_list, output_folder, ref, cpu):

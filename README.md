@@ -9,17 +9,18 @@ BACoN was designed with genome skimming in mind. BACon alows to reconstitute org
 
 ## Workflow
 BACoN follows these steps:
-1. Extract Nanopore reads matching reference with `minimap2` (ideally using the same reference used for targeted sequencing).
+1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
 2. Remove Nanopore adapters with `porechop` and filter low quality extracted reads with `filtlong`.
-3. Assemble the extracted reads with `flye`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
-4. Compare samples with a core SNP approach using `parsnp`
+3. Assemble the extracted reads with `flye` or `shasta`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
+4. Compare samples with a core SNP approach using `parsnp`. Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
 
 ## Installation
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
 ```
 # Create environment
 conda create -n BACoN -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
-    samtools flye bbmap git ete3 pysam bandage parsnp harvesttools raxml fasttree
+    samtools flye shasta bbmap git ete3 pysam bandage parsnp harvesttools raxml \
+    fasttree psutil pandas
 
 # Activate enviroment
 conda activate BACoN
@@ -36,7 +37,8 @@ python bacon.py -h
 
 ## Usage
 ```commandline
-usage: python bacon.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ -o /path/to/output/folder/ [-t 16] [-p 2]
+usage: python bacon.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ or /path/to/my_fastq.gz -o /path/to/output/folder/ [-b {minimap2,bbduk}] [-a {flye,shasta}] [--min-read-size 3000] [-t 16] [-p 2]
+                [-m 57] [-s 150000] [-k 99] [--keep-bam]
 
 Organelle genome assembly from Nanopore genome skimming data.
 
@@ -44,12 +46,23 @@ optional arguments:
   -h, --help            show this help message and exit
   -r /path/to/reference_organelle/genome.fasta, --reference /path/to/reference_organelle/genome.fasta
                         Reference genome for read mapping. Mandatory.
-  -i /path/to/input/folder/, --input /path/to/input/folder/
-                        Folder that contains the read files. Mandatory.
+  -i /path/to/input/folder/ or /path/to/my_fastq.gz, --input /path/to/input/folder/ or /path/to/my_fastq.gz
+                        Folder that contains the fastq files or individual fastq file. Mandatory.
   -o /path/to/output/folder/, --output /path/to/output/folder/
                         Folder to hold the result files. Mandatory.
-  -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional
-  -p 2, --parallel 2    Number of samples to process in parallel. Default is 2. Optional
+  -b {minimap2,bbduk}, --baiting-method {minimap2,bbduk}
+                        Baiting method. Default "minimap2". Optional.
+  -a {flye,shasta}, --assembly-method {flye,shasta}
+                        Assembly method. Default "flye". Optional.
+  --min-read-size 3000  Minimum read size for Shasta assembler. Default 3000. Optional.
+  -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional.
+  -p 2, --parallel 2    Number of samples to process in parallel. Default is 2. Optional.
+  -m 57, --memory 57    Memory in GB. Default is 85% of total memory (57)
+  -s 150000, --size 150000
+                        Override automatically detected reference size. Optional.
+  -k 99, --kmer-size 99
+                        Kmer size for baiting. Only used if "--baiting-method" is "bbduk". Optional.
+  --keep-bam            Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.
 ```
 
 ## Example
@@ -138,17 +151,3 @@ bacon
 * `4_assembled` contains the assembly sub-folders for each sample. All assemblies are located in the `all_assemblies` folder. Assembly quality can be assessed quickly from the `assembly_graphs` sub-folder.
 * `5_compared` contains the SNPs and tree files from `parsnp`, `RAxML` and `FastTree`. RAxML and FastTree are provided to add bootstrap values to the tree.
 * The `done` files are checkpoint files. See the `Cheats` section below for details.
-
-## Cheats
-As it's finishing the various steps, check point files are created so BACoN can resume where it left off is something wrong happened during the run. In order:
-```commandline
-done_extracting
-done_trimming
-done_filtering
-done_assembling
-done_comparing
-```
-This can be exploited to combine multiple BACoN outputs and run only the last part to get the tree. The steps would be to:
-1. Create a new input folder with all the assemblies to include (created with the reference sequence preferably).
-2. Create a new output folder and create inside that folder the `done_extracting`, `done_trimming`, `done_filtering` and `done_assembling` files (e.g. `touch done_extracting`). Note that we skipped creating the `done_comparing` file.
-3. Run BACoN using the newly populated input and output folders.
