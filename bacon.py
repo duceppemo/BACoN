@@ -22,7 +22,7 @@ class GBS(object):
         self.keep_bam = args.keep_bam
         self.baiting = args.baiting_method
         self.assembler = args.assembly_method
-        self.min_read_size = args.min_read_size
+        self.min_size = args.min_size
         self.kmer = args.kmer_size
 
         # Performance
@@ -71,6 +71,10 @@ class GBS(object):
         else:
             sample = os.path.basename(self.input).split('.')[0].replace('_pass', '')
             self.sample_dict['raw'] = {sample: os.path.realpath(self.input)}
+
+        if len(self.sample_dict['raw']) == 1:
+            print('Only one sample to process. All threads will be used for that sample.')
+            self.parallel = 1  # Use all cpu for single sample.
 
         # Drop the unclassified sample
         # self.sample_dict['raw'].pop('unclassified_pass', None)
@@ -147,13 +151,13 @@ class GBS(object):
                 print('Assembling extracted reads with Flye...')
 
                 Methods.assemble_flye_parallel(self.sample_dict['filtered'], assembled_folder,
-                                               self.ref_size, self.cpu, self.parallel)
+                                               self.ref_size, self.min_size, self.cpu, self.parallel)
                 Methods.flye_assembly_stats(assembled_folder, self.output_folder)  # Get stats
             else:  # elif self.assembler == 'shasta':
                 print('Assembling extracted reads with Shasta...')
 
                 Methods.assemble_shasta_parallel(self.sample_dict['filtered'], assembled_folder,
-                                                 self.min_read_size, self.cpu, self.parallel)
+                                                 self.min_size, self.cpu, self.parallel)
                 Methods.shasta_assembly_stats(assembled_folder, self.output_folder)  # Get stats
             # Completion flag
             Methods.flag_done(done_assembling)
@@ -180,6 +184,11 @@ class GBS(object):
             # Create Cores SNP tree
             Methods.run_parsnp(assembly_list, compared_folder, self.reference, self.cpu)
 
+            # Check if Parsnp ran to completion. Sometimes when assembly sizes are too different from the ref
+            # Parsnp won't run to completion
+            if not os.path.exists(compared_folder + 'parsnp.xmfa'):
+                raise Exception('Parsnp could not run. Sample comparison not be performed.')
+
             # Plot tree to PDF, .SVG or .PNG
             Methods.plot_newick_tree(compared_folder + 'parsnp.tree', compared_folder + 'parsnp.pdf')
 
@@ -202,6 +211,14 @@ class GBS(object):
             Methods.flag_done(done_comparing)
         else:
             print('Skipping sample comparison. Already done.')
+
+    ########
+    #
+    # 5- Clean
+    #
+    #########
+
+
 
 
 if __name__ == "__main__":
@@ -228,10 +245,11 @@ if __name__ == "__main__":
                         choices=['flye', 'shasta'],
                         type=str,
                         help='Assembly method. Default "flye". Optional.')
-    parser.add_argument('--min-read-size', metavar='3000',
+    parser.add_argument('--min-size', metavar='3000',
                         required=False, default='3000',
                         type=int,
-                        help='Minimum read size for Shasta assembler. Default 3000. Optional.')
+                        help='Minimum read size for Shasta assembler or minimum read overlap for Flye. '
+                             'Default 3000 for Shasta and auto for Flye. Optional.')
     parser.add_argument('-t', '--threads', metavar=str(max_cpu),
                         required=False,
                         type=int, default=max_cpu,

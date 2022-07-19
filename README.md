@@ -10,8 +10,8 @@ BACoN was designed with genome skimming in mind. BACon alows to reconstitute org
 ## Workflow
 BACoN follows these steps:
 1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
-2. Remove Nanopore adapters with `porechop` and filter low quality extracted reads with `filtlong`.
-3. Assemble the extracted reads with `flye` or `shasta`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
+2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (bottom 5% or top 100X) reads with `filtlong`.
+3. Assemble reads with `flye` or `shasta`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
 4. Compare samples with a core SNP approach using `parsnp`. Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
 
 ## Installation
@@ -20,7 +20,7 @@ BACoN follows these steps:
 # Create environment
 conda create -n BACoN -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
     samtools flye shasta bbmap git ete3 pysam bandage parsnp harvesttools raxml \
-    fasttree psutil pandas
+    fasttree psutil pandas ragtag
 
 # Activate enviroment
 conda activate BACoN

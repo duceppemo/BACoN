@@ -52,8 +52,8 @@ class Methods(object):
             requested_cpu = total_cpu
             sys.stderr.write("Number of threads was set to {}".format(requested_cpu))
         if 1 > n_proc > total_cpu:
-            n_proc = 2
-            sys.stderr.write("Number of threads was set to {}".format(2))
+            n_proc = total_cpu
+            sys.stderr.write("Number of samples to parallel process was set to {}".format(total_cpu))
 
         return requested_cpu, n_proc
 
@@ -138,16 +138,6 @@ class Methods(object):
             pass
 
     @staticmethod
-    def convert_bam_to_fastq(sample, bam_file, output_folder):
-        """Converting the minimap2 BAM files directly to fasta with reformat.sh results in
-        more than one sequence with the ID, so I had to write a custom function to extrac the mapped reads."""
-        cmd = ['reformat.sh',
-               'ow=t',
-               'in={}'.format(bam_file),
-               'out={}'.format(output_folder + sample + '.fastq.gz')]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-
-    @staticmethod
     def get_fastq_from_bam(sample, bam_file, fastq_file, output_folder):
         read_dict = dict()
         with pysam.AlignmentFile(bam_file, 'rb') as f:
@@ -227,22 +217,24 @@ class Methods(object):
         p4.communicate()
 
         # Index bam file
-        subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        if os.path.exists(output_bam):
+            subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
-        # Convert bam to fastq
-        extracted_fastq = output_folder + sample + '.fastq.gz'
-        Methods.get_fastq_from_bam(sample, output_bam, fastq_file, output_folder)
-        # Methods.convert_bam_to_fastq(sample, output_bam, output_folder)
+            # Convert bam to fastq
+            # extracted_fastq = output_folder + sample + '.fastq.gz'
+            Methods.get_fastq_from_bam(sample, output_bam, fastq_file, output_folder)
 
-        # Check if gzipped fastq is not empty
-        if Methods.gzipped_file_size(extracted_fastq) == 0:
+            # Remove bam
+            if not keep_bam:
+                bam_list = glob(output_folder + '*.bam*')
+                for bam in bam_list:
+                    os.remove(bam)
+        else:
             warnings.warn('No reads were extracted for {}!'.format(sample))
 
-        # Remove bam
-        if not keep_bam:
-            bam_list = glob(output_folder + '*.bam*')
-            for bam in bam_list:
-                os.remove(bam)
+        # # Check if gzipped fastq is not empty
+        # if Methods.gzipped_file_size(extracted_fastq) == 0:
+        #     warnings.warn('No reads were extracted for {}!'.format(sample))
 
     @staticmethod
     def run_minimap2_parallel(output_folder, ref, sample_dict, cpu, parallel, keep_bam):
@@ -313,6 +305,7 @@ class Methods(object):
         cmd = ['filtlong',
                '--keep_percent', str(95),  # drop bottom 5% reads
                '--target_bases', str(genome_size * 100),  # keep top 100X if more reads
+               '--min_length', str(500),  #  remove rejected reads from targeted sequencing
                input_fastq]
 
         # Filtlong writes to stdout
@@ -347,19 +340,28 @@ class Methods(object):
             return total_len
 
     @staticmethod
-    def assemble_flye(sample, input_fastq, output_folder, genome_size, cpu):
+    def assemble_flye(sample, input_fastq, output_folder, genome_size, min_size, cpu):
         print('\t{}'.format(sample))
 
         # Create a subfolder for each sample
         output_subfolder = output_folder + sample + '/'
         Methods.make_folder(output_subfolder)
 
-        cmd_flye = ['flye',
-                    '--genome-size', str(genome_size),
-                    '--nano-hq', input_fastq,
-                    '--threads', str(cpu),
-                    '--out-dir', output_subfolder,
-                    '--iterations', str(3)]
+        if min_size:
+            cmd_flye = ['flye',
+                        '--genome-size', str(genome_size),
+                        '--nano-hq', input_fastq,
+                        '--threads', str(cpu),
+                        '--out-dir', output_subfolder,
+                        '--iterations', str(3),
+                        '--min-overlap', str(min_size)]
+        else:
+            cmd_flye = ['flye',
+                        '--genome-size', str(genome_size),
+                        '--nano-hq', input_fastq,
+                        '--threads', str(cpu),
+                        '--out-dir', output_subfolder,
+                        '--iterations', str(3)]
         subprocess.run(cmd_flye)
 
         # Rename and move assembly file
@@ -382,11 +384,11 @@ class Methods(object):
             warnings.warn('No assembly for {}!'.format(sample))
 
     @staticmethod
-    def assemble_flye_parallel(sample_dict, output_folder, genome_size, cpu, parallel):
+    def assemble_flye_parallel(sample_dict, output_folder, genome_size, min_size, cpu, parallel):
         Methods.make_folder(output_folder)
 
         with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
-            args = ((sample, path, output_folder, genome_size, int(cpu / parallel))
+            args = ((sample, path, output_folder, genome_size, min_size, int(cpu / parallel))
                     for sample, path in sample_dict.items())
             for results in executor.map(lambda x: Methods.assemble_flye(*x), args):
                 pass
@@ -437,7 +439,7 @@ class Methods(object):
         df.to_csv(output_stats_file, sep='\t', index=False)
 
     @staticmethod
-    def assemble_shasta(sample, input_fastq, output_folder, min_read_size, cpu):
+    def assemble_shasta(sample, input_fastq, output_folder, min_size, cpu):
         print('\t{}'.format(sample))
 
         # Create a subfolder for each sample
@@ -453,7 +455,7 @@ class Methods(object):
                       '--assemblyDirectory', output_subfolder,
                       '--command', 'assemble',
                       '--threads', str(cpu),
-                      '--Reads.minReadLength', str(min_read_size)]
+                      '--Reads.minReadLength', str(min_size)]
         cmd_shasta_clean = ['shasta',
                             '--assemblyDirectory', output_subfolder,
                             '--command', 'cleanupBinaryData']
@@ -491,11 +493,11 @@ class Methods(object):
             warnings.warn('No assembly for {}!'.format(sample))
 
     @staticmethod
-    def assemble_shasta_parallel(sample_dict, output_folder, min_read_size, cpu, parallel):
+    def assemble_shasta_parallel(sample_dict, output_folder, min_size, cpu, parallel):
         Methods.make_folder(output_folder)
 
         with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
-            args = ((sample, path, output_folder, min_read_size, int(cpu / parallel))
+            args = ((sample, path, output_folder, min_size, int(cpu / parallel))
                     for sample, path in sample_dict.items())
             for results in executor.map(lambda x: Methods.assemble_shasta(*x), args):
                 pass
@@ -549,6 +551,17 @@ class Methods(object):
         # Remove log files
         for log_file in log_list:
             os.remove(log_file)
+
+    @staticmethod
+    def run_ragtag(ref, assembly, out_folder, cpu):
+        cmd = ['ragtag.py', 'scaffold',
+               '-t', str(cpu),  # threads
+               '-w',  # overwrite
+               '-o', out_folder,  # output folder
+               ref,  # reference
+               assembly]  # query
+
+        subprocess.run(cmd)
 
     @staticmethod
     def run_parsnp(assembly_list, output_folder, ref, cpu):
