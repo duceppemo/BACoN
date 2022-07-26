@@ -208,33 +208,29 @@ class Methods(object):
                               output_bam]
 
         p1 = subprocess.Popen(minimap2_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        p2 = subprocess.Popen(samtools_view_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)#, stderr=subprocess.DEVNULL)
+        p2 = subprocess.Popen(samtools_view_cmd, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
-        p3 = subprocess.Popen(samtools_sort_cmd, stdin=p2.stdout, stdout=subprocess.PIPE)#, stderr=subprocess.DEVNULL)
+        p3 = subprocess.Popen(samtools_sort_cmd, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p2.stdout.close()
-        p4 = subprocess.Popen(samtools_markdup_cmd, stdin=p3.stdout, stdout=subprocess.PIPE)#, stderr=subprocess.DEVNULL)
+        p4 = subprocess.Popen(samtools_markdup_cmd, stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p3.stdout.close()
         p4.communicate()
 
         # Index bam file
         if os.path.exists(output_bam):
-            subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            if os.stat(output_bam).st_size == 0:  # bam file exists and not empty
+                subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
-            # Convert bam to fastq
-            # extracted_fastq = output_folder + sample + '.fastq.gz'
-            Methods.get_fastq_from_bam(sample, output_bam, fastq_file, output_folder)
+                # Convert bam to fastq
+                Methods.get_fastq_from_bam(sample, output_bam, fastq_file, output_folder)
 
-            # Remove bam
-            if not keep_bam:
-                bam_list = glob(output_folder + '*.bam*')
-                for bam in bam_list:
-                    os.remove(bam)
+                # Remove bam
+                if not keep_bam:
+                    bam_list = glob(output_folder + '*.bam*')
+                    for bam in bam_list:
+                        os.remove(bam)
         else:
             warnings.warn('No reads were extracted for {}!'.format(sample))
-
-        # # Check if gzipped fastq is not empty
-        # if Methods.gzipped_file_size(extracted_fastq) == 0:
-        #     warnings.warn('No reads were extracted for {}!'.format(sample))
 
     @staticmethod
     def run_minimap2_parallel(output_folder, ref, sample_dict, cpu, parallel, keep_bam):
@@ -551,6 +547,29 @@ class Methods(object):
         # Remove log files
         for log_file in log_list:
             os.remove(log_file)
+
+    @staticmethod
+    def assemble_rebaler(ref, reads, sample, output_folder, cpu):
+        cmd = ['rebaler',
+               '--threads', str(cpu),
+               ref,
+               reads]
+
+        assemblies_folder = output_folder + 'all_assemblies/'
+        Methods.make_folder(assemblies_folder)
+        output_assembly = assemblies_folder + sample + '.fasta'
+        with open(output_assembly, 'w') as f:
+            subprocess.run(cmd, stdout=f, stderr=subprocess.DEVNULL)
+
+    @staticmethod
+    def assemble_rebaler_parallel(ref, sample_dict, output_folder, cpu, parallel):
+        Methods.make_folder(output_folder)
+
+        with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
+            args = ((ref, path, sample, output_folder, int(cpu / parallel))
+                    for sample, path in sample_dict.items())
+            for results in executor.map(lambda x: Methods.assemble_rebaler(*x), args):
+                pass
 
     @staticmethod
     def run_ragtag(ref, assembly, out_folder, cpu):

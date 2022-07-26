@@ -20,7 +20,7 @@ BACoN follows these steps:
 # Create environment
 conda create -n BACoN -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
     samtools flye shasta bbmap git ete3 pysam bandage parsnp harvesttools raxml \
-    fasttree psutil pandas ragtag
+    fasttree psutil pandas ragtag rebaler
 
 # Activate enviroment
 conda activate BACoN

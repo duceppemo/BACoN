@@ -153,12 +153,18 @@ class GBS(object):
                 Methods.assemble_flye_parallel(self.sample_dict['filtered'], assembled_folder,
                                                self.ref_size, self.min_size, self.cpu, self.parallel)
                 Methods.flye_assembly_stats(assembled_folder, self.output_folder)  # Get stats
-            else:  # elif self.assembler == 'shasta':
+            elif self.assembler == 'shasta':
                 print('Assembling extracted reads with Shasta...')
 
                 Methods.assemble_shasta_parallel(self.sample_dict['filtered'], assembled_folder,
                                                  self.min_size, self.cpu, self.parallel)
                 Methods.shasta_assembly_stats(assembled_folder, self.output_folder)  # Get stats
+            else:  # elif self.assembler == 'rebaler':
+                print('Performing reference-guided assembly with Rebaler...')
+
+                Methods.assemble_rebaler_parallel(self.reference, self.sample_dict['filtered'], assembled_folder,
+                                                  self.cpu, self.parallel)
+                # Methods.shasta_assembly_stats(assembled_folder, self.output_folder)  # Get stats
             # Completion flag
             Methods.flag_done(done_assembling)
         else:
@@ -242,7 +248,7 @@ if __name__ == "__main__":
                         help='Baiting method. Default "minimap2". Optional.')
     parser.add_argument('-a', '--assembly-method',
                         required=False, default='flye',
-                        choices=['flye', 'shasta'],
+                        choices=['flye', 'shasta', 'rebaler'],
                         type=str,
                         help='Assembly method. Default "flye". Optional.')
     parser.add_argument('--min-size', metavar='3000',
