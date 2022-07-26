@@ -14,6 +14,7 @@ from glob import glob
 import pysam
 import warnings
 import pandas as pd
+import io
 
 
 class Methods(object):
@@ -550,6 +551,7 @@ class Methods(object):
 
     @staticmethod
     def assemble_rebaler(ref, reads, sample, output_folder, cpu):
+        print('\t{}'.format(sample))
         cmd = ['rebaler',
                '--threads', str(cpu),
                ref,
@@ -558,8 +560,18 @@ class Methods(object):
         assemblies_folder = output_folder + 'all_assemblies/'
         Methods.make_folder(assemblies_folder)
         output_assembly = assemblies_folder + sample + '.fasta'
+
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # stdout = p.communicate()[0]
+
+        # Change sequence title from reference to sample
         with open(output_assembly, 'w') as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.DEVNULL)
+            seq_counter = 0
+            for line in io.TextIOWrapper(p.stdout, encoding="utf-8"):
+                if line.startswith('>'):
+                    seq_counter += 1
+                    line = '>{}_{}\n'.format(sample, seq_counter)
+                f.write(line)
 
     @staticmethod
     def assemble_rebaler_parallel(ref, sample_dict, output_folder, cpu, parallel):
