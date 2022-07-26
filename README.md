@@ -1,18 +1,17 @@
 # BACoN
-BACoN stands for "Bait, Assemble and Compare Nanopore". It's extracts and assembles Nanopore reads matching a reference from many samples in parallel. Assemblies are then compared by extracting core SNPs and building a tree.
+BACoN stands for "<ins>B</ins>ait, <ins>A</ins>ssemble and <ins>Co</ins>mpare <ins>N</ins>anopore". It extracts and assembles Nanopore reads matching a reference from many samples in parallel. Assemblies are then compared by extracting core SNPs and building a tree.
 
-BACoN was designed with genome skimming in mind. BACon alows to reconstitute organelle genomes from Nanopore data.  Taking advantage of targeted sequencing to enrich for organelle sequences is recommended, especially for larger genomes (I like to call that "Power Skimming").
-
-## TODOs
-* Add a few `try` to handle potential errors: No reads baited. No assembly created (not enough reads or reads too short).
-* Maybe provide a library of organelle genomes or auto-detect species with Mash from pre-compile organelle library and auto-download reference if not provided.
+BACoN was designed with genome skimming in mind. BACoN allows reconstruction of organelle genomes from Nanopore data.  Performing targeted sequencing to enrich sequence(s) of interest (say chloroplast genome) is highly recommended to achieve higher coverage, thus better assemblies, especially for larger genomes (I like to call this "Power Skimming").
 
 ## Workflow
 BACoN follows these steps:
 1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
 2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (bottom 5% or top 100X) reads with `filtlong`.
-3. Assemble reads with `flye` or `shasta`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error).
+3. Assemble reads with `flye`, `shasta` or `rebaler`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error). Flye and Shasta are *de novo* assemblers, while rebaler is a reference-guided assembler. Flye seems to work better with circular genomes. Shasta works well too with circular references (like full organelle genomes), but will also work with linear references (like ribosomal DNA). Rebaler is more experimental (not fully validated for this type of application, but I thought it would be good to have a "different" type of assembler to try in case the *de novo* methods don't work well).
 4. Compare samples with a core SNP approach using `parsnp`. Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
+
+## TODO
+- Add alternative ways to compare the assemblies. `mafft` and `fasttree` for rebaler assemblies? Other tools than `parsnp` for *de novo* assemblies?
 
 ## Installation
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
@@ -37,8 +36,8 @@ python bacon.py -h
 
 ## Usage
 ```commandline
-usage: python bacon.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ or /path/to/my_fastq.gz -o /path/to/output/folder/ [-b {minimap2,bbduk}] [-a {flye,shasta}] [--min-read-size 3000] [-t 16] [-p 2]
-                [-m 57] [-s 150000] [-k 99] [--keep-bam]
+usage: python bacon.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ or /path/to/my_fastq.gz -o /path/to/output/folder/ [-b {minimap2,bbduk}] [-a {flye,shasta,rebaler}] [--min-size 3000] [-t 16]
+                [-p 2] [-m 57] [-s 150000] [-k 99] [--keep-bam]
 
 Organelle genome assembly from Nanopore genome skimming data.
 
@@ -52,9 +51,9 @@ optional arguments:
                         Folder to hold the result files. Mandatory.
   -b {minimap2,bbduk}, --baiting-method {minimap2,bbduk}
                         Baiting method. Default "minimap2". Optional.
-  -a {flye,shasta}, --assembly-method {flye,shasta}
+  -a {flye,shasta,rebaler}, --assembly-method {flye,shasta,rebaler}
                         Assembly method. Default "flye". Optional.
-  --min-read-size 3000  Minimum read size for Shasta assembler. Default 3000. Optional.
+  --min-size 3000       Minimum read size for Shasta assembler or minimum read overlap for Flye. Default 3000 for Shasta and auto for Flye. Optional.
   -t 16, --threads 16   Number of threads. Default is maximum available(16). Optional.
   -p 2, --parallel 2    Number of samples to process in parallel. Default is 2. Optional.
   -m 57, --memory 57    Memory in GB. Default is 85% of total memory (57)
@@ -94,7 +93,7 @@ guppy_basecaller \
     --trim_adapters \
     --trim_primers
 ```
-2. Run BACoN to extract and assemble organelle reads matching your reference.
+2. Run BACoN to extract and assemble reads matching your reference.
 ```
 # Change path according to where you cloned BACoN on your machine.
 # Don't forget to activate your BACoN virtual environment if not already done.
