@@ -283,7 +283,7 @@ class Methods(object):
                '--check_reads', str(1000)]
 
         print('\t{}'.format(sample))
-        subprocess.run(cmd)#, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     @staticmethod
     def run_porechop_parallel(sample_dict, output_folder, cpu, parallel):
@@ -359,7 +359,7 @@ class Methods(object):
                         '--threads', str(cpu),
                         '--out-dir', output_subfolder,
                         '--iterations', str(3)]
-        subprocess.run(cmd_flye)
+        subprocess.run(cmd_flye, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Rename and move assembly file
         assemblies_folder = output_folder + 'all_assemblies/'
@@ -464,7 +464,7 @@ class Methods(object):
         # Run shasta assembler
         shasta_stdout = output_folder + sample + '_shasta_stdout.txt'
         with open(shasta_stdout, 'w') as f:
-            subprocess.run(cmd_shasta, stdout=f)
+            subprocess.run(cmd_shasta, stdout=f, stderr=subprocess.DEVNULL)
 
         # Cleanup temporary files
         subprocess.run(cmd_shasta_clean)
@@ -562,7 +562,6 @@ class Methods(object):
         output_assembly = assemblies_folder + sample + '.fasta'
 
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # stdout = p.communicate()[0]
 
         # Change sequence title from reference to sample
         with open(output_assembly, 'w') as f:
@@ -604,6 +603,52 @@ class Methods(object):
                '-o', output_folder,
                '-d'] + assembly_list
         subprocess.run(cmd)
+
+    @staticmethod
+    def run_ksnp3(assembly_list, output_folder, ref, cpu):
+        Methods.make_folder(output_folder)
+
+        ass_file_ksnp3 = output_folder + 'assembly.list'
+        with open(ass_file_ksnp3, 'w') as f:
+            for ass in assembly_list:
+                ass_name = '.'.join(os.path.basename(ass).split('.')[:-1])
+                f.write('{}\t{}\n'.format(ass, ass_name))
+
+        # Combine all fasta for
+        cmd_makefasta = ['MakeFasta',
+                         ass_file_ksnp3,
+                         'all.fasta']
+
+        os.chdir(output_folder)
+        subprocess.run(cmd_makefasta, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        # Get optimal k value
+        cmd_kchooser = ['Kchooser',
+                        'all.fasta']
+
+        p = subprocess.Popen(cmd_kchooser, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        optimal_k = 19
+        for line in io.TextIOWrapper(p.stdout, encoding="utf-8"):
+            if 'The optimum value of K is' in line:
+                optimal_k = line.split()[-1].replace('.', '')
+
+        # Remove combined fasta file
+        os.remove('all.fasta')
+
+        cmd_ksnp3 = ['kSNP3',
+                     '-k', optimal_k,
+                     '-in', ass_file_ksnp3,
+                     '-outdir', output_folder,
+                     '-core',
+                     '-ML',
+                     '-CPU', str(cpu),
+                     '-NJ',
+                     '-vcf']
+
+        subprocess.run(cmd_ksnp3, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        # Remove file list
+        os.remove(ass_file_ksnp3)
 
     @staticmethod
     def convert_xmfa_to_fastq(xmfa_input, fasta_output):

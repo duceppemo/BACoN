@@ -12,7 +12,7 @@ __author__ = 'duceppemo'
 __version__ = 'v0.1'
 
 
-class GBS(object):
+class Bacon(object):
     def __init__(self, args):
         # I/O
         self.reference = os.path.abspath(args.reference)
@@ -24,6 +24,7 @@ class GBS(object):
         self.assembler = args.assembly_method
         self.min_size = args.min_size
         self.kmer = args.kmer_size
+        self.snp_method = args.snp_method
 
         # Performance
         self.cpu = args.threads
@@ -67,6 +68,7 @@ class GBS(object):
 
         # Get input files and place info in dictionary
         if os.path.isdir(self.input):
+            self.sample_dict['raw'] = Methods.get_files(self.input)
             self.sample_dict['raw'] = Methods.get_files(self.input)
         else:
             sample = os.path.basename(self.input).split('.')[0].replace('_pass', '')
@@ -185,46 +187,47 @@ class GBS(object):
             if len(assembly_list) < 3:
                 warnings.warn('Cannot build a tree with less than three samples!')
                 sys.exit()
-            print('Making core SNP tree with Parsnp...')
 
-            # Create Cores SNP tree
-            Methods.run_parsnp(assembly_list, compared_folder, self.reference, self.cpu)
+            if self.snp_method == 'parsnp':
+                print('Making core-SNP tree with Parsnp...')
 
-            # Check if Parsnp ran to completion. Sometimes when assembly sizes are too different from the ref
-            # Parsnp won't run to completion
-            if not os.path.exists(compared_folder + 'parsnp.xmfa'):
-                raise Exception('Parsnp could not run. Sample comparison not be performed.')
+                # Create core-SNP tree
+                Methods.run_parsnp(assembly_list, compared_folder, self.reference, self.cpu)
 
-            # Plot tree to PDF, .SVG or .PNG
-            Methods.plot_newick_tree(compared_folder + 'parsnp.tree', compared_folder + 'parsnp.pdf')
+                # Check if Parsnp ran to completion. Sometimes when assembly sizes are too different from the ref
+                # Parsnp won't run to completion
+                if not os.path.exists(compared_folder + 'parsnp.xmfa'):
+                    raise Exception('Parsnp could not run. Sample comparison not be performed.')
 
-            # Convert xmfa to fasta so we can compute a new tree with bootstraps
-            Methods.convert_xmfa_to_fastq(compared_folder + 'parsnp.xmfa', compared_folder + 'parsnp.fasta')
+                # Plot tree to PDF, .SVG or .PNG
+                Methods.plot_newick_tree(compared_folder + 'parsnp.tree', compared_folder + 'parsnp.pdf')
 
-            # Create ML tree with bootstraps
-            print('Making tree with 1,000 bootstraps...')
-            Methods.make_tree_raxml(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
-            # Plot tree to PDF, .SVG or .PNG
-            # This command wont work for this tree...
-            # Methods.plot_newick_tree(compared_folder + 'RAxML_bipartitionsBranchLabels.raxml.tree',
-            #                          compared_folder + 'raxml.pdf')
+                # Convert xmfa to fasta so we can compute a new tree with bootstraps
+                Methods.convert_xmfa_to_fastq(compared_folder + 'parsnp.xmfa', compared_folder + 'parsnp.fasta')
 
-            # Create FastTree
-            Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
-            Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
-                                     compared_folder + 'fasttree.pdf')
+                # Create ML tree with bootstraps
+                print('Making tree with 1,000 bootstraps...')
+                Methods.make_tree_raxml(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
+                # Plot tree to PDF, .SVG or .PNG
+                # This command wont work for this tree...
+                # Methods.plot_newick_tree(compared_folder + 'RAxML_bipartitionsBranchLabels.raxml.tree',
+                #                          compared_folder + 'raxml.pdf')
+
+                # Create FastTree
+                Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
+                Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
+                                         compared_folder + 'fasttree.pdf')
+            else:  # elif self.snp_method == 'ksnp3':
+                print('Making pan-SNP tree with kSNP3...')
+
+                # Create pan-SNP tree
+                Methods.run_ksnp3(assembly_list, compared_folder, self.reference, self.cpu)
 
             Methods.flag_done(done_comparing)
         else:
             print('Skipping sample comparison. Already done.')
 
-    ########
-    #
-    # 5- Clean
-    #
-    #########
-
-
+        print('DONE!')
 
 
 if __name__ == "__main__":
@@ -279,8 +282,13 @@ if __name__ == "__main__":
     parser.add_argument('--keep-bam',
                         required=False, action='store_true',
                         help='Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.')
+    parser.add_argument('-snp', '--snp-method',
+                        required=False, default='parsnp',
+                        choices=['parsnp', 'ksnp3'],
+                        type=str,
+                        help='SNP calling method. Default "parsnp". Optional.')
 
     # Get the arguments into an object
     arguments = parser.parse_args()
 
-    GBS(arguments)
+    Bacon(arguments)
