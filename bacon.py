@@ -12,6 +12,29 @@ __author__ = 'duceppemo'
 __version__ = '0.1'
 
 
+"""requirements
+porechop=0.2.4
+filtlong=0.2.1
+minimap2=2.24
+samtools=1.15.1
+flye=2.9.1
+shasta=0.8.0
+bbmap=38.98
+git=2.37.2
+ete3=3.1.2
+pysam=0.19.1
+bandage=0.8.1
+parsnp=1.7.4
+harvesttools=1.2
+raxml=8.2.12
+fasttree=2.1.11
+psutil=5.9.1
+pandas=1.4.3
+rebaler=0.2.0
+ksnp=3.1
+"""
+
+
 class Bacon(object):
     def __init__(self, args):
         # I/O
