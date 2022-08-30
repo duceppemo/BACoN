@@ -1,5 +1,5 @@
 # BACoN
-BACoN stands for "<ins>B</ins>ait, <ins>A</ins>ssemble and <ins>Co</ins>mpare <ins>N</ins>anopore". It extracts and assembles Nanopore reads matching a reference from many samples in parallel. Assemblies are then compared by extracting core SNPs and building a tree.
+BACoN stands for "<ins>B</ins>ait, <ins>A</ins>ssemble and <ins>Co</ins>mpare <ins>N</ins>anopore". It extracts and assembles Nanopore reads matching a reference from many samples in parallel. Assemblies are then compared by extracting SNPs and building a tree.
 
 BACoN was designed with genome skimming in mind. BACoN allows reconstruction of organelle genomes from Nanopore data.  Performing targeted sequencing to enrich sequence(s) of interest (say chloroplast genome) is highly recommended to achieve higher coverage, thus better assemblies, especially for larger genomes (I like to call this "Power Skimming").
 
@@ -7,12 +7,12 @@ BACoN was designed with genome skimming in mind. BACoN allows reconstruction of 
 BACoN follows these steps:
 1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
 2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (discard bottom 5% or keep top 100X) reads with `filtlong`.
-3. Assemble reads with `flye`, `shasta` or `rebaler`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error). Flye and Shasta are *de novo* assemblers, while rebaler is a reference-guided assembler. Flye seems to work better with circular genomes. Shasta works well too with circular references (like full organelle genomes), but will also work with linear references (like ribosomal DNA). Rebaler is more experimental (not fully validated for this type of application, but I thought it would be good to have a "different" type of assembler to try in case the *de novo* methods don't work well).
-4. Compare samples (make tree) with `parsnp` (core) or `kSNP3` (pan and core). Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
+3. Assemble reads with `flye`, `shasta` or `rebaler`. Note that the "ont-hq" flag is used for Flye, assuming that Guppy5+ or Q20+ chemistry (<5% error) was used for basecalling. Flye and Shasta are *de novo* assemblers while rebaler is a reference-guided assembler. Flye seems to work better with circular genomes. Shasta works well too with circular references (like full organelle genomes), but will also work with linear references (like ribosomal DNA). Rebaler is more experimental (not fully validated for this type of application, but I thought it would be good to have a "different" type of assembler to try in case the *de novo* methods don't work well).
+4. Compare samples (make tree) with `parsnp` (core) or `kSNP3` (pan and core). Boostrap trees are also created using `RAxML` and `FastTree` from SNPs from parsnp.
 
 ## Installation
-Requires conda. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
-1. Clone repository
+Requires conda. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed.
+1. Clone repository:
 ```commandline
 # Make sure you have "git" install in your base enviroment:
 conda install git
@@ -20,7 +20,7 @@ conda install git
 # Clone repo to your prefered location:
 git clone https://github.com/duceppemo/BACoN
 ```
-2. Create virtual environment and test BACoN
+2. Create virtual environment and test BACoN:
 ```commandline
 # Create BACoN virtual environment:
 cd BACoN
@@ -66,7 +66,7 @@ optional arguments:
 ```
 
 ## Example
-1. First step is to base-call the fast5 using guppy using the terminal in Linux. You'll need to adjust the parameters based on your graphics card power, the accuracy wanted and if samples were multiplexed or not.
+1. First step is to perform basecalline (fast5->fastq) using the lastest `guppy`. You'll need to adjust the parameters based on your graphics card, the accuracy wanted and if samples were multiplexed or not.
 ```commandline
 fast5=/path/to/folder/holding/fast5
 basecalled=/path/to/folder/holding/fastq
@@ -101,16 +101,14 @@ guppy_basecaller \
 python bacon.py \
   -r /path/to/my_reference.fasta \
   -i /path/to/folder/containing/Nanopore/reads \
-  -o /path/to/BACoN/output/folder \
-  -t $(nproc)
+  -o /path/to/BACoN/output/folder
 ```
 - `-r` is the reference sequence used to bait the reads.
 - `-i` is the input reads. Fastq and fasta are supported, gzipped or not.
 - `-o` is the output folder.
-- `-t` is the number of threads used. `$(nproc)` means to use all availble threads (and should not be used on shared computing resources).
 
 3. Results
-Here's a tree representation of the main output files and folders:
+Here's a tree representation of the main output files and folders using default settings.
 ```commandline
 bacon
 ├── 1_extracted
