@@ -219,7 +219,7 @@ class Methods(object):
 
         # Index bam file
         if os.path.exists(output_bam):
-            if os.stat(output_bam).st_size == 0:  # bam file exists and not empty
+            if os.stat(output_bam).st_size != 0:  # bam file exists and not empty
                 subprocess.run(samtools_index_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
                 # Convert bam to fastq
@@ -245,10 +245,13 @@ class Methods(object):
 
     @staticmethod
     def bait_bbduk(sample, ref, fastq_file, cpu, output_folder, kmer, mem):
+        print('\t{}'.format(sample))
+
         extracted_fastq = output_folder + sample + '.fastq.gz'
 
         cmd = ['bbduk.sh',
                '-Xmx{}g'.format(mem),
+               '-eoom',
                'overwrite=true',
                'in={}'.format(fastq_file),
                'ref={}'.format(ref),
@@ -258,7 +261,7 @@ class Methods(object):
                'qin=33',
                'hdist=2',
                'outm={}'.format(extracted_fastq)]
-        subprocess.run(cmd)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Check if gzipped fastq is not empty
         if Methods.gzipped_file_size(extracted_fastq) == 0:
@@ -269,7 +272,7 @@ class Methods(object):
         Methods.make_folder(output_folder)
 
         with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
-            args = ((sample, ref, path, int(cpu / parallel), output_folder, kmer, mem)
+            args = ((sample, ref, path, int(cpu / parallel), output_folder, kmer, int(mem / parallel))
                     for sample, path in sample_dict.items())
             for results in executor.map(lambda x: Methods.bait_bbduk(*x), args):
                 pass
@@ -307,7 +310,7 @@ class Methods(object):
 
         # Filtlong writes to stdout
         filtered_fastq = filtered_folder + sample + '.fastq.gz'
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         with gzip.open(filtered_fastq, 'wb') as f:
             f.write(p.communicate()[0])
 
@@ -423,14 +426,14 @@ class Methods(object):
                     elif 'Mean coverage:' in line:
                         mean_cov = line.split('\t')[-1]
 
-                data_dict = {'Sample': sample,
-                             'TotalBases': read_len,
-                             'ReadsN50': n50,
-                             'AssemblyLength': assembly_len,
-                             'Contigs': contigs,
-                             'Coverage':  mean_cov}
+                data_dict = {'Sample': [sample],
+                             'TotalBases': [read_len],
+                             'ReadsN50': [n50],
+                             'AssemblyLength': [assembly_len],
+                             'Contigs': [contigs],
+                             'Coverage':  [mean_cov]}
 
-                df = df.append(data_dict, ignore_index=True)
+                df = pd.concat([df, pd.DataFrame.from_dict(data_dict)], axis='index', ignore_index=True)
 
         # Convert df to tsv file
         df.to_csv(output_stats_file, sep='\t', index=False)
@@ -467,7 +470,7 @@ class Methods(object):
             subprocess.run(cmd_shasta, stdout=f, stderr=subprocess.DEVNULL)
 
         # Cleanup temporary files
-        subprocess.run(cmd_shasta_clean)
+        subprocess.run(cmd_shasta_clean, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         os.remove(unzipped_fastq)
 
         # Rename and move assembly file
@@ -533,14 +536,14 @@ class Methods(object):
                     elif 'The assembly graph has' in line:
                         contigs = line.split()[-3]
 
-                data_dict = {'Sample': sample,
-                             'ReadNumber': read_cnt,
-                             'TotalBases': read_len,
-                             'ReadsN50': n50,
-                             'AssemblyLength': assembly_len,
-                             'Contigs': contigs}
+                data_dict = {'Sample': [sample],
+                             'ReadNumber': [read_cnt],
+                             'TotalBases': [read_len],
+                             'ReadsN50': [n50],
+                             'AssemblyLength': [assembly_len],
+                             'Contigs': [contigs]}
 
-                df = df.append(data_dict, ignore_index=True)
+                df = pd.concat([df, pd.DataFrame.from_dict(data_dict)], axis='index', ignore_index=True)
 
         # Convert df to tsv file
         df.to_csv(output_stats_file, sep='\t', index=False)
@@ -582,16 +585,16 @@ class Methods(object):
             for results in executor.map(lambda x: Methods.assemble_rebaler(*x), args):
                 pass
 
-    @staticmethod
-    def run_ragtag(ref, assembly, out_folder, cpu):
-        cmd = ['ragtag.py', 'scaffold',
-               '-t', str(cpu),  # threads
-               '-w',  # overwrite
-               '-o', out_folder,  # output folder
-               ref,  # reference
-               assembly]  # query
-
-        subprocess.run(cmd)
+    # @staticmethod
+    # def run_ragtag(ref, assembly, out_folder, cpu):
+    #     cmd = ['ragtag.py', 'scaffold',
+    #            '-t', str(cpu),  # threads
+    #            '-w',  # overwrite
+    #            '-o', out_folder,  # output folder
+    #            ref,  # reference
+    #            assembly]  # query
+    #
+    #     subprocess.run(cmd)
 
     @staticmethod
     def run_parsnp(assembly_list, output_folder, ref, cpu):
@@ -602,11 +605,14 @@ class Methods(object):
                '-p', str(cpu),
                '-o', output_folder,
                '-d'] + assembly_list
-        subprocess.run(cmd)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     @staticmethod
     def run_ksnp3(assembly_list, output_folder, ref, cpu):
         Methods.make_folder(output_folder)
+
+        # Add ref to assembly list
+        assembly_list.append(ref)
 
         ass_file_ksnp3 = output_folder + 'assembly.list'
         with open(ass_file_ksnp3, 'w') as f:
@@ -615,18 +621,22 @@ class Methods(object):
                 f.write('{}\t{}\n'.format(ass, ass_name))
 
         # Combine all fasta for
+        os.chdir(output_folder)
+        print('\tRunning "MakeFasta"')
         cmd_makefasta = ['MakeFasta',
                          ass_file_ksnp3,
                          'all.fasta']
-
-        os.chdir(output_folder)
-        subprocess.run(cmd_makefasta, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        p = subprocess.Popen(cmd_makefasta, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+        stdout, sterr = p.communicate()
+        if b'% of the median size of' in stdout:
+            raise Exception('{} Cannot run kSNP3.'.format(stdout.split(b'\n')[1].decode('utf-8')))
 
         # Get optimal k value
+        print('\tRunning "Kchooser"')
         cmd_kchooser = ['Kchooser',
                         'all.fasta']
 
-        p = subprocess.Popen(cmd_kchooser, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(cmd_kchooser, stdout=subprocess.PIPE)#, stderr=subprocess.DEVNULL)
         optimal_k = 19
         for line in io.TextIOWrapper(p.stdout, encoding="utf-8"):
             if 'The optimum value of K is' in line:
@@ -635,6 +645,7 @@ class Methods(object):
         # Remove combined fasta file
         os.remove('all.fasta')
 
+        print('\tRunning kSNP3"')
         cmd_ksnp3 = ['kSNP3',
                      '-k', optimal_k,
                      '-in', ass_file_ksnp3,
@@ -645,7 +656,7 @@ class Methods(object):
                      '-NJ',
                      '-vcf']
 
-        subprocess.run(cmd_ksnp3, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(cmd_ksnp3)#, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Remove file list
         os.remove(ass_file_ksnp3)
@@ -655,7 +666,7 @@ class Methods(object):
         cmd = ['harvesttools',
                '-x', xmfa_input,
                '-M', fasta_output]
-        subprocess.run(cmd)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     @staticmethod
     def make_tree_raxml(aligned_fasta, output_folder, cpu):
@@ -667,7 +678,7 @@ class Methods(object):
                '-N', str(1000),
                '-d', '-f', 'a', '-T', str(cpu),
                '-x', str(1234), '-p', str(123)]
-        subprocess.run(cmd)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     @staticmethod
     def make_tree_fasttree(aligned_fasta, output_folder, cpu):
@@ -675,7 +686,7 @@ class Methods(object):
                '-nt',
                '-gtr',
                aligned_fasta]
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         with open(output_folder + 'fasttree.tree', 'wb') as f:
             f.write(p.communicate()[0])
 

@@ -9,7 +9,7 @@ from bacon_methods import Methods
 
 
 __author__ = 'duceppemo'
-__version__ = 'v0.1'
+__version__ = '0.1'
 
 
 class Bacon(object):
@@ -69,7 +69,6 @@ class Bacon(object):
         # Get input files and place info in dictionary
         if os.path.isdir(self.input):
             self.sample_dict['raw'] = Methods.get_files(self.input)
-            self.sample_dict['raw'] = Methods.get_files(self.input)
         else:
             sample = os.path.basename(self.input).split('.')[0].replace('_pass', '')
             self.sample_dict['raw'] = {sample: os.path.realpath(self.input)}
@@ -80,6 +79,8 @@ class Bacon(object):
 
         # Drop the unclassified sample
         # self.sample_dict['raw'].pop('unclassified_pass', None)
+
+        print('\tAll good!')
 
         ##################
         #
@@ -129,7 +130,7 @@ class Bacon(object):
         if not self.ref_size:
             self.ref_size = Methods.fasta_length(self.reference)
         ref_name = '.'.join(os.path.basename(self.reference).split('.')[:-1])
-        print('Reference ({}): {}bp'.format(ref_name, self.ref_size))
+        print('Reference ({}): {} bp'.format(ref_name, self.ref_size))
 
         if not os.path.exists(done_filtering):
             print('Filtering lower quality reads with Filtlong...')
@@ -202,23 +203,24 @@ class Bacon(object):
                 # Plot tree to PDF, .SVG or .PNG
                 Methods.plot_newick_tree(compared_folder + 'parsnp.tree', compared_folder + 'parsnp.pdf')
 
-                # Convert xmfa to fasta so we can compute a new tree with bootstraps
+                # Convert xmfa to fasta to compute a new tree with bootstraps
                 Methods.convert_xmfa_to_fastq(compared_folder + 'parsnp.xmfa', compared_folder + 'parsnp.fasta')
 
                 # Create ML tree with bootstraps
-                print('Making tree with 1,000 bootstraps...')
+                print('Making RAxML tree with 1,000 bootstraps...')
                 Methods.make_tree_raxml(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
                 # Plot tree to PDF, .SVG or .PNG
-                # This command wont work for this tree...
+                # This command won't work for this tree...
                 # Methods.plot_newick_tree(compared_folder + 'RAxML_bipartitionsBranchLabels.raxml.tree',
                 #                          compared_folder + 'raxml.pdf')
 
                 # Create FastTree
+                print('Making FastTree tree with 1,000 peudo-bootstraps...')
                 Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
                 Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
                                          compared_folder + 'fasttree.pdf')
             else:  # elif self.snp_method == 'ksnp3':
-                print('Making pan-SNP tree with kSNP3...')
+                print('Making pan-SNP ans core-SNP trees with kSNP3...')
 
                 # Create pan-SNP tree
                 Methods.run_ksnp3(assembly_list, compared_folder, self.reference, self.cpu)
@@ -234,7 +236,7 @@ if __name__ == "__main__":
     max_cpu = cpu_count()
     max_mem = int(virtual_memory().total * 0.85 / 1000000000)  # in GB
 
-    parser = ArgumentParser(description='Organelle genome assembly from Nanopore genome skimming data.')
+    parser = ArgumentParser(description='Extract, assemble and compare Nanopore reads matching a reference sequence.')
     parser.add_argument('-r', '--reference', metavar='/path/to/reference_organelle/genome.fasta',
                         required=True,
                         help='Reference genome for read mapping. Mandatory.')
@@ -248,7 +250,7 @@ if __name__ == "__main__":
                         required=False, default='minimap2',
                         choices=['minimap2', 'bbduk'],
                         type=str,
-                        help='Baiting method. Default "minimap2". Optional.')
+                        help='Read baiting method. Default "minimap2". Optional.')
     parser.add_argument('-a', '--assembly-method',
                         required=False, default='flye',
                         choices=['flye', 'shasta', 'rebaler'],
@@ -287,6 +289,8 @@ if __name__ == "__main__":
                         choices=['parsnp', 'ksnp3'],
                         type=str,
                         help='SNP calling method. Default "parsnp". Optional.')
+    parser.add_argument('-v', '--version', action='version',
+                        version=f'{os.path.basename(__file__)}: version {__version__}')
 
     # Get the arguments into an object
     arguments = parser.parse_args()

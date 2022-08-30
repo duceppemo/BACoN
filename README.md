@@ -8,10 +8,7 @@ BACoN follows these steps:
 1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
 2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (bottom 5% or top 100X) reads with `filtlong`.
 3. Assemble reads with `flye`, `shasta` or `rebaler`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error). Flye and Shasta are *de novo* assemblers, while rebaler is a reference-guided assembler. Flye seems to work better with circular genomes. Shasta works well too with circular references (like full organelle genomes), but will also work with linear references (like ribosomal DNA). Rebaler is more experimental (not fully validated for this type of application, but I thought it would be good to have a "different" type of assembler to try in case the *de novo* methods don't work well).
-4. Compare samples with a core SNP approach using `parsnp`. Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
-
-## TODO
-- Add alternative ways to compare the assemblies. `mafft` and `fasttree` for rebaler assemblies? Other tools than `parsnp` for *de novo* assemblies?
+4. Compare samples (make tree) with `parsnp` (core) or `kSNP3` (pan and core). Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
 
 ## Installation
 1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
@@ -19,7 +16,7 @@ BACoN follows these steps:
 # Create environment
 conda create -n BACoN -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
     samtools flye shasta bbmap git ete3 pysam bandage parsnp harvesttools raxml \
-    fasttree psutil pandas ragtag rebaler
+    fasttree psutil pandas rebaler
 
 # Activate enviroment
 conda activate BACoN
@@ -37,9 +34,9 @@ python bacon.py -h
 ## Usage
 ```commandline
 usage: python bacon.py [-h] -r /path/to/reference_organelle/genome.fasta -i /path/to/input/folder/ or /path/to/my_fastq.gz -o /path/to/output/folder/ [-b {minimap2,bbduk}] [-a {flye,shasta,rebaler}] [--min-size 3000] [-t 16]
-                [-p 2] [-m 57] [-s 150000] [-k 99] [--keep-bam]
+                [-p 2] [-m 57] [-s 150000] [-k 99] [--keep-bam] [-snp {parsnp,ksnp3}]
 
-Organelle genome assembly from Nanopore genome skimming data.
+Extract, assemble and compare Nanopore reads matching a reference sequence.
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -50,7 +47,7 @@ optional arguments:
   -o /path/to/output/folder/, --output /path/to/output/folder/
                         Folder to hold the result files. Mandatory.
   -b {minimap2,bbduk}, --baiting-method {minimap2,bbduk}
-                        Baiting method. Default "minimap2". Optional.
+                        Read baiting method. Default "minimap2". Optional.
   -a {flye,shasta,rebaler}, --assembly-method {flye,shasta,rebaler}
                         Assembly method. Default "flye". Optional.
   --min-size 3000       Minimum read size for Shasta assembler or minimum read overlap for Flye. Default 3000 for Shasta and auto for Flye. Optional.
@@ -62,6 +59,8 @@ optional arguments:
   -k 99, --kmer-size 99
                         Kmer size for baiting. Only used if "--baiting-method" is "bbduk". Optional.
   --keep-bam            Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.
+  -snp {parsnp,ksnp3}, --snp-method {parsnp,ksnp3}
+                        SNP calling method. Default "parsnp". Optional.
 ```
 
 ## Example
