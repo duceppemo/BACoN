@@ -6,28 +6,30 @@ BACoN was designed with genome skimming in mind. BACoN allows reconstruction of 
 ## Workflow
 BACoN follows these steps:
 1. Extract Nanopore reads matching reference with `minimap2` or `bbduk` (ideally using the same reference used for targeted sequencing).
-2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (bottom 5% or top 100X) reads with `filtlong`.
+2. Remove Nanopore adapters with `porechop` and filter small (min 500bp) and lower quality (discard bottom 5% or keep top 100X) reads with `filtlong`.
 3. Assemble reads with `flye`, `shasta` or `rebaler`. Note that the `ont-hq` flag is used here, assuming you used Guppy5+ or Q20 (<5% error). Flye and Shasta are *de novo* assemblers, while rebaler is a reference-guided assembler. Flye seems to work better with circular genomes. Shasta works well too with circular references (like full organelle genomes), but will also work with linear references (like ribosomal DNA). Rebaler is more experimental (not fully validated for this type of application, but I thought it would be good to have a "different" type of assembler to try in case the *de novo* methods don't work well).
 4. Compare samples (make tree) with `parsnp` (core) or `kSNP3` (pan and core). Boostrap trees create with `RAxML` and `FastTree` are also available (use SNPs from `parsnp`).
 
 ## Installation
-1. Create virtual environment and install all dependencies. Requires conda to be installed. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
-```
-# Create environment
-conda create -n BACoN -y -c bioconda -c etetoolkit porechop filtlong minimap2 \
-    samtools flye shasta bbmap git ete3 pysam bandage parsnp harvesttools raxml \
-    fasttree psutil pandas rebaler
+Requires conda. See [here](https://docs.conda.io/en/latest/miniconda.html#latest-miniconda-installer-links) for instructions if needed:
+1. Clone repository
+```commandline
+# Make sure you have "git" install in your base enviroment:
+conda install git
 
-# Activate enviroment
-conda activate BACoN
-```
-2. Clone and test BACoN
-```
-# Clone repo
+# Clone repo to your prefered location:
 git clone https://github.com/duceppemo/BACoN
-
-# Test BACoN
+```
+2. Create virtual environment and test BACoN
+```commandline
+# Create BACoN virtual environment:
 cd BACoN
+conda create -n BACoN -y -c bioconda -c etetoolkit -c hcc --file requirements.txt
+
+# Activate enviroment:
+conda activate BACoN
+
+# Test program. No errors should be displayed:
 python bacon.py -h
 ```
 
@@ -65,7 +67,7 @@ optional arguments:
 
 ## Example
 1. First step is to base-call the fast5 using guppy using the terminal in Linux. You'll need to adjust the parameters based on your graphics card power, the accuracy wanted and if samples were multiplexed or not.
-```
+```commandline
 fast5=/path/to/folder/holding/fast5
 basecalled=/path/to/folder/holding/fastq
 
@@ -93,7 +95,7 @@ guppy_basecaller \
     --trim_primers
 ```
 2. Run BACoN to extract and assemble reads matching your reference.
-```
+```commandline
 # Change path according to where you cloned BACoN on your machine.
 # Don't forget to activate your BACoN virtual environment if not already done.
 python bacon.py \
@@ -102,10 +104,10 @@ python bacon.py \
   -o /path/to/BACoN/output/folder \
   -t $(nproc)
 ```
-`-r` is the reference sequence used to bait the reads
-`-i` is the input reads. Fastq and fasta are supported, gzipped or not.
-`-o` is the output folder.
-`-t` is the number of threads used. `$(nproc)` means to use all availble threads (and should not be used on shared computing resources).
+- `-r` is the reference sequence used to bait the reads.
+- `-i` is the input reads. Fastq and fasta are supported, gzipped or not.
+- `-o` is the output folder.
+- `-t` is the number of threads used. `$(nproc)` means to use all availble threads (and should not be used on shared computing resources).
 
 3. Results
 Here's a tree representation of the main output files and folders:
@@ -143,9 +145,9 @@ bacon
 ├── done_filtering
 └── done_trimming
 ```
-* `1_extracted` contains the baited reads by `minimap2`.
-* `2_trimmed` contains the trimmed reads by `porechop`.
-* `3_filtered` contains the filtered reads by `filtlong`.
-* `4_assembled` contains the assembly sub-folders for each sample. All assemblies are located in the `all_assemblies` folder. Assembly quality can be assessed quickly from the `assembly_graphs` sub-folder.
-* `5_compared` contains the SNPs and tree files from `parsnp`, `RAxML` and `FastTree`. RAxML and FastTree are provided to add bootstrap values to the tree.
-* The `done` files are checkpoint files. See the `Cheats` section below for details.
+- `1_extracted` contains the baited reads by `minimap2`.
+- `2_trimmed` contains the trimmed reads by `porechop`.
+- `3_filtered` contains the filtered reads by `filtlong`.
+- `4_assembled` contains the assembly sub-folders for each sample. All assemblies are located in the `all_assemblies` folder. Assembly quality can be assessed quickly from the `assembly_graphs` sub-folder.
+- `5_compared` contains the SNPs and tree files from `parsnp`, `RAxML` and `FastTree`. RAxML and FastTree are provided to add bootstrap values to the tree.
+- The `done` files are checkpoint files.
