@@ -622,7 +622,7 @@ class Methods(object):
 
         # Combine all fasta for
         os.chdir(output_folder)
-        print('\tRunning "MakeFasta"')
+        print('\tRunning MakeFasta')
         cmd_makefasta = ['MakeFasta',
                          ass_file_ksnp3,
                          'all.fasta']
@@ -632,11 +632,11 @@ class Methods(object):
             raise Exception('{} Cannot run kSNP3.'.format(stdout.split(b'\n')[1].decode('utf-8')))
 
         # Get optimal k value
-        print('\tRunning "Kchooser"')
+        print('\tRunning Kchooser')
         cmd_kchooser = ['Kchooser',
                         'all.fasta']
 
-        p = subprocess.Popen(cmd_kchooser, stdout=subprocess.PIPE)#, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(cmd_kchooser, stdout=subprocess.PIPE)
         optimal_k = 19
         for line in io.TextIOWrapper(p.stdout, encoding="utf-8"):
             if 'The optimum value of K is' in line:
@@ -645,7 +645,7 @@ class Methods(object):
         # Remove combined fasta file
         os.remove('all.fasta')
 
-        print('\tRunning kSNP3"')
+        print('\tRunning kSNP3')
         cmd_ksnp3 = ['kSNP3',
                      '-k', optimal_k,
                      '-in', ass_file_ksnp3,
@@ -656,7 +656,7 @@ class Methods(object):
                      '-NJ',
                      '-vcf']
 
-        subprocess.run(cmd_ksnp3)#, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run(cmd_ksnp3, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Remove file list
         os.remove(ass_file_ksnp3)
@@ -681,7 +681,7 @@ class Methods(object):
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     @staticmethod
-    def make_tree_fasttree(aligned_fasta, output_folder, cpu):
+    def make_tree_fasttree(aligned_fasta, output_folder):
         cmd = ['FastTree',
                '-nt',
                '-gtr',

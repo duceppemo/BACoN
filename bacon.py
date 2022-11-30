@@ -239,7 +239,7 @@ class Bacon(object):
 
                 # Create FastTree
                 print('Making FastTree tree with 1,000 peudo-bootstraps...')
-                Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
+                Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder)
                 Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
                                          compared_folder + 'fasttree.pdf')
             else:  # elif self.snp_method == 'ksnp3':
