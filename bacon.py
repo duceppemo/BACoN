@@ -9,29 +9,16 @@ from bacon_methods import Methods
 
 
 __author__ = 'duceppemo'
-__version__ = '0.1'
+__version__ = '0.2'
 
 
-"""requirements
-porechop=0.2.4
-filtlong=0.2.1
-minimap2=2.24
-samtools=1.15.1
-flye=2.9.1
-shasta=0.8.0
-bbmap=38.98
-git=2.37.2
-ete3=3.1.2
-pysam=0.19.1
-bandage=0.8.1
-parsnp=1.7.4
-harvesttools=1.2
-raxml=8.2.12
-fasttree=2.1.11
-psutil=5.9.1
-pandas=1.4.3
-rebaler=0.2.0
-ksnp=3.1
+#  Requirements
+"""
+mamba create -n BACoN -y -c bioconda -c etetoolkit -c hcc -c conda-forge porechop=0.2.4 filtlong=0.2.1 minimap2=2.24 \
+    samtools=1.16 bcftools=1.16 flye=2.9.1 shasta=0.11.1 bbmap=39.01 git ete3=3.1.2 pysam=0.20.0 bandage=0.8.1 \
+    parsnp=1.7.4 harvesttools=1.2 raxml=8.2.12 fasttree=2.1.11 psutil=5.9.4 pandas=1.5.3 rebaler=0.2.0 \
+    snippy=4.6.0 phame=1.0.3 mummer=3.23 bowtie2=2.5.1 bwa=0.7.17 perl-bioperl=1.7.8 perl=5.32.1
+    # ksnp=3.1
 """
 
 
@@ -230,7 +217,7 @@ class Bacon(object):
                 Methods.convert_xmfa_to_fastq(compared_folder + 'parsnp.xmfa', compared_folder + 'parsnp.fasta')
 
                 # Create ML tree with bootstraps
-                print('Making RAxML tree with 1,000 bootstraps...')
+                print('\tRemaking tree with RAxML using 100 bootstraps...')
                 Methods.make_tree_raxml(compared_folder + 'parsnp.fasta', compared_folder, self.cpu)
                 # Plot tree to PDF, .SVG or .PNG
                 # This command won't work for this tree...
@@ -238,16 +225,39 @@ class Bacon(object):
                 #                          compared_folder + 'raxml.pdf')
 
                 # Create FastTree
-                print('Making FastTree tree with 1,000 peudo-bootstraps...')
+                print('\tRemaking tree with FastTree using 100 peudo-bootstraps...')
                 Methods.make_tree_fasttree(compared_folder + 'parsnp.fasta', compared_folder)
                 Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
                                          compared_folder + 'fasttree.pdf')
-            else:  # elif self.snp_method == 'ksnp3':
-                print('Making pan-SNP ans core-SNP trees with kSNP3...')
+            # elif self.snp_method == 'ksnp3':
+            #     print('Making pan-SNP and core-SNP trees with kSNP3...')
+            #
+            #     # Create pan-SNP tree
+            #     Methods.run_ksnp3(assembly_list, compared_folder, self.reference, self.cpu)
+            elif self.snp_method == 'snippy':
+                print('Extracting core SNPs with Snippy...')
 
-                # Create pan-SNP tree
-                Methods.run_ksnp3(assembly_list, compared_folder, self.reference, self.cpu)
+                # ref, assembly_list, output_folder, cpu, mem, parallel
+                Methods.run_snippy_parallel(self.reference, assembly_list, compared_folder,
+                                            self.cpu, self.mem, self.parallel)
 
+                # Find core SNP
+                Methods.snippy_core(compared_folder, self.reference)
+
+                # Make tree
+                print('\tMaking tree with FastTree using 100 peudo-bootstraps...')
+                Methods.make_tree_fasttree(compared_folder + 'core.full.aln', compared_folder)
+                Methods.plot_newick_tree(compared_folder + 'fasttree.tree',
+                                         compared_folder + 'fasttree.pdf')
+
+
+            else:  # elif self.snp_method == 'phame':
+                print('Making core-SNP tree with PhaME (FastTree with 100 pseudo-bootstraps...')
+
+                # Run PhaME (Fastree and 100 pseudo-bootstraps)
+                Methods.run_phame(self.reference, assembled_folder + 'all_assemblies/', compared_folder, self.cpu)
+
+            # Create "done" flag
             Methods.flag_done(done_comparing)
         else:
             print('Skipping sample comparison. Already done.')
@@ -308,10 +318,11 @@ if __name__ == "__main__":
                         required=False, action='store_true',
                         help='Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.')
     parser.add_argument('-snp', '--snp-method',
-                        required=False, default='parsnp',
-                        choices=['parsnp', 'ksnp3'],
+                        required=False, default='snippy',
+                        # choices=['parsnp', 'snippy', 'ksnp3', 'phame'],
+                        choices=['parsnp', 'snippy', 'phame'],
                         type=str,
-                        help='SNP calling method. Default "parsnp". Optional.')
+                        help='SNP calling method. Default "phame". Optional.')
     parser.add_argument('-v', '--version', action='version',
                         version=f'{os.path.basename(__file__)}: version {__version__}')
 

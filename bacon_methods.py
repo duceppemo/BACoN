@@ -28,9 +28,7 @@ class Methods(object):
     def check_input(my_input):
         error_message_list = ['Please provide a folder as input.',
                               'The input folder provided does not exist.',
-                              'Make sure files in input folder end with {}'.format(Methods.accepted_extensions),
-
-                              ]
+                              'Make sure files in input folder end with {}'.format(Methods.accepted_extensions)]
 
         if not os.path.exists(my_input):
             raise Exception('Please select an existing file or folder as input.')
@@ -44,6 +42,17 @@ class Methods(object):
         # if folder is not empty and all files have the accepted extensions
         if not all([f.endswith(tuple(Methods.accepted_extensions)) for f in file_list]):
             raise Exception('Make sure files in input folder end with {}'.format(Methods.accepted_extensions))
+
+    @staticmethod
+    def check_ref(ref):
+        if not os.path.isfile(ref):
+            raise Exception('The reference file provided does not exist')
+
+        with gzip.open(ref, 'rt') if ref.endswith('.gz') else open(ref, 'r') as f:
+            first_header = f.readline()
+            first_character = split(first_header)[0]
+            if first_character != '>':
+                raise Exception('The reference file provided does not appear to be a valid fasta file.')
 
     @staticmethod
     def check_cpus(requested_cpu, n_proc):
@@ -675,7 +684,7 @@ class Methods(object):
                '-w', output_folder,
                '-n', 'raxml.tree',
                '-m', 'GTRCAT',
-               '-N', str(1000),
+               '-N', str(100),
                '-d', '-f', 'a', '-T', str(cpu),
                '-x', str(1234), '-p', str(123)]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -685,6 +694,7 @@ class Methods(object):
         cmd = ['FastTree',
                '-nt',
                '-gtr',
+               '-boot', str(100),
                aligned_fasta]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         with open(output_folder + 'fasttree.tree', 'wb') as f:
@@ -700,3 +710,85 @@ class Methods(object):
             t.render(output_file, w=183, units='mm', tree_style=ts)
         except NewickError:
             print('Could not convert tree to picture file.')
+
+    @staticmethod
+    def run_phame(ref, fasta_folder, output_folder, cpu):
+        Methods.make_folder(output_folder)
+
+        cfg_dict = {
+            'refdir': fasta_folder,
+            'workdir': output_folder,  # # directory where reference (Complete) files are located
+            'reference': '1',  # 0:pick a random ref from refdir; 1:use given ref; 2: use ANI based ref
+            'reffile': os.path.basename(ref),  # reference filename when option 1 is chosen
+            'project': 'phame',  # main alignment file name
+            'cdsSNPS': '0',  # 0:no cds SNPS; 1:cds SNPs, divides SNPs into coding and non-coding sequences, gff file is required
+            'buildSNPdb': '0',  # 0: only align to reference 1: build SNP database of all complete genomes from refdir
+            'FirstTime': '1',  # 1:yes; 2:update existing SNP alignment, only works when buildSNPdb is used first time to build DB
+            'data': '3',  # 0:only complete(F); 1:only contig(C); 2:only reads(R); 3:combination F+C; 4:combination F+R; 5:combination C+R; 6:combination F+C+R; 7:realignment
+            'reads': '2',  # 1: single reads; 2: paired reads; 3: both types present
+            'tree': '1',  # 0:no tree; 1:use FastTree; 2:use RAxML; 3:use both
+            'bootstrap': '1',  # 0:no; 1:yes;  # Run bootstrapping
+            'N': '100',  # Number of bootstraps to run
+            'PosSelect': '0',  # 0:No; 1:use PAML; 2:use HyPhy; 3:use both # these analysis need gff file to parse genomes to genes
+            'code': '0',  # 0:Bacteria; 1:Virus; 2: Eukarya # Bacteria and Virus sets ploidy to haploid
+            'clean': '1',  # 0:no clean; 1:clean # remove intermediate and temp files after analysis is complete
+            'threads': str(cpu),  # Number of threads to use
+            'cutoff': '0.1'  # Linear alignment (LA) coverage against reference - ignores SNPs from organism that have lower cutoff.
+        }
+
+        # Create config file
+        cfg = output_folder + 'phame.cfg'
+        with open(cfg, 'w') as f:
+            for k, v in cfg_dict.items():
+                f.write('{}={}\n'.format(k, v))
+
+        # Add reference to assemblies
+        os.symlink(ref, fasta_folder + '/' + os.path.basename(ref))
+
+        # Run Phame
+        cmd = ['phame', cfg]
+        subprocess.run(cmd)
+
+    @staticmethod
+    def run_snippy(ref, assembly, output_folder, cpu, mem):
+        # # Prep input tab to run "snippy-multi"
+        # input_tab = output_folder + 'input.tsv'
+        # with open(input_tab, 'w') as f:
+        #     for assembly in assembly_list:
+        #         sample = os.path.basename(assembly)
+        #         f.write('{}\t{}\n'.format(sample, assembly))
+
+        sample = '.'.join(os.path.basename(assembly).split('.')[:-1])
+
+        # Create script
+        cmd = ['snippy',
+               '--reference', ref,
+               '--cpus', str(cpu),
+               '--outdir', output_folder + sample,
+               '--prefix', sample,
+               '--ram', str(mem),
+               '--force',
+               '--cleanup',
+               '--report',
+               '--ctgs', assembly]
+        os.chdir(output_folder)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+    @staticmethod
+    def run_snippy_parallel(ref, assembly_list, output_folder, cpu, mem, parallel):
+        Methods.make_folder(output_folder)
+
+        with futures.ThreadPoolExecutor(max_workers=int(parallel)) as executor:
+            args = ((ref, assembly, output_folder, int(cpu / parallel), int(mem / parallel))
+                    for assembly in assembly_list)
+            for results in executor.map(lambda x: Methods.run_snippy(*x), args):
+                pass
+
+    @staticmethod
+    def snippy_core(output_folder, ref):
+        snippy_folder_list = next(os.walk(output_folder))[1]
+
+        cmd = ['snippy-core',
+               '--ref', ref,
+               '--prefix={}'.format(output_folder + 'core')] + snippy_folder_list
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
