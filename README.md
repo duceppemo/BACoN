@@ -68,7 +68,7 @@ options:
                         Kmer size for baiting. Only used if "--baiting-method" is "bbduk". Optional.
   --keep-bam            Do not delete BAM files. Only used if "--baiting-method" is "minimap2". Optional.
   -snp {parsnp,snippy,phame}, --snp-method {parsnp,snippy,phame}
-                        SNP calling method. Default "phame". Optional.
+                        SNP calling method. Default "snippy". Optional.
   -v, --version         show program's version number and exit
 ```
 
