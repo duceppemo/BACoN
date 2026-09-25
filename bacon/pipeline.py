@@ -382,9 +382,9 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
                  "SKA2" if s.snp_method == "ska" else "Parsnp")
         paths = {k: v for k, v in assemblies.items() if v is not None}
         if s.snp_method == "parsnp":
-            tree_input, snps, failed = compare.run_parsnp(reference, paths, out, log_dir, threads=s.threads)
+            tree_input, snps = compare.run_parsnp(reference, paths, out, log_dir, threads=s.threads)
         else:
-            tree_input, snps, failed = compare.run_ska(reference, paths, out, log_dir, threads=s.threads,
+            tree_input, snps = compare.run_ska(reference, paths, out, log_dir, threads=s.threads,
                                                        min_freq=s.ska_min_freq)
         records = list(read_records(snps))
         names, matrix = compare.snp_distances(records)
@@ -401,11 +401,8 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         result = {"method": s.snp_method, "tree_method": s.tree, "tree": tree,
                   "tree_svg": str(out / "tree.svg") if tree else None,
                   "distances": str(out / "snp_distances.tsv"), "alignment": str(tree_input),
-                  "core_snps": sites, "failed": failed}
+                  "core_snps": sites}
         checkpoints.save("compare", fingerprint, result)
-    for st in states:
-        if st.sample.name in result.get("failed", []):
-            st.notes.append(f"not in the tree ({s.snp_method} failed)")
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result

@@ -30,13 +30,14 @@ Flye collapses tandem repeats (such as rDNA arrays) into one circular unit, drop
 ([Validation](Validation)). Use the templated assembly, or `-a myloasm`, which keeps them linear.
 
 **Why are there `N` in the templated assembly?**
-Where no read covers the reference, or the reads disagree on a base (often inside an insertion), samtools
+Where fewer than three reads cover the reference, or the reads disagree on a base (often inside an insertion), samtools
 writes `N`. `N_bases` in `summary.tsv` counts them. A de novo assembly resolves insertions.
 
 **Which reads can I use?**
-Any Nanopore reads, fastq or fasta. Guppy 5+ or Dorado SUP/HAC reads work best. For older reads (R9.4.1 with
-Guppy < 5), add `--read-type nano-raw` for Flye; the templated assembly works with either (the tutorial uses
-R9.4.1 reads).
+Any Nanopore reads, fastq or fasta. Dorado or Guppy 5+ SUP/HAC reads work best. Flye's default `nano-hq` mode
+is meant for R10/Q20 reads (<3% error); for R9 reads basecalled with Guppy < 5 (10–20% error), add
+`--read-type nano-raw`. The templated assembly works with either. The tutorial's older MinION reads (mean
+Q14–16) worked with the defaults, including `-a flye`.
 
 **Can I compare samples sequenced with different chemistries?**
 Yes, but systematic consensus errors differ between chemistries and add to the distances between samples

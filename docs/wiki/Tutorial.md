@@ -3,9 +3,9 @@
 This tutorial runs BACoN on public data: whole-genome Nanopore reads of 28 potato (*Solanum tuberosum*)
 cultivars from the Ural region, sequenced to compare their plastomes (NCBI BioProject
 [PRJNA807056](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA807056); MinION, reads longer than 6 kb, 100–700 Mb
-per sample). Potato cultivars carry a few types of plastome ("cytoplasm types"); the common T-type differs from
-the others by, among other things, a 241 bp deletion between the *ndhC* and *trnV-UAC* genes. Let's see what
-BACoN finds.
+per sample). Potato cultivars carry a few types of plastome ("cytoplasm types"); T-type plastomes carry a 241 bp
+deletion between the *ndhC* and *trnV-UAC* genes that the other types lack (Kawagoe & Kikuta 1991; Hosaka 2002).
+Let's see what BACoN finds.
 
 ## 1. Download the reads and the reference
 
@@ -23,7 +23,7 @@ while IFS=$'\t' read -r run alias url md5; do
 done < runs.tsv > md5.txt
 md5sum -c md5.txt
 
-# The reference: the plastome of cultivar Désirée (T-type)
+# The reference: the plastome of cultivar Désirée
 curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_008096.2&rettype=fasta" \
     > NC_008096.2.fasta
 ```
@@ -50,10 +50,10 @@ Sample     Status  Raw_reads  Raw_bases  Baited_reads  Baited_pct  Filtered_read
 ```
 
 - 10–23% of the bases are plastid reads, typical of leaf DNA; three runs (Alaska, Argo, Shah) were
-  already filtered to plastid reads (100%).
-- Every sample reaches 65–100x after filtering, far more than needed.
+  already filtered to plastid reads (nearly 100%).
+- Every sample reaches 64–100x after filtering, far more than needed.
 - The consensus lengths fall into two groups: about 155,170 bp and about 155,390 bp. Samples of the second group
-  have 120–150 `N` bases, mostly in one region, next to position 52,580.
+  have 119–153 `N` bases, nearly all in one region, next to position 52,580.
 
 ## 4. SNPs and tree: `4_compared/ska/`
 
@@ -64,14 +64,16 @@ three groups:
 |---|---|---|---|
 | T-type | 14_6_3, 16-35-5, 16_1_2, Bagira, Bankir, Iskra, Luks, Shah, Terra, Zdraven | 1 | identical |
 | Lineage A | 15-27-1, Legenda | 67 | identical |
-| Lineage B | 12_22_134, 14_4_1, 15_22_4, 16_4_3, Alaska, Amur, Argo, Baron, Bravo, Gornyak, Irbitskiy, Kamenskiy, Mishka, Otrada, Start, Utro_ranneye | 67–76 | 0–12 |
+| Lineage B | 12_22_134, 14_4_1, 15_22_4, 16_4_3, Alaska, Amur, Argo, Baron, Bravo, Gornyak, Irbitskiy, Kamenskiy, Mishka, Otrada, Start, Utro_ranneye | 67–76 | 0–13 |
 
-Lineages A and B are 66 and 75 SNPs from the T-type group, and 84 from each other.
+Lineage A is 66 SNPs from the T-type group, lineage B 66–75, and the two lineages are 76–85 SNPs apart. Lineage B
+holds three distinct plastomes: 11 identical cultivars, a group of four (14_4_1, 16_4_3, Baron, Start) 5 SNPs
+away, and 15_22_4, 12–13 SNPs from both.
 
 ![Tree of the 28 potato plastomes](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/tutorial_potato_tree.svg)
 
-The T-type group shares the reference's plastome but for one SNP; lineages A and B carry other cytoplasm
-types.
+The T-type group shares the reference's plastome but for one SNP. Lineages A and B are not T-type (next
+section); which of the other cytoplasm types they are is not determined here.
 
 ## 5. The 241 bp marker
 
@@ -93,12 +95,19 @@ bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -a flye -t 48 -p 12
 reuses the baited and filtered reads and assembles each sample with Flye (about 10 minutes). The Flye
 assembly of Alaska has an insertion of exactly 241 bp at position 52,578. Flye also reports 17 of the 28
 plastomes as one circular contig. Its SNP distances (`4_compared/ska/snp_distances.tsv`, replaced) are
-identical to those of the templated assembly for all 406 pairs of samples.
+identical to those of the templated assembly for all 406 pairs of genomes (the 28 cultivars and the
+reference).
 
 ## What this shows
 
 - Genome skimming data from a few hundred megabases per sample is enough for complete plastomes.
 - The templated assembly gives the SNPs and small indels in minutes; a de novo assembly resolves the insertions
   and the structure, and confirms the SNPs independently.
-- Identical plastomes (distance 0) are common among cultivars: the plastome is inherited maternally, and
-  cultivars descend from few maternal lineages.
+- Identical plastomes (distance 0) are common: these 28 cultivars carry only five distinct plastomes.
+
+## References
+
+- Kawagoe Y., Kikuta Y. (1991) Chloroplast DNA evolution in potato (*Solanum tuberosum* L.). *Theoretical and
+  Applied Genetics* 81:13–20. https://doi.org/10.1007/BF00226106
+- Hosaka K. (2002) Distribution of the 241 bp deletion of chloroplast DNA in wild potato species. *American
+  Journal of Potato Research* 79:119–123. https://doi.org/10.1007/BF02881520

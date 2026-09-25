@@ -22,8 +22,8 @@ Results with the programs of BACoN 0.3:
 | | samtools (templated, default) | Flye | myloasm |
 |---|---|---|---|
 | Consensus errors, plastid, 8 samples at 40x | 0 | 0 | 0 |
-| Plastid sample at 10x | 1 contig, 1 error | 3 contigs, 68 errors | 2 contigs, 0 errors |
-| Linear molecules | correct | correct, none circularized | correct |
+| Plastid sample at 10x | 1 contig, 1 error | 3 contigs, 68 errors | 2 contigs, 0–1 errors (not deterministic) |
+| Linear molecules | correct | correct, none circularized | 2 errors in one sample |
 | Tandem array (rdna) | correct | **collapsed into a circular 6 kb contig** | correct in 3 of 4 samples |
 | Exact SNP distances with SKA2 (plastid, linear, rdna) | 45/45, 10/10, 10/10 | 45/45, 10/10, 1/10 | 45/45, 6/10, 6/10 |
 
@@ -43,14 +43,14 @@ Results with the programs of BACoN 0.3:
 | Rebaler | 57 consensus errors on the plastid scenario and SNP distances wrong by up to 24; unmaintained |
 | Medaka (polishing, or templated) | no gain on simulated data; on real data it moved 80 of 406 distances away from the value on which the templated and de novo assemblies agree; slower, needs PyTorch and a model matching the basecaller |
 | Snippy | misses SNPs in inverted repeats; cannot be installed with current assemblers |
-| PhaME | its dependency check fails with any samtools from 1.10 |
+| PhaME | its dependency check compares versions as decimals and rejects samtools 1.10 to 1.29 |
 
 ## Real data
 
-The 28 potato cultivars of the [Tutorial](Tutorial) (public, R9.4.1-era reads): the templated assembly and the
-Flye assembly, analysed independently, give **identical SNP distances for all 406 pairs** of cultivars. They
-recover the known cytoplasm types, including the 241 bp deletion that marks the T-type (resolved exactly by
-Flye).
+The 28 potato cultivars of the [Tutorial](Tutorial) (public; older MinION reads, mean Q14–16): the templated assembly and the
+Flye assembly, analysed independently, give **identical SNP distances for all 406 pairs** of genomes (28 cultivars and the reference). Both
+separate the T-type plastomes from the others, which carry the 241 bp sequence absent from T-type plastomes
+(resolved exactly by Flye).
 
 ## Reproducing
 

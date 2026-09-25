@@ -54,6 +54,7 @@ If the programs are already installed (for example in an HPC module system), BAC
 
 - **The environment takes long to solve, or mamba reports "nothing provides ..." for packages that exist**:
   some mamba 2.x versions misreport conflicts; `conda env create` (with the libmamba solver) solves it.
-- **`samtools consensus: unrecognised option -X`**: samtools is older than 1.21; update it.
+- **`samtools consensus: unrecognised option -X`**: samtools is older than 1.17 (which added `-X`); update
+  it. BACoN is tested with samtools 1.21 and later.
 - **Upgrading from BACoN 0.2**: create a new environment; the old `requirements.txt` environment pinned
   programs that are no longer used (Porechop, Shasta, Rebaler, Snippy, PhaME, RAxML, ete3).

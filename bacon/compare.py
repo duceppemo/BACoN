@@ -64,7 +64,7 @@ def _parsnp_names(assemblies: dict[str, Path], reference: Path) -> dict[str, str
 
 
 def run_parsnp(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *,
-               threads: int) -> tuple[Path, Path, list[str]]:
+               threads: int) -> tuple[Path, Path]:
     shutil.rmtree(out_dir, ignore_errors=True)
     log_file = log_dir / "parsnp.log"
     # -c: keep every genome (by default Parsnp silently drops genomes too distant from the reference).
@@ -81,7 +81,7 @@ def run_parsnp(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_
     clean_alignment(out_dir / "parsnp.snps.raw.fasta", out_dir / "parsnp.snps.fasta", rename)
     for raw in ("parsnp.core.raw.fasta", "parsnp.snps.raw.fasta"):
         (out_dir / raw).unlink()
-    return out_dir / "parsnp.core.fasta", out_dir / "parsnp.snps.fasta", []
+    return out_dir / "parsnp.core.fasta", out_dir / "parsnp.snps.fasta"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -96,7 +96,7 @@ def wrap_circular(rec: Record, kmer: int, force: bool = False) -> Record:
 
 
 def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *, threads: int,
-            min_freq: float, kmer: int = 31) -> tuple[Path, Path, list[str]]:
+            min_freq: float, kmer: int = 31) -> tuple[Path, Path]:
     """Split k-mer alignment of the assemblies and the reference.
 
     `min_freq` is the fraction of genomes that must contain a split k-mer for its variant to be kept: 1 gives
@@ -133,7 +133,7 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
     clean_alignment(raw, aln)
     raw.unlink()
     shutil.rmtree(inputs)
-    return aln, aln, []
+    return aln, aln
 
 
 # ---------------------------------------------------------------------------------------------------------------

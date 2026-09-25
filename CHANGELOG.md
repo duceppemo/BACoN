@@ -13,7 +13,7 @@ candidates on simulated data of known truth and on real data ([Validation](https
   Flye remains available (`-a flye`), and myloasm is added (`-a myloasm`).
 - The default SNP method is now **SKA2** (`--snp-method ska`), reference-free, exact on all simulated data and
   counting a SNP in an inverted repeat once. `--ska-min-freq` below 1 gives pan-genome SNPs, the role of kSNP3
-  in BACoN 0.1. Parsnp remains (`--snp-method parsnp`), now with `-c` so that it keeps every genome.
+  in BACoN 0.1. Parsnp remains (`--snp-method parsnp`), now with `-c`, which turns off its filter that drops divergent genomes.
 - Output folders: `1_extracted`, `2_filtered`, `3_assembled`, `4_compared/<method>/` (there is no trimming
   step any more). Each comparison method writes to its own folder.
 - Resuming is automatic and parameter-aware: finished steps are skipped when their parameters and inputs did
@@ -40,7 +40,7 @@ candidates on simulated data of known truth and on real data ([Validation](https
 
 ### Removed
 - Porechop (unmaintained; reads are trimmed by the basecaller), Shasta, Rebaler, Snippy (cannot be installed
-  with current assemblers), PhaME (its version check rejects any samtools from 1.10), RAxML and the
+  with current assemblers), PhaME (its version check rejects samtools 1.10 to 1.29), RAxML and the
   `requirements.txt` environment. See [Methods](https://github.com/duceppemo/BACoN/wiki/Methods#choices-that-changed-in-03).
 
 ### Fixed

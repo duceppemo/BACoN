@@ -35,7 +35,7 @@ packages = ["bacon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["tools: needs the external programs (minimap2, filtlong, flye, snippy, ...) on PATH"]
+markers = ["tools: needs the external programs (minimap2, filtlong, flye, ska, ...) on PATH"]
 
 [tool.coverage.run]
 source = ["bacon"]

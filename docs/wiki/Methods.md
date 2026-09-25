@@ -31,20 +31,20 @@ maintained.
 | | Templated: `samtools` (default) | De novo: `flye` | De novo: `myloasm` |
 |---|---|---|---|
 | How | reads aligned to the reference (minimap2), consensus with `samtools consensus -X r10.4_sup` | Flye 2.9 | myloasm |
-| Output | one sequence per reference sequence; positions without reads are `N` | contigs; circular ones flagged | contigs; circular ones flagged |
+| Output | one sequence per reference sequence; positions covered by fewer than three reads are `N` | contigs; circular ones flagged | contigs; circular ones flagged |
 | Accuracy of the consensus | highest | high; some systematic errors on real data | high |
 | Structure (circularity, rearrangements, inverted repeats) | not shown: follows the reference | shown | shown |
 | Insertions absent from the reference | small ones (up to a few hundred bp) | all | all |
 | Tandem repeats (e.g. rDNA arrays) | follows the reference | may collapse into one circular unit | kept linear |
 | Needs | a reference close to the samples (same species) | nothing but depth (about 20x or more) | depth |
-| Assembly time, 28 potato plastomes (`-t 48 -p 12`) | 17 s | 10 min | 35 s |
+| Assembly time, 28 potato plastomes (`-t 48 -p 12`) | 13 s | 10 min | 35 s |
 
 **Which one?** For comparing samples of one species against a good reference, which is the usual aim of
 BACoN, use the templated assembly (the default): in every test it gave SNP distances as good as or better than
 the de novo assemblies, and it is the fastest ([Validation](Validation)). Use a de novo assembler to look at
 the structure of the genomes, when the reference is distant, or to check the templated results
 independently: on the tutorial data, Flye and the templated assembly gave identical SNP distances for all
-406 pairs of samples. Between the two de novo assemblers, Flye gave more complete plastomes on real data;
+406 pairs of genomes (the 28 cultivars and the reference). Between the two de novo assemblers, Flye gave more complete plastomes on real data;
 myloasm is faster and does not circularize linear tandem arrays.
 
 Limits of the templated assembly:
@@ -53,11 +53,11 @@ Limits of the templated assembly:
   cannot appear, and large insertions are left out. Insertions and deletions of up to a few hundred bases
   are kept, such as the 241 bp that distinguishes potato cytoplasm types ([Tutorial](Tutorial)), but the
   bases of an insertion the reads do not agree on are `N`: Flye resolved that insertion fully.
-- Where no read aligns, or the reads disagree, the consensus has `N` (`N_bases`, and a note in
+- Where fewer than three reads align, or the reads disagree, the consensus has `N` (`N_bases`, and a note in
   `summary.tsv`).
   `--template-gaps reference` copies the reference into uncovered sequence ends only; inner gaps stay `N`.
 - In an inverted repeat both copies receive the same reads; a difference between the two copies of one
-  sample cannot be seen (such differences are rare: copies are homogenized in chloroplasts).
+  sample cannot be seen (the two copies are usually identical in chloroplasts).
 
 Limits of the de novo assemblies:
 
@@ -78,14 +78,15 @@ Limits of the de novo assemblies:
   BACoN 0.1 used). A SNP in an inverted repeat is counted once. Before SKA2, circular contigs are extended by
   their first 30 bases so that SNPs next to the start of the sequence are not lost.
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
-  with `-c` so that it keeps every genome: by default Parsnp drops genomes it finds too divergent, which in
+  with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
+  divergent, which in
   the validation removed a low-depth sample. SNPs inside inverted repeats are missed, and SNPs next to
   large deletions may be.
 
 **Distances.** `snp_distances.tsv` counts, for each pair of genomes, the positions of the SNP alignment where
 both have a nucleotide and they differ.
 
-**Tree.** FastTree (GTR, SH-like local supports; default) or IQ-TREE (`--tree iqtree`: ModelFinder and 1000
+**Tree.** FastTree (GTR, SH-like local supports from 100 resamples; default) or IQ-TREE (`--tree iqtree`: ModelFinder and 1000
 ultrafast bootstraps), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
 at the midpoint of its longest path, ladderized, and drawn as SVG. With SKA2, branch lengths are in
 substitutions per variable site.
@@ -101,8 +102,8 @@ example with fragmented assemblies), the distances are written but no tree is bu
 | Shasta | removed | on real data, some assemblies collapsed to a fraction of the genome; on simulations it left overlapping ends and lost part of an inverted repeat |
 | Rebaler | samtools consensus | Rebaler is unmaintained (2019); samtools consensus was far more accurate in every test |
 | Snippy | SKA2 | Snippy (2020) can no longer be installed with current assemblers; it misses SNPs in inverted repeats and was the noisiest on real data |
-| PhaME | removed | broken with any recent samtools (its version check reads 1.21 as older than 1.3) |
-| Parsnp without `-c` | Parsnp with `-c` | keeps every genome |
+| PhaME | removed | its dependency check compares versions as decimals and rejects samtools 1.10 to 1.29 (1.21 reads as older than 1.3; observed with 1.16 and 1.21) |
+| Parsnp without `-c` | Parsnp with `-c` | no longer drops divergent genomes (assemblies much shorter than the reference still make Parsnp fail) |
 | RAxML 8 | IQ-TREE | maintained; model selection |
 | ete3 PDF | SVG, drawn by BACoN | ete3 needs Qt and a display |
 

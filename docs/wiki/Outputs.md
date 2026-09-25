@@ -6,18 +6,21 @@ OUTPUT/
 ├── run_info.json               version, command, settings, program versions, samples, comparison
 ├── bacon.log                   the log of every run in this folder
 ├── reference.fasta             the reference used (uncompressed copy)
-├── 1_extracted/<sample>.fastq.gz          baited reads (and <sample>.bam with --keep-bam)
-├── 2_filtered/<sample>.fastq.gz           filtered reads
+├── 1_extracted/<sample>.fastq.gz          baited reads (.fasta.gz for fasta input; <sample>.bam and .bam.bai
+│                                          with --keep-bam)
+├── 2_filtered/<sample>.fastq.gz           filtered reads (.fasta.gz for fasta input)
 ├── 3_assembled/
 │   ├── all_assemblies/<sample>.fasta      the assembly of each sample
 │   ├── assembly_graphs/<sample>.gfa/.png  assembly graphs (de novo assemblers; .png with Bandage)
 │   └── <sample>/                          the assembler's own folder
-├── 4_compared/<method>/
-│   ├── snp_distances.tsv       pairwise SNP distances, Reference first
-│   ├── tree.nwk                midpoint-rooted tree (Newick)
-│   ├── tree.svg                picture of the tree
-│   └── ...                     the method's own files (alignments)
-└── logs/<step>/<sample>.log    the commands run and the programs' messages
+├── 4_compared/
+│   ├── added_genomes/<name>.fasta          genomes given with --add-genomes, as compared
+│   └── <method>/                           ska, ska_<min-freq>, or parsnp
+│       ├── snp_distances.tsv               pairwise SNP distances, Reference first
+│       ├── tree.nwk                        midpoint-rooted tree (Newick)
+│       ├── tree.svg                        picture of the tree
+│       └── ...                             the method's own files (alignments)
+└── logs/<step>/<sample>.log              the commands run and the programs' messages
 ```
 
 ## summary.tsv
@@ -29,13 +32,14 @@ OUTPUT/
 | `Raw_reads`, `Raw_bases` | Input reads and bases (`NA` with `-b bbduk` when BBDuk does not report them) |
 | `Baited_reads`, `Baited_bases`, `Baited_pct` | Reads matching the reference, and their share of the input bases (%) |
 | `Filtered_reads`, `Filtered_bases`, `Filtered_N50` | Reads kept by Filtlong |
-| `Est_depth` | Filtered bases / reference length |
-| `Contigs`, `Assembly_length`, `Largest_contig`, `Assembly_N50` | Assembly statistics |
+| `Est_depth` | Filtered bases / genome size (`-s`, or the reference length) |
+| `Contigs` | Number of contigs |
 | `Circular_contigs` | Contigs the assembler reports as circular (Flye, myloasm; `NA` for the templated assembly) |
+| `Assembly_length`, `Largest_contig`, `Assembly_N50` | Assembly statistics |
 | `Length_vs_reference` | Assembly length / reference length |
 | `Assembly_depth` | Mean depth reported by Flye |
-| `N_bases` | Templated assembly: bases called `N`, where no read covers the reference or the reads disagree (often inside insertions) |
-| `Note` | Warnings: low depth (below 20x), assembly length outside 0.8–1.2 times the reference, `N` bases, not in the tree, or why the sample failed |
+| `N_bases` | Templated assembly: bases called `N`, where fewer than three reads cover the reference or the reads disagree (often inside insertions) |
+| `Note` | Warnings: low depth (below 20x), assembly length outside 0.8–1.2 times the reference, `N` bases, or why the sample failed |
 
 ## Assemblies
 
@@ -43,7 +47,7 @@ OUTPUT/
 that the assembler reports as circular have ` circular=true` in their header.
 
 - **Templated** (`samtools`): one sequence per reference sequence, in reference coordinates plus the
-  sample's insertions and minus its deletions. Positions that no read covers, and bases the reads do not agree
+  sample's insertions and minus its deletions. Positions covered by fewer than three reads, and bases the reads do not agree
   on (often inside an insertion), are `N`.
 - **De novo** (`flye`, `myloasm`): contigs as assembled. A circular genome can start anywhere and on either
   strand. Chloroplasts often come out as three contigs (large single copy, inverted repeat, small single copy)
@@ -60,7 +64,7 @@ nucleotides (A, C, G, T; gaps and N are ignored), with the reference as `Referen
   `parsnp.snps.fasta` the SNP sites; plus Parsnp's own files.
 
 `tree.nwk` is rooted at the midpoint of the longest path and ladderized; internal labels are the supports
-(SH-like local supports for FastTree, ultrafast bootstraps for IQ-TREE). `tree.svg` draws it with a scale in
+(SH-like local supports from 100 resamples for FastTree, ultrafast bootstraps for IQ-TREE). `tree.svg` draws it with a scale in
 substitutions per site. When no SNP site is shared by all the genomes, the distances are written but no tree
 is built; lower `--ska-min-freq` (see [FAQ](FAQ)).
 

@@ -36,16 +36,16 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--keep-bam` | off | Keep the sorted BAM of the baited reads (minimap2) |
 | `--min-read-length` | 500 | Shorter reads are discarded |
 | `--keep-percent` | 95 | Filtlong keeps this percentage of the best reads (fastq only: fasta reads have no qualities and are selected by length) |
-| `--target-depth` | 100 | Filtlong keeps at most this depth of the best reads (depth = bases / reference length) |
+| `--target-depth` | 100 | Filtlong keeps at most this depth of the best reads (depth = bases / genome size, `-s` or the reference length) |
 | `-a`, `--assembly-method` | `samtools` | `samtools` (templated), `flye` or `myloasm` (de novo); see [Methods](Methods) |
-| `--template-gaps` | `n` | Templated assembly: reference positions no read covers are `N`; `reference` copies the reference into uncovered ends only |
-| `--read-type` | `nano-hq` | Flye: `nano-hq` for Guppy 5+ / Dorado reads (<5% error), `nano-raw` for older ones, `nano-corr` for corrected reads |
+| `--template-gaps` | `n` | Templated assembly: reference positions covered by fewer than three reads are `N`; `reference` copies the reference into such positions at the sequence ends only |
+| `--read-type` | `nano-hq` | Flye: `nano-hq` for R10/Q20 reads (<3% error; Flye's advice for R9 Guppy 5+ reads is also `nano-hq`), `nano-raw` for R9 reads basecalled with Guppy < 5, `nano-corr` for corrected reads |
 | `--min-size` | automatic | Flye minimum read overlap |
 | `-s`, `--size` | reference length | Expected genome size, for Flye and for `--target-depth` |
 | `--snp-method`, `-snp` | `ska` | `ska` (SKA2 split k-mers), `parsnp` (core-genome alignment), `none` (stop after the assembly) |
 | `--ska-min-freq` | 1.0 | SKA2: fraction of the genomes that must contain a variant's context; 1 = core SNPs, lower = pan-genome SNPs (like kSNP) |
 | `--add-genomes` | | Finished genomes (fasta) to include in the comparison, such as published plastomes; named after their file |
-| `--tree` | `fasttree` | `fasttree` (GTR, SH-like supports) or `iqtree` (model selection, 1000 ultrafast bootstraps) |
+| `--tree` | `fasttree` | `fasttree` (GTR, SH-like supports from 100 resamples) or `iqtree` (model selection, 1000 ultrafast bootstraps) |
 | `--redo` | | Rerun this step and the following ones: `bait`, `filter`, `assemble`, `compare` |
 | `-t`, `--threads` | all | Total threads, shared between the samples processed in parallel |
 | `-p`, `--parallel` | 2 | Samples processed at the same time |
@@ -72,8 +72,8 @@ assemblies are compared again).
 
 ## Performance
 
-The 28 potato samples of the [tutorial](Tutorial) (7 GB of whole-genome reads) take about 3 minutes with the
-default templated assembly (`-t 32 -p 8`): 2 minutes to bait, 1 minute to filter, 17 seconds to assemble, and
-less than a second to compare. With Flye, the assembly takes about 10 minutes (`-t 48 -p 12`), most of it for
-one sample on which Flye spent 10 minutes on a single CPU. Baiting reads every input read once; the other steps
-work on the baited reads only. Memory stays below 1 GB for BACoN itself; the assemblers use a few GB.
+The 28 potato samples of the [tutorial](Tutorial) (7 GB of whole-genome reads) take 3 minutes with the default
+templated assembly (`-t 32 -p 8`): 1.5 minutes to bait, 1.2 minutes to filter, 17 seconds to assemble, and about
+a second to compare. With Flye (`-t 48 -p 12`), the assembly takes 10 minutes: 2–4 minutes per sample, and 8
+minutes for the slowest. Baiting reads every input read once; the other steps work on the baited reads only.
+The largest single process used 0.7 GB with the templated assembly or Flye, and 2 GB with myloasm.
