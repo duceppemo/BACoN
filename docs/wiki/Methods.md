@@ -114,9 +114,9 @@ The evidence is in [Validation](Validation).
 - samtools consensus: Danecek P. et al. (2021) Twelve years of SAMtools and BCFtools. *GigaScience* 10:giab008.
 - Filtlong: Wick R. https://github.com/rrwick/Filtlong
 - Flye: Kolmogorov M. et al. (2019) Assembly of long, error-prone reads using repeat graphs. *Nature Biotechnology* 37:540–546.
-- myloasm: Shaw J. et al. (2025) myloasm: high-resolution metagenome assembly with noisy long reads. https://github.com/bluenote-1577/myloasm
-- SKA2: Derelle R. et al. (2024) Seamless, rapid, and accurate analyses of outbreak genomic data using split k-mer analysis. *Genome Research* 34:1661–1673.
-- Parsnp: Treangen T.J. et al. (2014) The Harvest suite for rapid core-genome alignment and visualization of thousands of intraspecific microbial genomes. *Genome Biology* 15:524; Kille B. et al. (2024) Parsnp 2.0. *Bioinformatics* 40:btae311.
+- myloasm: Shaw J., Marin M.G., Li H. (2026) High-resolution metagenome assembly for modern long reads with myloasm. *Nature Biotechnology*. https://doi.org/10.1038/s41587-026-03053-z
+- SKA2: Derelle R., von Wachsmann J., Mäklin T., Hellewell J., Russell T., Lalvani A., Chindelevitch L., Croucher N.J., Harris S.R., Lees J.A. (2024) Seamless, rapid, and accurate analyses of outbreak genomic data using split k-mer analysis. *Genome Research* 34:1661–1673. https://doi.org/10.1101/gr.279449.124
+- Parsnp: Treangen T.J. et al. (2014) The Harvest suite for rapid core-genome alignment and visualization of thousands of intraspecific microbial genomes. *Genome Biology* 15:524; Kille B. et al. (2024) Parsnp 2.0: scalable core-genome alignment for massive microbial datasets. *Bioinformatics* 40(5):btae311. https://doi.org/10.1093/bioinformatics/btae311
 - FastTree: Price M.N. et al. (2010) FastTree 2. *PLoS ONE* 5:e9490.
-- IQ-TREE: Wong T.K.F. et al. (2025) IQ-TREE 3. *EcoEvoRxiv*; Minh B.Q. et al. (2020) IQ-TREE 2. *Molecular Biology and Evolution* 37:1530–1534.
+- IQ-TREE: Wong T.K.F. et al. (2026) IQ-TREE 3: phylogenomic inference software using complex evolutionary models. *Molecular Biology and Evolution* 43(5):msag117. https://doi.org/10.1093/molbev/msag117
 - BBDuk: Bushnell B. BBTools. https://sourceforge.net/projects/bbmap/
