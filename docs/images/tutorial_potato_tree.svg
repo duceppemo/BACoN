@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="795" height="718" viewBox="0 0 795 718" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<rect width="100%" height="100%" fill="white"/>
+<text x="36" y="22" font-size="15" font-weight="bold">ska.snps.fasta — midpoint-rooted, SH-like support (FastTree)</text>
+<path d="M36.0,97.8V394.8 M36.0,97.8H91.8 M91.8,51.0V144.5 M91.8,51.0H676.0 M676.0,40.0V62.0 M676.0,40.0H676.0 M676.0,62.0H676.0 M91.8,144.5H250.7 M250.7,84.0V205.0 M250.7,84.0H257.2 M250.7,205.0H250.7 M250.7,106.0V304.0 M250.7,106.0H250.7 M250.7,128.0H250.7 M250.7,150.0H250.7 M250.7,172.0H250.7 M250.7,194.0H250.7 M250.7,216.0H250.7 M250.7,238.0H250.7 M250.7,260.0H250.7 M250.7,282.0H250.7 M250.7,304.0H250.7 M36.0,394.8H583.4 M583.4,326.0V463.5 M583.4,326.0H583.4 M583.4,463.5H654.8 M654.8,381.0V546.0 M654.8,381.0H676.0 M676.0,348.0V414.0 M676.0,348.0H676.0 M676.0,370.0H676.0 M676.0,392.0H676.0 M676.0,414.0H676.0 M654.8,546.0H666.8 M666.8,436.0V656.0 M666.8,436.0H666.8 M666.8,458.0H666.8 M666.8,480.0H666.8 M666.8,502.0H666.8 M666.8,524.0H666.8 M666.8,546.0H666.8 M666.8,568.0H666.8 M666.8,590.0H666.8 M666.8,612.0H666.8 M666.8,634.0H666.8 M666.8,656.0H666.8" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="square"/>
+<text x="681.0" y="44.5">15-27-1</text>
+<text x="681.0" y="66.5">Legenda</text>
+<text x="262.2" y="88.5">Reference</text>
+<text x="255.7" y="110.5">14_6_3</text>
+<text x="255.7" y="132.5">16-35-5</text>
+<text x="255.7" y="154.5">16_1_2</text>
+<text x="255.7" y="176.5">Bagira</text>
+<text x="255.7" y="198.5">Bankir</text>
+<text x="255.7" y="220.5">Iskra</text>
+<text x="255.7" y="242.5">Luks</text>
+<text x="255.7" y="264.5">Shah</text>
+<text x="255.7" y="286.5">Terra</text>
+<text x="255.7" y="308.5">Zdraven</text>
+<text x="247.7" y="140.5" text-anchor="end" font-size="10" fill="#666">0.790</text>
+<text x="588.4" y="330.5">15_22_4</text>
+<text x="681.0" y="352.5">14_4_1</text>
+<text x="681.0" y="374.5">16_4_3</text>
+<text x="681.0" y="396.5">Baron</text>
+<text x="681.0" y="418.5">Start</text>
+<text x="671.8" y="440.5">12_22_134</text>
+<text x="671.8" y="462.5">Alaska</text>
+<text x="671.8" y="484.5">Amur</text>
+<text x="671.8" y="506.5">Argo</text>
+<text x="671.8" y="528.5">Bravo</text>
+<text x="671.8" y="550.5">Gornyak</text>
+<text x="671.8" y="572.5">Irbitskiy</text>
+<text x="671.8" y="594.5">Kamenskiy</text>
+<text x="671.8" y="616.5">Mishka</text>
+<text x="671.8" y="638.5">Otrada</text>
+<text x="671.8" y="660.5">Utro_ranneye</text>
+<text x="651.8" y="459.5" text-anchor="end" font-size="10" fill="#666">1.000</text>
+<path d="M36,690H183.4" stroke="black" stroke-width="1.5"/>
+<text x="109.7" y="706" text-anchor="middle" font-size="11">0.2 substitutions/site</text>
+</svg>

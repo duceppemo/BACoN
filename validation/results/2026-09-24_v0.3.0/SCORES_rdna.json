@@ -1,0 +1,331 @@
+[
+ {
+  "run": "flye",
+  "assembly": {
+   "t01": {
+    "contigs": 1,
+    "length": 6000,
+    "true_length": 22000,
+    "covered_fraction": 0.2727,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 0
+   },
+   "t02": {
+    "contigs": 1,
+    "length": 6000,
+    "true_length": 22000,
+    "covered_fraction": 0.2727,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 0
+   },
+   "t03": {
+    "contigs": 1,
+    "length": 6000,
+    "true_length": 22000,
+    "covered_fraction": 0.2727,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 0
+   },
+   "t04": {
+    "contigs": 1,
+    "length": 6000,
+    "true_length": 22000,
+    "covered_fraction": 0.2727,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 0
+   }
+  },
+  "snps": {
+   "ska": {
+    "samples_expected": 5,
+    "samples_present": 5,
+    "missing": [],
+    "pairs": 10,
+    "best_convention": "no_repeat",
+    "exact_pairs": 1,
+    "max_abs_error": 8,
+    "total_abs_error": 36,
+    "wrong_pairs": [
+     "Reference-t02: 1 (truth 3)",
+     "Reference-t03: 1 (truth 5)",
+     "Reference-t04: 1 (truth 5)",
+     "t01-t02: 1 (truth 3)",
+     "t01-t03: 1 (truth 5)",
+     "t01-t04: 1 (truth 5)",
+     "t02-t03: 0 (truth 2)",
+     "t02-t04: 2 (truth 8)",
+     "t03-t04: 2 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 1,
+      "max_abs_error": 10,
+      "total_abs_error": 46
+     },
+     "sites": {
+      "exact_pairs": 1,
+      "max_abs_error": 20,
+      "total_abs_error": 96
+     },
+     "no_repeat": {
+      "exact_pairs": 1,
+      "max_abs_error": 8,
+      "total_abs_error": 36
+     }
+    }
+   },
+   "ska_0.5": {
+    "samples_expected": 5,
+    "samples_present": 5,
+    "missing": [],
+    "pairs": 10,
+    "best_convention": "no_repeat",
+    "exact_pairs": 1,
+    "max_abs_error": 8,
+    "total_abs_error": 36,
+    "wrong_pairs": [
+     "Reference-t02: 1 (truth 3)",
+     "Reference-t03: 1 (truth 5)",
+     "Reference-t04: 1 (truth 5)",
+     "t01-t02: 1 (truth 3)",
+     "t01-t03: 1 (truth 5)",
+     "t01-t04: 1 (truth 5)",
+     "t02-t03: 0 (truth 2)",
+     "t02-t04: 2 (truth 8)",
+     "t03-t04: 2 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 1,
+      "max_abs_error": 10,
+      "total_abs_error": 46
+     },
+     "sites": {
+      "exact_pairs": 1,
+      "max_abs_error": 20,
+      "total_abs_error": 96
+     },
+     "no_repeat": {
+      "exact_pairs": 1,
+      "max_abs_error": 8,
+      "total_abs_error": 36
+     }
+    }
+   }
+  },
+  "duration_s": 29.18
+ },
+ {
+  "run": "myloasm",
+  "assembly": {
+   "t01": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "0",
+    "true_circular": 0
+   },
+   "t02": {
+    "contigs": 1,
+    "length": 18981,
+    "true_length": 22000,
+    "covered_fraction": 0.9991,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 3000,
+    "errors_per_100kb": 15805.3,
+    "circular_contigs": "0",
+    "true_circular": 0
+   },
+   "t03": {
+    "contigs": 1,
+    "length": 21972,
+    "true_length": 22000,
+    "covered_fraction": 0.9987,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 1,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 4.6,
+    "circular_contigs": "0",
+    "true_circular": 0
+   },
+   "t04": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "0",
+    "true_circular": 0
+   }
+  },
+  "snps": {
+   "ska": {
+    "samples_expected": 5,
+    "samples_present": 5,
+    "missing": [],
+    "pairs": 10,
+    "best_convention": "events",
+    "exact_pairs": 6,
+    "max_abs_error": 1,
+    "total_abs_error": 4,
+    "wrong_pairs": [
+     "Reference-t03: 7 (truth 6)",
+     "t01-t03: 7 (truth 6)",
+     "t02-t03: 3 (truth 2)",
+     "t03-t04: 13 (truth 12)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 6,
+      "max_abs_error": 1,
+      "total_abs_error": 4
+     },
+     "sites": {
+      "exact_pairs": 1,
+      "max_abs_error": 10,
+      "total_abs_error": 48
+     },
+     "no_repeat": {
+      "exact_pairs": 1,
+      "max_abs_error": 3,
+      "total_abs_error": 14
+     }
+    }
+   }
+  },
+  "duration_s": 3.33
+ },
+ {
+  "run": "samtools",
+  "assembly": {
+   "t01": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 0
+   },
+   "t02": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 0
+   },
+   "t03": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 0
+   },
+   "t04": {
+    "contigs": 1,
+    "length": 22000,
+    "true_length": 22000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 0
+   }
+  },
+  "snps": {
+   "ska": {
+    "samples_expected": 5,
+    "samples_present": 5,
+    "missing": [],
+    "pairs": 10,
+    "best_convention": "events",
+    "exact_pairs": 10,
+    "max_abs_error": 0,
+    "total_abs_error": 0,
+    "wrong_pairs": [],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 10,
+      "max_abs_error": 0,
+      "total_abs_error": 0
+     },
+     "sites": {
+      "exact_pairs": 2,
+      "max_abs_error": 10,
+      "total_abs_error": 50
+     },
+     "no_repeat": {
+      "exact_pairs": 2,
+      "max_abs_error": 2,
+      "total_abs_error": 10
+     }
+    }
+   }
+  },
+  "duration_s": 1.55
+ }
+]

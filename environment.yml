@@ -1,0 +1,21 @@
+# conda env create -f environment.yml && conda activate BACoN && pip install .
+name: BACoN
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10
+  - minimap2>=2.24      # baiting, templated assembly
+  - samtools>=1.21      # templated assembly (samtools consensus -X r10.4_sup)
+  - filtlong>=0.2.1     # read filtering
+  - flye>=2.9.5         # de novo assembly (-a flye)
+  - myloasm>=0.7        # de novo assembly (-a myloasm)
+  - ska2>=0.5           # SNPs (--snp-method ska, the default)
+  - parsnp>=2.0         # SNPs (--snp-method parsnp)
+  - harvesttools
+  - fasttree>=2.1.11    # trees
+  - iqtree>=2.2         # trees (--tree iqtree)
+  - bbmap>=39           # baiting (-b bbduk)
+  - bandage             # optional: pictures of the assembly graphs
+  - python-isal         # optional: faster gzip decompression
+  - pip

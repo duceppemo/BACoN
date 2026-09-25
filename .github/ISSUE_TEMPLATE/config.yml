@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/duceppemo/BACoN/wiki
+    about: Installation, usage, outputs and method choices are documented in the wiki.

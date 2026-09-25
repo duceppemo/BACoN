@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use BACoN, please cite it as below, together with the programs it runs (see the wiki)."
+type: software
+title: "BACoN: Bait, Assemble and Compare Nanopore reads"
+authors:
+  - family-names: Duceppe
+    given-names: Marc-Olivier
+version: 0.3.0
+date-released: "2026-09-24"
+license: MIT
+repository-code: "https://github.com/duceppemo/BACoN"
+url: "https://github.com/duceppemo/BACoN"
+keywords:
+  - bioinformatics
+  - nanopore
+  - organelle genome
+  - chloroplast
+  - genome skimming
+  - SNP
