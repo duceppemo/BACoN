@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-09-26)
 
 ### Added
 - `report.html`: a self-contained HTML report written at the end of every run: overview, sortable sample table

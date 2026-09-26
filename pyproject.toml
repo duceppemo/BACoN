@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bacon-nanopore"
 # Static on purpose (see mashID): tests/test_cli.py keeps this in sync with bacon.__version__.
-version = "0.3.0"
+version = "0.3.1"
 description = "Bait, Assemble and Compare Nanopore reads matching a reference sequence, such as an organelle genome."
 readme = "README.md"
 license = { text = "MIT" }
