@@ -3,7 +3,7 @@
 # open a pull request. For a new release: tag it, bump `version`, recompute the sha256 and reset `number` to 0.
 # The package is named bacon-nanopore because conda-forge already has an unrelated `bacon`.
 {% set name = "bacon-nanopore" %}
-{% set version = "0.3.0" %}
+{% set version = "0.3.1" %}
 
 package:
   name: {{ name }}
@@ -11,7 +11,7 @@ package:
 
 source:
   url: https://github.com/duceppemo/BACoN/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 58e1ce3e9ee06fd176232f6023cfc8f85c7ea1901ed5d90fc04942d5bf456a15
+  sha256: 48d827247a5712a90690522e7dc5d0b2158739168020d7f4bc16934be2cb2b6f
 
 build:
   number: 0
