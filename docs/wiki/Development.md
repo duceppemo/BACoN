@@ -63,4 +63,7 @@ every push to `main` that changes it. Do not edit the wiki on GitHub: the next p
    date) and `CHANGELOG.md`.
 2. Commit, tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the versions, builds the
    package and creates the GitHub release with the changelog section.
-3. Update `recipe/meta.yaml` (version, sha256 of the tag's tarball) and the bioconda-recipes pull request.
+3. Zenodo archives the release and mints a version DOI: add it to `CITATION.cff` (`doi` and `identifiers`).
+   The README badge uses the concept DOI (10.5281/zenodo.22970412), which always points to the latest
+   version.
+4. Update `recipe/meta.yaml` (version, sha256 of the tag's tarball) and the bioconda-recipes pull request.

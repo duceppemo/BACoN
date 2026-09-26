@@ -7,6 +7,14 @@ authors:
     given-names: Marc-Olivier
 version: 0.3.0
 date-released: "2026-09-25"
+doi: 10.5281/zenodo.22970413
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22970412
+    description: "Concept DOI: resolves to the latest version"
+  - type: doi
+    value: 10.5281/zenodo.22970413
+    description: "Version DOI for 0.3.0"
 license: MIT
 repository-code: "https://github.com/duceppemo/BACoN"
 url: "https://github.com/duceppemo/BACoN"

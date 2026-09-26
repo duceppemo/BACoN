@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/duceppemo/BACoN" alt="License: MIT"></a>
   <a href="https://github.com/duceppemo/BACoN/wiki"><img src="https://img.shields.io/badge/docs-wiki-informational" alt="Documentation"></a>
+  <a href="https://doi.org/10.5281/zenodo.22970412"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22970412.svg" alt="DOI"></a>
 </p>
 
 BACoN extracts the Nanopore reads that match a reference sequence (typically an organelle genome) from many
@@ -58,9 +59,12 @@ Everything else is in the [wiki](https://github.com/duceppemo/BACoN/wiki), whose
 
 ## Citation
 
-If BACoN is useful in your work, please cite it (see [`CITATION.cff`](CITATION.cff)) and the programs it
-runs: minimap2, Filtlong, samtools or Flye or myloasm, SKA2 or Parsnp, and FastTree or IQ-TREE
-([references](https://github.com/duceppemo/BACoN/wiki/Methods#references)).
+If BACoN is useful in your work, please cite it (see [`CITATION.cff`](CITATION.cff)):
+
+> Duceppe, M.-O. (2026). BACoN: Bait, Assemble and Compare Nanopore reads (v0.3.0). Zenodo. https://doi.org/10.5281/zenodo.22970412
+
+and the programs it runs: minimap2, Filtlong, samtools or Flye or myloasm, SKA2 or Parsnp, and FastTree or
+IQ-TREE ([references](https://github.com/duceppemo/BACoN/wiki/Methods#references)).
 
 ## License
 
