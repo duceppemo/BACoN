@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- MultiQC: the files of several runs in one search path were merged (samples pooled, only one heatmap kept);
+  the sections are now named after the output folder.
+- IQ-TREE renamed samples with `+` in their name, which then did not match in the report and MultiQC heatmaps;
+  the tree programs now see placeholder names and the tree gets the sample names back.
+- The report counted genomes as identical when they were connected through zero distances only (distances skip
+  positions with `N`), and claimed identity when no SNP site was compared.
+- The reference MD5 in `run_info.json` and the report was that of BACoN's copy, not of the file given.
+- The methods paragraph of the report: fasta reads (no Filtlong, no quality cut), `--template-gaps
+  reference`, Flye's genome size and overlap, added genomes, failed comparisons, IQ-TREE's consensus tree,
+  Parsnp's core-genome tree, and the circular-contig extension only when there are circular contigs.
+- `python -m bacon.report` on a moved output folder lost the tree and distances; incomplete `run_info.json`
+  or an empty `summary.tsv` no longer crash it.
+- Tabs or line breaks in an error message could shift the columns of `summary.tsv`.
+- The report keeps its colours when printed, and sorts text columns naturally.
+
 ## 0.3.1 (2026-09-26)
 
 ### Added

@@ -141,21 +141,38 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
 # ---------------------------------------------------------------------------------------------------------------
 
 def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, threads: int) -> Path:
-    """Build a tree from an alignment; write tree.nwk (midpoint-rooted) and tree.svg. Returns tree.nwk."""
+    """Build a tree from an alignment; write tree.nwk (midpoint-rooted) and tree.svg. Returns tree.nwk.
+
+    The tree programs see placeholder names (IQ-TREE rewrites characters such as '+'), which are replaced by the
+    genome names in tree.nwk and tree.svg.
+    """
+    records = list(read_records(alignment))
+    names = {f"g{i:05d}": rec.name for i, rec in enumerate(records, 1)}
+    safe = out_dir / "tree_input.fasta"
+    write_fasta(safe, [Record(key, rec.seq) for key, rec in zip(names, records)])
     raw = out_dir / f"{method}.tree"
-    if method == "fasttree":
-        exe = which("FastTree") or "FastTree"
-        run([exe, "-nt", "-gtr", "-boot", "100", str(alignment)], log_dir / "fasttree.log", stdout=raw,
-            what="(FastTree)")
-    elif method == "iqtree":
-        exe = which("iqtree") or "iqtree"
-        prefix = out_dir / "iqtree"
-        run([exe, "-s", str(alignment), "-m", "MFP", "-B", "1000", "-T", str(threads), "--prefix", str(prefix),
-             "-redo", "--seed", "12345"], log_dir / "iqtree.log", what="(IQ-TREE)")
-        shutil.copyfile(prefix.with_suffix(".contree"), raw)
-    else:
-        raise ValueError(method)
-    tree = midpoint_root(parse(raw.read_text()))
+    try:
+        if method == "fasttree":
+            exe = which("FastTree") or "FastTree"
+            run([exe, "-nt", "-gtr", "-boot", "100", str(safe)], log_dir / "fasttree.log", stdout=raw,
+                what="(FastTree)")
+        elif method == "iqtree":
+            exe = which("iqtree") or "iqtree"
+            prefix = out_dir / "iqtree"
+            run([exe, "-s", str(safe), "-m", "MFP", "-B", "1000", "-T", str(threads), "--prefix", str(prefix),
+                 "-redo", "--seed", "12345"], log_dir / "iqtree.log", what="(IQ-TREE)")
+            shutil.copyfile(prefix.with_suffix(".contree"), raw)
+        else:
+            raise ValueError(method)
+    finally:
+        safe.unlink(missing_ok=True)
+    tree = parse(raw.read_text())
+    for leaf in tree.leaves():
+        if leaf.name not in names:
+            raise BaconError(f"{method} returned an unexpected sequence name {leaf.name!r}")
+        leaf.name = names[leaf.name]
+    raw.write_text(to_newick(tree) + "\n")  # The program's tree, with the genome names
+    tree = midpoint_root(tree)
     ladderize(tree)
     out = out_dir / "tree.nwk"
     out.write_text(to_newick(tree) + "\n")

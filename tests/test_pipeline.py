@@ -169,6 +169,9 @@ def test_full_run(stubs, dataset, tmp_path):
     assert info["comparison"]["method"] == "ska"
     assert "flye" in info["tools"]
     assert "Baiting reads matching the reference" in (out / "bacon.log").read_text()  # INFO, not only warnings
+    import hashlib
+    assert info["reference"]["md5"] == hashlib.md5(ref.read_bytes()).hexdigest()  # The file given, not the copy
+    assert info["reference"]["md5"] != hashlib.md5((out / "reference.fasta").read_bytes()).hexdigest()
     report = (out / "report.html").read_text()
     assert all(name in report for name in ("s1", "s2", "s3", "none", "SKA2", "SNP distances", "4 genomes, 4 distinct"))
     for name in ("bacon_samples_mqc.json", "bacon_reads_mqc.json", "bacon_distances_mqc.json"):
@@ -371,3 +374,22 @@ def test_report_failure_does_not_fail_the_run(stubs, dataset, tmp_path, monkeypa
     assert run(settings(ref, reads, out, snp_method="none")) == 0
     assert "Could not write the HTML report: boom" in caplog.text
     assert (out / "summary.tsv").exists() and not (out / "bacon_distances_mqc.json").exists()
+
+
+def test_tree_keeps_names_the_tree_programs_would_change(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    (reads / "s1.fastq.gz").rename(reads / "a+b.fastq.gz")
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out)) == 0
+    tree = (out / "4_compared" / "ska" / "tree.nwk").read_text()
+    assert "a+b" in tree and "g0000" not in tree
+    assert "a+b" in (out / "4_compared" / "ska" / "tree.svg").read_text()
+    assert not (out / "4_compared" / "ska" / "tree_input.fasta").exists()
+
+
+def test_notes_with_tabs_or_line_breaks_keep_the_summary_rectangular(tmp_path):
+    from bacon.pipeline import SampleState, summary_row
+    from bacon.samples import Sample
+    st = SampleState(Sample("x", [tmp_path / "x.fq"]), failed="failed (bait)",
+                     notes=["error:\tbad\ninput", "second"])
+    assert summary_row(st)["Note"] == "error: bad input; second"

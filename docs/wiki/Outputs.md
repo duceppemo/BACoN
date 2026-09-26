@@ -27,20 +27,26 @@ OUTPUT/
 
 ## report.html
 
-A self-contained web page (no internet connection needed) that opens in any browser and prints to PDF:
+A self-contained web page (no internet connection needed) that opens in any browser and prints to PDF (the
+colours of the heatmap and of the highlighted cells are kept when printing):
 
 - **Overview**: samples assembled, samples with a note, reference length, SNP sites.
-- **Samples**: the columns of `summary.tsv`, sortable by clicking a header; failed samples, depth below 20x,
-  length outside 0.8–1.2 times the reference, and `N` bases are highlighted.
-- **Tree**: `tree.svg`.
+- **Samples**: the main columns of `summary.tsv` (all but the base counts, largest contig, assembly N50 and
+  Flye's depth), sortable by clicking a header; failed samples, depth below 20x, length outside 0.8–1.2 times
+  the reference, and `N` bases are highlighted.
+- **Tree**: `tree.svg`, or why there is none.
 - **SNP distances**: a heatmap in tree order (log colour scale, so that 1–5 SNP differences stay visible next
-  to larger ones), the groups of identical genomes, and the number of distinct genomes.
+  to larger ones); the groups of identical genomes, with no SNP between any two members (positions with `N`
+  or a gap are not compared, so a genome with missing data could match two genomes that differ: it is put in
+  one group only); and the number of distinct genomes. Without any SNP site, no identity is claimed.
 - **Methods**: a paragraph describing what was run, with program versions, ready to adapt for a paper.
-- **Run**: command, reference (MD5), output folder, and the version and path of every program.
+- **Run**: command, reference (with the MD5 of the file as given), output folder, and the version and path of
+  every program.
 
 It is written at the end of every run, from the files of the output folder; `python -m bacon.report OUTPUT`
-rebuilds it. Examples: the [bundled example](https://duceppemo.github.io/BACoN/reports/example_report.html)
-and the [tutorial](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).
+rebuilds it, also after the folder was moved. Examples: the
+[bundled example](https://duceppemo.github.io/BACoN/reports/example_report.html) and the
+[tutorial](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).
 
 ![The samples section of the report of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_samples.png)
 
@@ -55,11 +61,18 @@ Three [MultiQC custom-content](https://docs.seqera.io/multiqc/custom_content) fi
 |---|---|
 | `bacon_samples_mqc.json` | table: status, baited reads and share, read N50, depth, contigs, circular contigs, length, length vs reference, `N` bases, note |
 | `bacon_reads_mqc.json` | bar graph: the bases of each sample kept for the assembly, baited but filtered out, and off-target |
-| `bacon_distances_mqc.json` | heatmap of the SNP distances (clustered view first); absent when the samples were not compared |
+| `bacon_distances_mqc.json` | heatmap of the SNP distances in tree order (recent MultiQC versions also offer a clustered view); absent when the samples were not compared |
 
 ```bash
-multiqc OUTPUT/                  # or a folder holding several BACoN runs and other tools' outputs
+multiqc OUTPUT/ --ignore "*/logs/*"
 ```
+
+- The sections are named after the output folder ("BACoN *folder*: samples"), so the files of several BACoN runs
+  in one MultiQC search path give separate sections, as long as the output folders have different names.
+- `--ignore "*/logs/*"` keeps MultiQC away from the programs' logs in `logs/`: MultiQC 1.19 mistakes BACoN's
+  Filtlong logs for its own module's input and shows an error box (harmless; 1.35 does not).
+- MultiQC shortens sample names ending with usual file suffixes (such as `.trimmed`) in the table and bar graph,
+  but not in the heatmap.
 
 Tested with MultiQC 1.19 and 1.35.
 

@@ -216,7 +216,8 @@ def summary_row(st: SampleState) -> dict[str, str]:
     for key, value in st.stats.items():
         if key in row:
             row[key] = str(value)
-    row["Note"] = "; ".join(dict.fromkeys(st.notes)) or ""
+    # Tabs or line breaks in a message (from a program's error) would break the TSV.
+    row["Note"] = " ".join("; ".join(dict.fromkeys(st.notes)).split())
     return row
 
 
@@ -477,10 +478,12 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
 
 
 def _reference_info(s: Settings) -> dict[str, object]:
+    """The reference as given: its path, number of sequences, total length, and the MD5 of the file itself (not
+    of BACoN's normalized copy, reference.fasta)."""
     local = s.output / "reference.fasta"
     lengths = [len(r.seq) for r in read_records(local)] if local.exists() else []
     return {"file": str(s.reference), "sequences": len(lengths), "length": sum(lengths),
-            "md5": hashlib.md5(local.read_bytes()).hexdigest() if local.exists() else None}
+            "md5": hashlib.md5(s.reference.read_bytes()).hexdigest() if s.reference.is_file() else None}
 
 
 def default_memory_gb() -> int:

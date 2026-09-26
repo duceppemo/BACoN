@@ -1,6 +1,8 @@
 """MultiQC custom-content files (https://docs.seqera.io/multiqc/custom_content).
 
-Three files in the output folder, found by `multiqc OUTPUT_FOLDER`:
+Three files in the output folder, found by `multiqc OUTPUT_FOLDER`. Their section ids include the name of the
+output folder, so that the files of several runs in one MultiQC search path make separate sections instead of
+being merged (MultiQC merges sections with the same id, and keeps only one heatmap).
   bacon_samples_mqc.json    table: reads, depth, assembly and status of each sample
   bacon_reads_mqc.json      bar graph: each sample's bases kept, baited but filtered out, and off-target
   bacon_distances_mqc.json  heatmap: pairwise SNP distances (when the samples were compared)
@@ -9,6 +11,7 @@ Three files in the output folder, found by `multiqc OUTPUT_FOLDER`:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from bacon.newick import parse
@@ -53,23 +56,28 @@ def _number(value: str) -> float | int | str | None:
             return value
 
 
-def sample_table(rows: list[dict[str, str]]) -> dict:
+def _run_id(run: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]+", "_", run).strip("_") or "run"
+
+
+def sample_table(rows: list[dict[str, str]], run: str = "") -> dict:
     data = {}
     for r in rows:
         values = {k: r.get(k, "") if k in ("Status", "Note") else _number(r.get(k, "")) for k in SAMPLE_HEADERS}
         data[r["Sample"]] = {k: v for k, v in values.items() if v not in (None, "")}
     return {
-        "id": "bacon_samples",
-        "section_name": "BACoN: samples",
+        "id": f"bacon_samples_{_run_id(run)}",
+        "section_name": f"BACoN {run}: samples".replace("  ", " "),
         "description": "Reads baited and kept, depth and assembly of each sample (BACoN summary.tsv).",
         "plot_type": "table",
-        "pconfig": {"id": "bacon_samples_table", "title": "BACoN: samples", "namespace": "BACoN"},
+        "pconfig": {"id": f"bacon_samples_table_{_run_id(run)}", "title": f"BACoN {run}: samples",
+                    "namespace": f"BACoN {run}".strip()},
         "headers": SAMPLE_HEADERS,
         "data": data,
     }
 
 
-def reads_bargraph(rows: list[dict[str, str]]) -> dict | None:
+def reads_bargraph(rows: list[dict[str, str]], run: str = "") -> dict | None:
     data = {}
     for r in rows:
         raw, baited, kept = (_number(r.get(k, "")) for k in ("Raw_bases", "Baited_bases", "Filtered_bases"))
@@ -87,20 +95,20 @@ def reads_bargraph(rows: list[dict[str, str]]) -> dict | None:
     if not data:
         return None
     return {
-        "id": "bacon_reads",
-        "section_name": "BACoN: bases",
+        "id": f"bacon_reads_{_run_id(run)}",
+        "section_name": f"BACoN {run}: bases".replace("  ", " "),
         "description": "Bases of each sample: kept for the assembly, matching the reference but filtered out "
                        "(short, low quality, or above the target depth), and not matching the reference.",
         "plot_type": "bargraph",
         "categories": {"Kept": {"color": "#2f7ebc"}, "Baited, filtered out": {"color": "#9ecae1"},
                        "Baited": {"color": "#2f7ebc"}, "Off-target": {"color": "#d9d9d9"}},
-        "pconfig": {"id": "bacon_reads_plot", "title": "BACoN: bases", "ylab": "Bases",
+        "pconfig": {"id": f"bacon_reads_plot_{_run_id(run)}", "title": f"BACoN {run}: bases", "ylab": "Bases",
                     "cpswitch_counts_label": "Bases"},
         "data": data,
     }
 
 
-def distance_heatmap(path: Path, tree: Path | None = None) -> dict:
+def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dict:
     lines = path.read_text().splitlines()
     names = lines[0].split("\t")[1:]
     rows = {line.split("\t")[0]: [int(x) for x in line.split("\t")[1:]] for line in lines[1:]}
@@ -112,13 +120,13 @@ def distance_heatmap(path: Path, tree: Path | None = None) -> dict:
     index = {n: i for i, n in enumerate(names)}
     matrix = [[rows[a][index[b]] for b in order] for a in order]
     return {
-        "id": "bacon_distances",
-        "section_name": "BACoN: SNP distances",
-        "description": "Pairwise SNP distances between the assemblies and the reference (clustered view first; "
-                       "switch to sorted by sample above the plot).",
+        "id": f"bacon_distances_{_run_id(run)}",
+        "section_name": f"BACoN {run}: SNP distances".replace("  ", " "),
+        "description": "Pairwise SNP distances between the assemblies and the reference, rows and columns in "
+                       "tree order (recent MultiQC versions also offer a clustered view).",
         "plot_type": "heatmap",
-        "pconfig": {"id": "bacon_distances_heatmap", "title": "BACoN: SNP distances", "square": True, "min": 0,
-                    "cluster_switch_clustered_active": True,
+        "pconfig": {"id": f"bacon_distances_heatmap_{_run_id(run)}", "title": f"BACoN {run}: SNP distances",
+                    "square": True, "min": 0,
                     "colstops": [[0, "#ffffd9"], [0.25, "#a1dab4"], [0.5, "#41b6c4"], [0.75, "#225ea8"],
                                  [1, "#081d58"]]},
         "xcats": order,
@@ -131,9 +139,11 @@ def write_multiqc(output: Path, rows: list[dict[str, str]], distances: Path | No
                   tree: Path | None = None) -> list[Path]:
     """Write the MultiQC files; remove a stale distance file when there is no comparison."""
     written = []
-    sections = [("bacon_samples_mqc.json", sample_table(rows)), ("bacon_reads_mqc.json", reads_bargraph(rows)),
-                ("bacon_distances_mqc.json", distance_heatmap(distances, tree) if distances and distances.exists()
-                 else None)]
+    run = output.resolve().name
+    sections = [("bacon_samples_mqc.json", sample_table(rows, run)),
+                ("bacon_reads_mqc.json", reads_bargraph(rows, run)),
+                ("bacon_distances_mqc.json", distance_heatmap(distances, tree, run)
+                 if distances and distances.exists() else None)]
     for name, content in sections:
         path = output / name
         if content is None:
