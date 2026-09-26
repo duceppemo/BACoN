@@ -39,8 +39,8 @@ bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -t 32 -p 8
 The defaults: baiting with minimap2, Filtlong capping each sample at 100x, templated assembly with samtools,
 core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes.
 
-Open `bacon_potato/report.html` in a browser for everything below on one page. The report of this run is in
-the repository:
+Open `bacon_potato/report.html` in a browser for everything below on one page. The report of this run is
+online:
 [view it](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html)
 or [download it](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/reports/tutorial_potato_report.html)
 (local paths removed). The next sections look at the files behind it.
