@@ -6,7 +6,6 @@ authors:
   - family-names: Duceppe
     given-names: Marc-Olivier
 version: 0.3.0
-date-released: "2026-09-24"
 license: MIT
 repository-code: "https://github.com/duceppemo/BACoN"
 url: "https://github.com/duceppemo/BACoN"

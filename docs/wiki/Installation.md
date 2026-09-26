@@ -48,7 +48,8 @@ seconds.
 ## pip only
 
 If the programs are already installed (for example in an HPC module system), BACoN itself installs with
-`pip install https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.0.tar.gz`.
+`pip install git+https://github.com/duceppemo/BACoN` (or the archive of a
+[release](https://github.com/duceppemo/BACoN/releases)).
 
 ## Troubleshooting
 
