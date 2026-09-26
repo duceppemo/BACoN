@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-09-25)
 
 A rewrite. Every program was reconsidered: those no longer maintained were replaced after comparing the
 candidates on simulated data of known truth and on real data ([Validation](https://github.com/duceppemo/BACoN/wiki/Validation)).
