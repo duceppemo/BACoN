@@ -10,7 +10,8 @@ and for each sample:
    de novo assembly (Flye or myloasm);
 
 then **compares** the samples: SNPs (SKA2 split k-mers by default, or a Parsnp core-genome alignment), a matrix
-of pairwise SNP distances and a tree (FastTree or IQ-TREE).
+of pairwise SNP distances and a tree (FastTree or IQ-TREE). Everything is summarized in an HTML report, and in
+MultiQC sections.
 
 BACoN was designed for genome skimming: low-coverage sequencing of total DNA, where the organelle reads are
 abundant enough to assemble. Enriching the target (targeted sequencing, adaptive sampling) gives more depth

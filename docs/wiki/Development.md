@@ -19,6 +19,8 @@ pre-commit install
 | `bacon/steps.py` | baiting, filtering, assembly |
 | `bacon/compare.py` | SKA2, Parsnp, distances, trees |
 | `bacon/newick.py` | Newick parsing, midpoint rooting, SVG drawing |
+| `bacon/report.py` | the HTML report (`python -m bacon.report OUTPUT` rebuilds it) |
+| `bacon/multiqc.py` | the MultiQC custom-content files |
 | `bacon/seqio.py` | fasta/fastq reading and writing |
 | `bacon/tools.py` | running external programs and logging their output |
 

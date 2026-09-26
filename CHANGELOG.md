@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `report.html`: a self-contained HTML report written at the end of every run: overview, sortable sample table
+  with flagged values, tree, SNP-distance heatmap in tree order, identical genomes, a methods paragraph with
+  program versions, and provenance. `python -m bacon.report OUTPUT` rebuilds it.
+- MultiQC custom content: `bacon_samples_mqc.json` (table), `bacon_reads_mqc.json` (bases kept, filtered out
+  and off-target), `bacon_distances_mqc.json` (SNP-distance heatmap).
+- `run_info.json` records the reference file, number of sequences, length and MD5.
+
 ## 0.3.0 (2026-09-25)
 
 A rewrite. Every program was reconsidered: those no longer maintained were replaced after comparing the

@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from bacon import BaconError, __version__, compare, steps
+from bacon.multiqc import write_multiqc
+from bacon.report import write_report
 from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
 from bacon.seqio import Record, check_reference, read_records, sniff_format, split_extension, write_fasta
 from bacon.tools import require, version
@@ -451,6 +453,7 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
         "settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in asdict(s).items()
                      if k != "command_line"},
         "tools": {name: {"path": path, "version": version(name)} for name, path in tools.items()},
+        "reference": _reference_info(s),
         "samples": {st.sample.name: {"files": [str(f) for f in st.sample.files], "status": st.failed or "ok"}
                     for st in states},
         "comparison": comparison,
@@ -458,8 +461,26 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
     tmp = s.output / "run_info.json.tmp"
     tmp.write_text(json.dumps(info, indent=2, default=str) + "\n")
     tmp.replace(s.output / "run_info.json")
+    # The report and the MultiQC files are conveniences: their failure must not fail the run.
+    try:
+        distances = Path(comparison["distances"]) if comparison and comparison.get("distances") else None
+        tree = Path(comparison["tree"]) if comparison and comparison.get("tree") else None
+        write_multiqc(s.output, rows, distances, tree)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not write the MultiQC files: %s", exc)
+    try:
+        log.info("Report: %s", write_report(s.output))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not write the HTML report: %s", exc)
     failed = sum(1 for st in states if st.failed)
     log.info("Done: %d sample(s) assembled, %d failed. Results in %s", len(states) - failed, failed, s.output)
+
+
+def _reference_info(s: Settings) -> dict[str, object]:
+    local = s.output / "reference.fasta"
+    lengths = [len(r.seq) for r in read_records(local)] if local.exists() else []
+    return {"file": str(s.reference), "sequences": len(lengths), "length": sum(lengths),
+            "md5": hashlib.md5(local.read_bytes()).hexdigest() if local.exists() else None}
 
 
 def default_memory_gb() -> int:

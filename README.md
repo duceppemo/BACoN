@@ -33,9 +33,11 @@ bacon -r chloroplast.fasta -i reads/ -o results/
 ```
 
 `reads/` holds one fastq file per sample, or one folder per sample (such as MinKNOW's `fastq_pass/barcode01/`).
-The main results are `summary.tsv` (reads, depth and assembly of each sample),
-`4_compared/ska/snp_distances.tsv` and `4_compared/ska/tree.svg`. Rerunning the same command resumes where it
-stopped; changing a parameter reruns only the steps it affects.
+Open `results/report.html` for an overview: samples with their read counts, depth and assembly, the tree, a
+heatmap of the SNP distances, and a methods paragraph. The same results are in `summary.tsv`,
+`4_compared/ska/snp_distances.tsv` and `4_compared/ska/tree.nwk`, and MultiQC picks up BACoN's
+`*_mqc.json` files. Rerunning the same command resumes where it stopped; changing a parameter reruns only the
+steps it affects.
 
 To check an installation, run the bundled example (simulated reads with known SNPs; a few seconds):
 

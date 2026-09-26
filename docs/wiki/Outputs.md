@@ -2,7 +2,9 @@
 
 ```
 OUTPUT/
+├── report.html                 the report: samples, tree, distances, methods, provenance
 ├── summary.tsv                 one line per sample: reads, depth, assembly, status, notes
+├── bacon_*_mqc.json            MultiQC sections (samples table, bases, SNP distances)
 ├── run_info.json               version, command, settings, program versions, samples, comparison
 ├── bacon.log                   the log of every run in this folder
 ├── reference.fasta             the reference used (uncompressed copy)
@@ -22,6 +24,43 @@ OUTPUT/
 │       └── ...                             the method's own files (alignments)
 └── logs/<step>/<sample>.log              the commands run and the programs' messages
 ```
+
+## report.html
+
+A self-contained web page (no internet connection needed) that opens in any browser and prints to PDF:
+
+- **Overview**: samples assembled, samples with a note, reference length, SNP sites.
+- **Samples**: the columns of `summary.tsv`, sortable by clicking a header; failed samples, depth below 20x,
+  length outside 0.8–1.2 times the reference, and `N` bases are highlighted.
+- **Tree**: `tree.svg`.
+- **SNP distances**: a heatmap in tree order (log colour scale, so that 1–5 SNP differences stay visible next
+  to larger ones), the groups of identical genomes, and the number of distinct genomes.
+- **Methods**: a paragraph describing what was run, with program versions, ready to adapt for a paper.
+- **Run**: command, reference (MD5), output folder, and the version and path of every program.
+
+It is written at the end of every run, from the files of the output folder; `python -m bacon.report OUTPUT`
+rebuilds it.
+
+![The samples section of the report of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_samples.png)
+
+![The SNP distances of the tutorial in the report](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_distances.png)
+
+## MultiQC
+
+Three [MultiQC custom-content](https://docs.seqera.io/multiqc/custom_content) files, found automatically by
+`multiqc` in the output folder or any folder above it:
+
+| File | MultiQC section |
+|---|---|
+| `bacon_samples_mqc.json` | table: status, baited reads and share, read N50, depth, contigs, circular contigs, length, length vs reference, `N` bases, note |
+| `bacon_reads_mqc.json` | bar graph: the bases of each sample kept for the assembly, baited but filtered out, and off-target |
+| `bacon_distances_mqc.json` | heatmap of the SNP distances (clustered view first); absent when the samples were not compared |
+
+```bash
+multiqc OUTPUT/                  # or a folder holding several BACoN runs and other tools' outputs
+```
+
+Tested with MultiQC 1.19 and 1.35.
 
 ## summary.tsv
 

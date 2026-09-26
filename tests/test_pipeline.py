@@ -169,6 +169,11 @@ def test_full_run(stubs, dataset, tmp_path):
     assert info["comparison"]["method"] == "ska"
     assert "flye" in info["tools"]
     assert "Baiting reads matching the reference" in (out / "bacon.log").read_text()  # INFO, not only warnings
+    report = (out / "report.html").read_text()
+    assert all(name in report for name in ("s1", "s2", "s3", "none", "SKA2", "SNP distances", "4 genomes, 4 distinct"))
+    for name in ("bacon_samples_mqc.json", "bacon_reads_mqc.json", "bacon_distances_mqc.json"):
+        json.loads((out / name).read_text())
+    assert set(json.loads((out / "bacon_samples_mqc.json").read_text())["data"]) == {"s1", "s2", "s3", "none"}
 
 
 def test_resume_skips_finished_steps(stubs, dataset, tmp_path):
@@ -352,3 +357,17 @@ def test_fasta_reads_are_filtered_without_filtlong(stubs, dataset, tmp_path):
     assert run(settings(ref, reads, out)) == 0
     assert "filtlong" not in calls(stubs)
     assert summary(out)["f1"]["Filtered_reads"] == "1"
+
+
+def test_report_failure_does_not_fail_the_run(stubs, dataset, tmp_path, monkeypatch, caplog):
+    import bacon.pipeline
+
+    def broken(output):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bacon.pipeline, "write_report", broken)
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    assert "Could not write the HTML report: boom" in caplog.text
+    assert (out / "summary.tsv").exists() and not (out / "bacon_distances_mqc.json").exists()

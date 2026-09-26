@@ -39,6 +39,9 @@ bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -t 32 -p 8
 The defaults: baiting with minimap2, Filtlong capping each sample at 100x, templated assembly with samtools,
 core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes.
 
+Open `bacon_potato/report.html` in a browser for everything below on one page
+([screenshots](Outputs#reporthtml)); the next sections look at the files behind it.
+
 ## 3. Reads and assemblies: `summary.tsv`
 
 ```
