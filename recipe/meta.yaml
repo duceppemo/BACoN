@@ -11,7 +11,7 @@ package:
 
 source:
   url: https://github.com/duceppemo/BACoN/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 0000000000000000000000000000000000000000000000000000000000000000  # set after tagging
+  sha256: 58e1ce3e9ee06fd176232f6023cfc8f85c7ea1901ed5d90fc04942d5bf456a15
 
 build:
   number: 0
