@@ -1,0 +1,121 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BACoN report</title><style>
+:root {
+  --bg: #fff; --fg: #1d2433; --muted: #5d6678; --line: #e3e6ec; --card: #f6f7f9; --accent: #b63a2f;
+  --bad: #fde2e1; --bad-fg: #9b1c1c; --warn: #fdf0d5; --warn-fg: #7a4b00; --info: #e3eefc; --info-fg: #1e4f91;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181e; --fg: #e6e8ec; --muted: #9aa3b2; --line: #2c313b; --card: #1d2129; --accent: #f0806f;
+    --bad: #4a1f1f; --bad-fg: #ffb4ab; --warn: #45371a; --warn-fg: #f5cf82; --info: #1c3050; --info-fg: #a9c8f5;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h1 b { color: var(--accent); }
+h2 { font-size: 19px; margin: 36px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.card { background: var(--card); border-radius: 8px; padding: 10px 14px; }
+.card b { display: block; font-size: 22px; }
+.card span { color: var(--muted); font-size: 13px; }
+.scroll { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; font-size: 13px; }
+th, td { padding: 4px 8px; text-align: left; white-space: nowrap; }
+table.samples th {
+  position: sticky; top: 0; background: var(--bg); cursor: pointer; user-select: none;
+  border-bottom: 2px solid var(--line);
+}
+table.samples th:hover { color: var(--accent); }
+table.samples td { border-bottom: 1px solid var(--line); }
+table.samples td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.samples td.note { white-space: normal; min-width: 220px; }
+.bad { background: var(--bad); color: var(--bad-fg); }
+.warn { background: var(--warn); color: var(--warn-fg); }
+.info { background: var(--info); color: var(--info-fg); }
+.key span { display: inline-block; padding: 1px 8px; border-radius: 4px; margin-right: 8px; font-size: 13px; }
+.tree { background: #fff; border-radius: 8px; padding: 8px; overflow-x: auto; }
+.tree svg { max-width: 100%; height: auto; }
+table.heat td {
+  width: 26px; min-width: 26px; text-align: center; padding: 2px; font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+table.heat th.row { text-align: right; font-weight: normal; font-size: 12px; }
+table.heat th.col { height: 120px; vertical-align: bottom; padding: 0; }
+table.heat th.col span {
+  display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); font-weight: normal;
+  font-size: 12px; padding: 4px 0;
+}
+.legend { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.legend .tick { margin-right: 10px; }
+.legend i {
+  display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px;
+  border: 1px solid var(--line);
+}
+ul.groups li { margin-bottom: 4px; }
+.methods { background: var(--card); border-radius: 8px; padding: 12px 16px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; word-break: break-all; }
+code { font-size: 12px; }
+@media print {
+  .tree { border: 1px solid #ccc; }
+  table.samples th { position: static; }
+}
+</style></head><body><main>
+<h1><b>BACoN</b> report</h1>
+<p class="sub">bacon · 2026-09-26T16:35:20 · BACoN 0.3.1 · last run 3.2 s</p>
+<div class="cards"><div class="card"><b>4/4</b><span>samples assembled</span></div><div class="card"><b>0</b><span>assembled with a note</span></div><div class="card"><b>30,000 bp</b><span>reference</span></div><div class="card"><b>20</b><span>SNP sites</span></div></div>
+<h2>Samples</h2>
+<p class="key"><span class="bad">failed</span><span class="warn">depth below 20x or length outside 0.8–1.2x the reference</span><span class="info">N bases</span>Click a column to sort.</p>
+<div class="scroll"><table class="samples"><thead><tr><th>Sample</th><th>Status</th><th>Raw reads</th><th>Baited reads</th><th>Baited %</th><th>Filtered reads</th><th>Read N50</th><th>Depth</th><th>Contigs</th><th>Circular</th><th>Length</th><th>× ref</th><th>N bases</th><th>Note</th></tr></thead><tbody>
+<tr><td class="" data-v="alpha">alpha</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="253">253</td><td class="num" data-v="83.566">83.566</td><td class="num" data-v="230">230</td><td class="num" data-v="6785">6,785</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
+<tr><td class="" data-v="beta">beta</td><td class="" data-v="ok">ok</td><td class="num" data-v="325">325</td><td class="num" data-v="253">253</td><td class="num" data-v="75.275">75.275</td><td class="num" data-v="231">231</td><td class="num" data-v="6815">6,815</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
+<tr><td class="" data-v="delta">delta</td><td class="" data-v="ok">ok</td><td class="num" data-v="306">306</td><td class="num" data-v="250">250</td><td class="num" data-v="82.071">82.071</td><td class="num" data-v="232">232</td><td class="num" data-v="7031">7,031</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
+<tr><td class="" data-v="gamma">gamma</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="248">248</td><td class="num" data-v="81.328">81.328</td><td class="num" data-v="224">224</td><td class="num" data-v="6707">6,707</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
+</tbody></table></div>
+<h2>Tree</h2><p class="sub">SKA2 SNPs; FastTree, midpoint-rooted; internal labels are supports.</p>
+<div class="tree"><svg xmlns="http://www.w3.org/2000/svg" width="772" height="190" viewBox="0 0 772 190" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<rect width="100%" height="100%" fill="white"/>
+<text x="36" y="22" font-size="15" font-weight="bold">ska.snps.fasta — midpoint-rooted, SH-like support (FastTree)</text>
+<path d="M36.0,40.0V95.0 M36.0,40.0H676.0 M36.0,95.0H139.5 M139.5,73.0V117.0 M139.5,73.0H139.5 M139.5,62.0V84.0 M139.5,62.0H139.5 M139.5,84.0H139.5 M139.5,117.0H487.7 M487.7,106.0V128.0 M487.7,106.0H487.7 M487.7,128.0H676.0" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="square"/>
+<text x="681.0" y="44.5">delta</text>
+<text x="144.5" y="66.5">Reference</text>
+<text x="144.5" y="88.5">alpha</text>
+<text x="492.7" y="110.5">beta</text>
+<text x="681.0" y="132.5">gamma</text>
+<text x="484.7" y="113.0" text-anchor="end" font-size="10" fill="#666">1.000</text>
+<path d="M36,162H193.6" stroke="black" stroke-width="1.5"/>
+<text x="114.8" y="178" text-anchor="middle" font-size="11">0.2 substitutions/site</text>
+</svg>
+</div>
+<h2>SNP distances</h2><p class="sub">Pairwise SNP distances, in tree order. Hover a cell for its pair.</p>
+<div class="scroll"><table class="heat"><thead><tr><th></th><th class="col"><span>delta</span></th><th class="col"><span>Reference</span></th><th class="col"><span>alpha</span></th><th class="col"><span>beta</span></th><th class="col"><span>gamma</span></th></tr></thead><tbody><tr><th class="row">delta</th><td style="background:rgb(255,255,217);color:#111" title="delta – delta: 0 SNPs">0</td><td style="background:rgb(30,84,156);color:#fff" title="delta – Reference: 10 SNPs">10</td><td style="background:rgb(30,84,156);color:#fff" title="delta – alpha: 10 SNPs">10</td><td style="background:rgb(15,47,110);color:#fff" title="delta – beta: 16 SNPs">16</td><td style="background:rgb(8,29,88);color:#fff" title="delta – gamma: 20 SNPs">20</td></tr><tr><th class="row">Reference</th><td style="background:rgb(30,84,156);color:#fff" title="Reference – delta: 10 SNPs">10</td><td style="background:rgb(255,255,217);color:#111" title="Reference – Reference: 0 SNPs">0</td><td style="background:rgb(255,255,217);color:#111" title="Reference – alpha: 0 SNPs">0</td><td style="background:rgb(48,133,180);color:#fff" title="Reference – beta: 6 SNPs">6</td><td style="background:rgb(30,84,156);color:#fff" title="Reference – gamma: 10 SNPs">10</td></tr><tr><th class="row">alpha</th><td style="background:rgb(30,84,156);color:#fff" title="alpha – delta: 10 SNPs">10</td><td style="background:rgb(255,255,217);color:#111" title="alpha – Reference: 0 SNPs">0</td><td style="background:rgb(255,255,217);color:#111" title="alpha – alpha: 0 SNPs">0</td><td style="background:rgb(48,133,180);color:#fff" title="alpha – beta: 6 SNPs">6</td><td style="background:rgb(30,84,156);color:#fff" title="alpha – gamma: 10 SNPs">10</td></tr><tr><th class="row">beta</th><td style="background:rgb(15,47,110);color:#fff" title="beta – delta: 16 SNPs">16</td><td style="background:rgb(48,133,180);color:#fff" title="beta – Reference: 6 SNPs">6</td><td style="background:rgb(48,133,180);color:#fff" title="beta – alpha: 6 SNPs">6</td><td style="background:rgb(255,255,217);color:#111" title="beta – beta: 0 SNPs">0</td><td style="background:rgb(61,172,193);color:#111" title="beta – gamma: 4 SNPs">4</td></tr><tr><th class="row">gamma</th><td style="background:rgb(8,29,88);color:#fff" title="gamma – delta: 20 SNPs">20</td><td style="background:rgb(30,84,156);color:#fff" title="gamma – Reference: 10 SNPs">10</td><td style="background:rgb(30,84,156);color:#fff" title="gamma – alpha: 10 SNPs">10</td><td style="background:rgb(61,172,193);color:#111" title="gamma – beta: 4 SNPs">4</td><td style="background:rgb(255,255,217);color:#111" title="gamma – gamma: 0 SNPs">0</td></tr></tbody></table></div><div class="legend">SNPs: <span class="tick"><i style="background:rgb(255,255,217)"></i>0</span><span class="tick"><i style="background:rgb(169,221,183)"></i>1</span><span class="tick"><i style="background:rgb(54,151,186)"></i>5</span><span class="tick"><i style="background:rgb(30,84,156)"></i>10</span><span class="tick"><i style="background:rgb(8,29,88)"></i>20</span></div>
+<h3>Identical genomes</h3><ul class="groups"><li><b>2</b>: Reference, alpha</li></ul>
+<p>5 genomes, 4 distinct at the SNP sites compared.</p>
+<h2>Methods</h2><p class="methods">Reads aligning to the reference (reference.fasta, 30,000 bp) were extracted with minimap2 2.31-r1302 (-x map-ont). Reads shorter than 500 bp were discarded and the best 95% were kept, up to 100x of the reference length, with Filtlong 0.3.1. Each sample was assembled by reference-guided consensus: reads were aligned to the reference with minimap2 and the consensus called with samtools consensus 1.24 (-X r10.4_sup, minimum depth 3; positions with less support are N). SNPs were identified with SKA2 0.5.1 from split 31-mers present in all genomes (core SNPs). A tree was built with FastTree 2.2.0 (GTR, SH-like supports from 100 resamples) and rooted at its midpoint. The analysis was run with BACoN 0.3.1 (https://github.com/duceppemo/BACoN).</p>
+<h2>Run</h2><dl>
+<dt>Command</dt><dd><code>$CONDA_PREFIX/bin/bacon -r example_output/data/reference.fasta -i example_output/data/reads -o example_output/bacon -t 8 -p 2</code></dd><dt>Reference</dt><dd><code>example_output/data/reference.fasta (1 sequence(s), MD5 3c261199bcb6055f7e441fe047486cc6)</code></dd><dt>Output</dt><dd><code>example_output/bacon</code></dd><dt>Python</dt><dd><code>3.12.14 on Linux</code></dd><dt>minimap2</dt><dd><code>2.31-r1302 — $CONDA_PREFIX/bin/minimap2</code></dd><dt>filtlong</dt><dd><code>Filtlong v0.3.1 — $CONDA_PREFIX/bin/filtlong</code></dd><dt>samtools</dt><dd><code>samtools 1.24 — $CONDA_PREFIX/bin/samtools</code></dd><dt>ska</dt><dd><code>ska 0.5.1 — $CONDA_PREFIX/bin/ska</code></dd><dt>FastTree</dt><dd><code>FastTree 2.2.0 — $CONDA_PREFIX/bin/FastTree</code></dd>
+</dl></main>
+<script>
+document.querySelectorAll('table.samples th').forEach(function (th, i) {
+  th.addEventListener('click', function () {
+    var table = th.closest('table'), body = table.tBodies[0], rows = Array.from(body.rows);
+    var ascending = th.dataset.asc !== '1';
+    table.querySelectorAll('th').forEach(function (h) { h.dataset.asc = ''; });
+    th.dataset.asc = ascending ? '1' : '0';
+    rows.sort(function (x, y) {
+      var a = x.cells[i].dataset.v, b = y.cells[i].dataset.v, na = parseFloat(a), nb = parseFloat(b);
+      var r = (!isNaN(na) && !isNaN(nb)) ? na - nb : a.localeCompare(b);
+      return ascending ? r : -r;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+});
+</script></body></html>

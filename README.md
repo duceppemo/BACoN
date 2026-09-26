@@ -53,6 +53,7 @@ Everything else is in the [wiki](https://github.com/duceppemo/BACoN/wiki), whose
 - [Installation](https://github.com/duceppemo/BACoN/wiki/Installation) — conda, pip, troubleshooting
 - [Usage](https://github.com/duceppemo/BACoN/wiki/Usage) — inputs, options, resuming, performance
 - [Methods](https://github.com/duceppemo/BACoN/wiki/Methods) — what each step does, and which assembler or SNP method to choose
+- [Example](https://github.com/duceppemo/BACoN/wiki/Example) — the bundled simulated dataset and its report
 - [Tutorial](https://github.com/duceppemo/BACoN/wiki/Tutorial) — 28 potato cultivars from a public project
 - [Outputs](https://github.com/duceppemo/BACoN/wiki/Outputs) — files and columns
 - [Validation](https://github.com/duceppemo/BACoN/wiki/Validation) — how the methods were chosen and tested

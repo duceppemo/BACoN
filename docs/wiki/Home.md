@@ -22,6 +22,7 @@ and better assemblies.
 | [Installation](Installation) | conda environment, pip, checking the installation |
 | [Usage](Usage) | inputs, all options, resuming, performance |
 | [Methods](Methods) | what each step does, choosing an assembler and a SNP method, limits |
+| [Example](Example) | a small simulated dataset with known SNPs, and its report |
 | [Tutorial](Tutorial) | a complete analysis of 28 potato cultivars from public data |
 | [Outputs](Outputs) | every file and column |
 | [Validation](Validation) | how the tools were chosen, with simulated data of known truth and real data |

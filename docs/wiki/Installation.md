@@ -42,7 +42,7 @@ bash example/run_example.sh
 ```
 
 generates a small simulated dataset (a 30 kb circular reference and four samples with known SNPs), runs BACoN
-with the default settings and checks every pairwise SNP distance against the truth. It takes a few
+with the default settings and checks every pairwise SNP distance against the truth ([Example](Example)). It takes a few
 seconds.
 
 ## pip only

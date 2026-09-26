@@ -331,12 +331,13 @@ def build_report(output: Path) -> str:
     out.append("</tbody></table></div>")
 
     # Comparison
-    distances = Path(comparison["distances"]) if comparison.get("distances") else None
-    if distances is not None and not distances.is_absolute():
-        distances = output / distances
+    def located(key: str) -> Path | None:  # Relative paths start from the output folder
+        return output / comparison[key] if comparison.get(key) else None
+
+    distances = located("distances")
     if distances is not None and distances.exists():
         names, matrix = _read_matrix(distances)
-        tree_file = Path(comparison["tree"]) if comparison.get("tree") else None
+        tree_file = located("tree")
         order = names
         if tree_file is not None and tree_file.exists():
             leaves = [leaf.name for leaf in parse(tree_file.read_text()).leaves()]
@@ -347,7 +348,7 @@ def build_report(output: Path) -> str:
         out.append(f"<h2>Tree</h2><p class=\"sub\">{esc(method)} SNPs; "
                    f"{'FastTree' if comparison.get('tree_method') == 'fasttree' else 'IQ-TREE'}, "
                    "midpoint-rooted; internal labels are supports.</p>")
-        svg = Path(comparison["tree_svg"]) if comparison.get("tree_svg") else None
+        svg = located("tree_svg")
         if svg is not None and svg.exists():
             out.append(f'<div class="tree">{svg.read_text()}</div>')
         else:

@@ -3,6 +3,7 @@
 - [Installation](Installation)
 - [Usage](Usage)
 - [Methods](Methods)
+- [Example](Example)
 - [Tutorial](Tutorial)
 - [Outputs](Outputs)
 - [Validation](Validation)
