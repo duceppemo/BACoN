@@ -392,6 +392,14 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         records = list(read_records(snps))
         names, matrix = compare.snp_distances(records)
         compare.write_distances(out / "snp_distances.tsv", names, matrix)
+        vcf: str | None = None
+        try:  # An extra output: its failure does not fail the comparison
+            vcf_path, records = compare.write_vcf(s.snp_method, reference, out, log_dir, threads=s.threads,
+                                                  assemblies=paths, source=f"BACoN {__version__}")
+            vcf = str(vcf_path)
+            log.info("VCF: %s (%d variant records)", vcf_path, records)
+        except BaconError as exc:
+            log.warning("Could not write the VCF: %s", str(exc).splitlines()[0])
         sites = _alignment_length(snps)
         tree = None
         if sites == 0:
@@ -403,7 +411,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
             tree = str(compare.build_tree(tree_input, out, log_dir, method=s.tree, threads=s.threads))
         result = {"method": s.snp_method, "tree_method": s.tree, "tree": tree,
                   "tree_svg": str(out / "tree.svg") if tree else None,
-                  "distances": str(out / "snp_distances.tsv"), "alignment": str(tree_input),
+                  "distances": str(out / "snp_distances.tsv"), "alignment": str(tree_input), "vcf": vcf,
                   "core_snps": sites}
         checkpoints.save("compare", fingerprint, result)
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],

@@ -137,6 +137,64 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# VCF
+# ---------------------------------------------------------------------------------------------------------------
+
+def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, source: str) -> int:
+    """Rewrite a VCF from SKA2 or HarvestTools: sample columns named after the genomes (sorted), the reference's
+    own column removed, contig lengths, the source and the GT format in the header, and records without an
+    alternate allele (positions missing from some genomes, such as a deletion) dropped. Returns the number of
+    variant records."""
+    lengths = [(rec.name, len(rec.seq)) for rec in read_records(reference)]
+    meta: list[str] = []
+    records, keep = 0, []
+    with open(raw) as fh, open(out, "w") as dst:
+        for line in fh:
+            if line.startswith("##"):
+                if line.startswith(("##contig", "##source", "##fileformat")):
+                    continue
+                meta.append(line)
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if line.startswith("#CHROM"):
+                names = [rename.get(n, n) for n in fields[9:]]
+                keep = sorted((i for i, n in enumerate(names) if n != "Reference"), key=lambda i: names[i])
+                dst.write("##fileformat=VCFv4.2\n")
+                dst.write(f"##source={source}\n")
+                dst.writelines(f"##contig=<ID={name},length={length}>\n" for name, length in lengths)
+                if not any(m.startswith("##FORMAT=<ID=GT,") for m in meta):
+                    meta.append('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+                dst.writelines(meta)
+                dst.write("\t".join(fields[:9] + [names[i] for i in keep]) + "\n")
+                continue
+            if fields[4] in (".", ""):
+                continue
+            dst.write("\t".join(fields[:9] + [fields[9 + i] for i in keep]) + "\n")
+            records += 1
+    return records
+
+
+def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, threads: int,
+              assemblies: dict[str, Path], source: str) -> tuple[Path, int]:
+    """Variants of every genome relative to the reference, as VCF (`snps.vcf` in the comparison folder)."""
+    raw = out_dir / "snps.raw.vcf"
+    if method == "ska":
+        run(["ska", "map", str(reference), str(out_dir / "ska.skf"), "-f", "vcf", "-o", str(raw),
+             "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")
+        rename: dict[str, str] = {}
+    else:
+        run(["harvesttools", "-i", str(out_dir / "parsnp.ggr"), "-V", str(raw)], log_dir / "parsnp.log",
+            what="(HarvestTools VCF)")
+        rename = _parsnp_names(assemblies, reference)
+    out = out_dir / "snps.vcf"
+    try:
+        count = clean_vcf(raw, out, rename=rename, reference=reference, source=source)
+    finally:
+        raw.unlink(missing_ok=True)
+    return out, count
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Trees
 # ---------------------------------------------------------------------------------------------------------------
 

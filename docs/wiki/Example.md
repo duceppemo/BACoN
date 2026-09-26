@@ -55,6 +55,9 @@ alpha are listed as identical genomes.
 
 ![SNP distances](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_distances.png)
 
+**VCF.** `example_output/bacon/4_compared/ska/snps.vcf` lists the 20 planted SNPs at their positions in the
+reference, with the genotype of each sample.
+
 **Methods and run.** The methods paragraph describes what was run, with the program versions; the run section
 records the command, the reference's MD5 and every program used.
 

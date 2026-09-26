@@ -60,6 +60,14 @@ STUBS = {
             prefix = args[args.index("-o") + 1]
             table = args[args.index("-f") + 1]
             open(prefix + ".skf", "w").write(open(table).read())
+        elif args[0] == "map":  # VCF: one variant, carried by every genome but the reference
+            names = [line.split("\\t")[0] for line in open(args[2]) if line.strip()]
+            header = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *names]
+            record = ["ref", "5", ".", "A", "C", ".", ".", ".", "GT"]
+            record += ["0" if n == "Reference" else "1" for n in names]
+            with open(args[args.index("-o") + 1], "w") as fh:
+                fh.write("##fileformat=VCFv4.4\\n##contig=<ID=ref>\\n")
+                fh.write("\\t".join(header) + "\\n" + "\\t".join(record) + "\\n")
         else:
             out = args[args.index("-o") + 1]
             names = [line.split("\\t")[0] for line in open(args[-1]) if line.strip()]
@@ -169,6 +177,10 @@ def test_full_run(stubs, dataset, tmp_path):
     assert info["comparison"]["method"] == "ska"
     assert "flye" in info["tools"]
     assert "Baiting reads matching the reference" in (out / "bacon.log").read_text()  # INFO, not only warnings
+    vcf = (out / "4_compared" / "ska" / "snps.vcf").read_text().splitlines()
+    assert vcf[0] == "##fileformat=VCFv4.2" and "##contig=<ID=ref,length=1000>" in vcf
+    assert vcf[-2].split("\t")[9:] == ["s1", "s2", "s3"] and vcf[-1].split("\t")[9:] == ["1", "1", "1"]
+    assert info["comparison"]["vcf"].endswith("snps.vcf")
     import hashlib
     assert info["reference"]["md5"] == hashlib.md5(ref.read_bytes()).hexdigest()  # The file given, not the copy
     assert info["reference"]["md5"] != hashlib.md5((out / "reference.fasta").read_bytes()).hexdigest()

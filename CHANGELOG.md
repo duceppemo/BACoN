@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-09-26)
+
+### Added
+- `snps.vcf` in the comparison folder: the SNPs of every genome relative to the reference (SKA2: `ska map`;
+  Parsnp: HarvestTools), with contig lengths in the header, one column per genome
+  ([#1](https://github.com/duceppemo/BACoN/issues/1)).
 
 ### Fixed
 - MultiQC: the files of several runs in one search path were merged (samples pooled, only one heatmap kept);

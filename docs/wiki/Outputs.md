@@ -21,6 +21,7 @@ OUTPUT/
 │       ├── snp_distances.tsv               pairwise SNP distances, Reference first
 │       ├── tree.nwk                        midpoint-rooted tree (Newick)
 │       ├── tree.svg                        picture of the tree
+│       ├── snps.vcf                        SNPs of each genome relative to the reference (VCF)
 │       └── ...                             the method's own files (alignments)
 └── logs/<step>/<sample>.log              the commands run and the programs' messages
 ```
@@ -115,6 +116,19 @@ nucleotides (A, C, G, T; gaps and N are ignored), with the reference as `Referen
   A SNP in an inverted repeat is counted once (its two copies share the same split k-mer).
 - **Parsnp** (`4_compared/parsnp/`): `parsnp.core.fasta` is the core-genome alignment, used for the tree;
   `parsnp.snps.fasta` the SNP sites; plus Parsnp's own files.
+
+`snps.vcf` lists, for each position of the reference where a genome differs from it, the genotype of every
+genome (`1` alternate allele, `0` reference, `.` missing), one column per genome, sorted by name (the reference
+itself has no column). Contig names and lengths are those of the reference (the files of the validation were
+read without warning by bcftools).
+
+- **SKA2**: from `ska map`, which maps the split k-mers of every genome to the reference. A SNP inside an inverted
+  repeat is listed at both of its positions. All SNPs are listed, whatever `--ska-min-freq` (which only affects the
+  alignment, the distances and the tree).
+- **Parsnp**: from HarvestTools; the core-genome SNPs, with Parsnp's filters in the FILTER column (for example
+  `IND` next to an indel). SNPs in inverted repeats are missing, as in the distances.
+
+Positions that some genomes lack (a deletion, missing data) without any alternate allele are left out.
 
 `tree.nwk` is rooted at the midpoint of the longest path and ladderized; internal labels are the supports
 (SH-like local supports from 100 resamples for FastTree, ultrafast bootstraps for IQ-TREE). `tree.svg` draws it with a scale in

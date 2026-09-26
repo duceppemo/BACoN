@@ -76,6 +76,10 @@ Lineage A is 66 SNPs from the T-type group, lineage B 66–75, and the two linea
 holds three distinct plastomes: 11 identical cultivars, a group of four (14_4_1, 16_4_3, Baron, Start) 5 SNPs
 away, and 15_22_4, 12–13 SNPs from both.
 
+`snps.vcf` gives the genotype of each cultivar at 139 SNP positions of the reference, more than the 119 SNP sites
+of the alignment: the alignment keeps the SNPs found in every genome and counts a SNP of the inverted repeat once,
+while the VCF lists every SNP position of the reference ([Outputs](Outputs#comparison)).
+
 ![Tree of the 28 potato plastomes](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/tutorial_potato_tree.svg)
 
 The T-type group shares the reference's plastome but for one SNP. Lineages A and B are not T-type (next

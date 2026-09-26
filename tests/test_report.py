@@ -63,7 +63,8 @@ def test_methods_text_default():
     assert "samtools consensus" in text and "core SNPs" in text and "FastTree" in text
     assert "best 95% were kept" in text and "Filtlong" in text
     assert "circular contigs" not in text and "fasta" not in text.lower().replace("ref.fasta", "")
-    assert "SNP alignment" in text and "Pairwise SNP distances count" in text
+    assert "SNP alignment" in text and "Pairwise SNP distances count" in text and "VCF" not in text
+    assert "ska map" in _methods(comparison={**BASE["comparison"], "vcf": "snps.vcf"})
 
 
 def test_methods_text_settings_combinations():

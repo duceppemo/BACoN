@@ -217,6 +217,10 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
     if compared:
         parts.append("Pairwise SNP distances count the positions where both genomes have a nucleotide and they "
                      "differ.")
+    if compared and comparison.get("vcf"):
+        how = (f"by mapping the split k-mers to the reference with ska map{_tool(info, 'ska')}"
+               if method == "ska" else f"from the Parsnp alignment with HarvestTools{_tool(info, 'harvesttools')}")
+        parts.append(f"The SNPs of each genome relative to the reference were written to a VCF file {how}.")
     if comparison.get("tree"):
         on = "the core-genome alignment" if method == "parsnp" else "the SNP alignment"
         if s.get("tree") == "iqtree":
