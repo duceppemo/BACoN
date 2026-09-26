@@ -59,6 +59,12 @@ results in a new dated folder under `validation/results/` (never rewrite an old 
 The wiki is maintained in `docs/wiki/` and published to the GitHub wiki by `.github/workflows/wiki.yml` on
 every push to `main` that changes it. Do not edit the wiki on GitHub: the next publication overwrites it.
 
+## Web site
+
+GitHub Pages serves `docs/` at https://duceppemo.github.io/BACoN/ (`docs/.nojekyll`: files are served as they
+are). It holds the example reports of `docs/reports/`; rebuild them after changes to the report, with local
+paths removed from `run_info.json` first.
+
 ## Releases
 
 1. Update `version` in `pyproject.toml`, `__version__` in `bacon/__init__.py`, `CITATION.cff` (version and

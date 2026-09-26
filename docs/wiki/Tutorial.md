@@ -41,7 +41,7 @@ core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes.
 
 Open `bacon_potato/report.html` in a browser for everything below on one page. The report of this run is in
 the repository:
-[view it](https://htmlpreview.github.io/?https://github.com/duceppemo/BACoN/blob/main/docs/reports/tutorial_potato_report.html)
+[view it](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html)
 or [download it](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/reports/tutorial_potato_report.html)
 (local paths removed). The next sections look at the files behind it.
 

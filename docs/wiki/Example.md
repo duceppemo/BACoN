@@ -35,7 +35,7 @@ OK: all 6 pairwise SNP distances match the truth (example_output/bacon/4_compare
 ## The report
 
 Open `example_output/bacon/report.html` in a browser. The report of this example is also in the repository:
-[view it](https://htmlpreview.github.io/?https://github.com/duceppemo/BACoN/blob/main/docs/reports/example_report.html)
+[view it](https://duceppemo.github.io/BACoN/reports/example_report.html)
 or [download it](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/reports/example_report.html).
 (Local paths were removed from it before publication: the program paths start with `$CONDA_PREFIX`.)
 
@@ -61,4 +61,4 @@ records the command, the reference's MD5 and every program used.
 ![Methods and run](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_methods.png)
 
 For real data, see the [Tutorial](Tutorial) (28 potato cultivars), whose report is also
-[in the repository](https://htmlpreview.github.io/?https://github.com/duceppemo/BACoN/blob/main/docs/reports/tutorial_potato_report.html).
+[in the repository](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).

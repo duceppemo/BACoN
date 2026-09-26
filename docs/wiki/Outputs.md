@@ -39,7 +39,8 @@ A self-contained web page (no internet connection needed) that opens in any brow
 - **Run**: command, reference (MD5), output folder, and the version and path of every program.
 
 It is written at the end of every run, from the files of the output folder; `python -m bacon.report OUTPUT`
-rebuilds it.
+rebuilds it. Examples: the [bundled example](https://duceppemo.github.io/BACoN/reports/example_report.html)
+and the [tutorial](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).
 
 ![The samples section of the report of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_samples.png)
 
