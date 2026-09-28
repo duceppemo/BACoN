@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- VCF: `N` (ambiguous or missing bases, such as the N of templated assemblies) was written as an alternate
+  allele, and Parsnp wrote one record per `N`; it is now a missing genotype, and records left without an
+  alternate allele are dropped, as are records where the reference's own base is ambiguous.
+- VCF from SKA2: SNPs within 15 bp of the ends of circular genomes were in the alignment but not in the VCF;
+  `ska map` now uses the reference as SKA2 used it (`ska_reference.fasta`), and positions are folded back.
+- VCF from Parsnp: HarvestTools' undeclared INFO value `NA` made bcftools warn, and `bcftools norm` fail.
+- A comparison made by BACoN 0.3.1, or whose VCF failed, never got a VCF on later runs; it now does, from the
+  comparison's files, without redoing the comparison.
+- A failed `ska map` left `snps.raw.vcf`; a malformed VCF from the tools stopped the run or gave an invalid
+  file: it is now reported and the run goes on.
+
 ## 0.3.2 (2026-09-26)
 
 ### Added

@@ -378,6 +378,12 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
         result = saved["results"]
+        if not result.get("vcf") or not Path(result["vcf"]).is_file():
+            # A comparison from BACoN < 0.3.2, or whose VCF failed: the VCF is made from the comparison's files.
+            out = Path(result["distances"]).parent
+            paths = {k: v for k, v in assemblies.items() if v is not None}
+            result["vcf"] = _write_vcf(s, reference, out, log_dir, paths)
+            checkpoints.save("compare", fingerprint, result)
     else:
         checkpoints.clear("compare")
         out = root / (s.snp_method if s.snp_method != "ska" or s.ska_min_freq == 1 else f"ska_{s.ska_min_freq:g}")
@@ -392,14 +398,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         records = list(read_records(snps))
         names, matrix = compare.snp_distances(records)
         compare.write_distances(out / "snp_distances.tsv", names, matrix)
-        vcf: str | None = None
-        try:  # An extra output: its failure does not fail the comparison
-            vcf_path, records = compare.write_vcf(s.snp_method, reference, out, log_dir, threads=s.threads,
-                                                  assemblies=paths, source=f"BACoN {__version__}")
-            vcf = str(vcf_path)
-            log.info("VCF: %s (%d variant records)", vcf_path, records)
-        except BaconError as exc:
-            log.warning("Could not write the VCF: %s", str(exc).splitlines()[0])
+        vcf = _write_vcf(s, reference, out, log_dir, paths)
         sites = _alignment_length(snps)
         tree = None
         if sites == 0:
@@ -417,6 +416,18 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result
+
+
+def _write_vcf(s: Settings, reference: Path, out: Path, log_dir: Path, paths: dict[str, Path]) -> str | None:
+    """snps.vcf of the comparison; an extra output, whose failure is logged and does not fail the comparison."""
+    try:
+        vcf_path, records = compare.write_vcf(s.snp_method, reference, out, log_dir, threads=s.threads,
+                                              assemblies=paths, source=f"BACoN {__version__}")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not write the VCF: %s", str(exc).splitlines()[0] if str(exc) else repr(exc))
+        return None
+    log.info("VCF: %s (%d SNP records)", vcf_path, records)
+    return str(vcf_path)
 
 
 def _prepare_added_genomes(s: Settings, root: Path, samples: set[str]) -> dict[str, Path]:

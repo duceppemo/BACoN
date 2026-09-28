@@ -60,6 +60,9 @@ STUBS = {
             prefix = args[args.index("-o") + 1]
             table = args[args.index("-f") + 1]
             open(prefix + ".skf", "w").write(open(table).read())
+        elif args[0] == "map" and os.environ.get("STUB_SKA_MAP_FAIL"):
+            open(args[args.index("-o") + 1], "w").write("partial")
+            sys.exit("map failed")
         elif args[0] == "map":  # VCF: one variant, carried by every genome but the reference
             names = [line.split("\\t")[0] for line in open(args[2]) if line.strip()]
             header = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *names]
@@ -405,3 +408,35 @@ def test_notes_with_tabs_or_line_breaks_keep_the_summary_rectangular(tmp_path):
     st = SampleState(Sample("x", [tmp_path / "x.fq"]), failed="failed (bait)",
                      notes=["error:\tbad\ninput", "second"])
     assert summary_row(st)["Note"] == "error: bad input; second"
+
+
+def test_vcf_failure_is_a_warning_and_a_rerun_makes_the_vcf(stubs, dataset, tmp_path, monkeypatch, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    ska_dir = out / "4_compared" / "ska"
+    monkeypatch.setenv("STUB_SKA_MAP_FAIL", "1")
+    assert run(settings(ref, reads, out)) == 0
+    assert "Could not write the VCF" in caplog.text
+    assert not (ska_dir / "snps.vcf").exists() and not (ska_dir / "snps.raw.vcf").exists()
+    assert json.loads((out / "run_info.json").read_text())["comparison"]["vcf"] is None
+    monkeypatch.delenv("STUB_SKA_MAP_FAIL")
+    stubs.unlink()
+    assert run(settings(ref, reads, out)) == 0  # The comparison is reused; only the VCF is made
+    assert calls(stubs).count("ska") == 1 and "FastTree" not in calls(stubs)
+    assert (ska_dir / "snps.vcf").exists()
+    assert json.loads((out / "run_info.json").read_text())["comparison"]["vcf"].endswith("snps.vcf")
+
+
+def test_comparison_from_before_the_vcf_gets_one(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    ska_dir = out / "4_compared" / "ska"
+    (ska_dir / "snps.vcf").unlink()
+    checkpoint = out / ".checkpoints" / "compare.json"
+    data = json.loads(checkpoint.read_text())
+    del data["results"]["vcf"]  # As written by BACoN 0.3.1
+    checkpoint.write_text(json.dumps(data))
+    run(settings(ref, reads, out))
+    assert (ska_dir / "snps.vcf").exists()
+    assert "vcf" in json.loads(checkpoint.read_text())["results"]

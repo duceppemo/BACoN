@@ -95,6 +95,9 @@ def wrap_circular(rec: Record, kmer: int, force: bool = False) -> Record:
     return rec
 
 
+SKA_REFERENCE = "ska_reference.fasta"
+
+
 def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *, threads: int,
             min_freq: float, kmer: int = 31) -> tuple[Path, Path]:
     """Split k-mer alignment of the assemblies and the reference.
@@ -132,6 +135,9 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
     aln = out_dir / "ska.snps.fasta"
     clean_alignment(raw, aln)
     raw.unlink()
+    # The reference as SKA2 saw it (extended when circular): write_vcf maps to it, so that the VCF has the SNPs
+    # near the ends that the alignment has.
+    genomes["Reference"].replace(out_dir / SKA_REFERENCE)
     shutil.rmtree(inputs)
     return aln, aln
 
@@ -140,54 +146,109 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
 # VCF
 # ---------------------------------------------------------------------------------------------------------------
 
+def _genotype_fix(gt: str, remap: dict[str, str]) -> str:
+    return remap.get(gt, gt)
+
+
 def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, source: str) -> int:
-    """Rewrite a VCF from SKA2 or HarvestTools: sample columns named after the genomes (sorted), the reference's
-    own column removed, contig lengths, the source and the GT format in the header, and records without an
-    alternate allele (positions missing from some genomes, such as a deletion) dropped. Returns the number of
-    variant records."""
-    lengths = [(rec.name, len(rec.seq)) for rec in read_records(reference)]
+    """Rewrite a VCF from SKA2 or HarvestTools into a plain SNP VCF. Returns the number of records.
+
+    - Sample columns are named after the genomes and sorted; the reference's own column is removed.
+    - The header has the contig names and lengths of `reference`, the source, and the GT format.
+    - `N` is not an allele: genotypes pointing to it become missing (`.`) and it is removed from ALT; a record
+      left without an alternate allele is dropped (positions a genome lacks, such as a deletion, and ambiguous
+      bases). Records where the reference itself is not `0` (its own split k-mer is ambiguous) are dropped.
+    - Positions beyond the end of a contig (the reference was extended by the start of a circular sequence)
+      are folded back onto the start; duplicates are dropped.
+    - HarvestTools' undeclared INFO value `NA` becomes `.`; its `N` filter is removed with the `N` allele.
+    """
+    lengths = {rec.name: len(rec.seq) for rec in read_records(reference)}
     meta: list[str] = []
-    records, keep = 0, []
-    with open(raw) as fh, open(out, "w") as dst:
+    header: list[str] | None = None
+    keep: list[int] = []
+    ref_col: int | None = None
+    records: dict[tuple[str, int], list[str]] = {}
+    with open(raw) as fh:
         for line in fh:
-            if line.startswith("##"):
-                if line.startswith(("##contig", "##source", "##fileformat")):
-                    continue
-                meta.append(line)
+            line = line.rstrip("\r\n")
+            if not line.strip():
                 continue
-            fields = line.rstrip("\n").split("\t")
+            if line.startswith("##"):
+                if not line.startswith(("##contig", "##source", "##fileformat")):
+                    meta.append(line)
+                continue
+            fields = line.split("\t")
             if line.startswith("#CHROM"):
                 names = [rename.get(n, n) for n in fields[9:]]
+                ref_cols = [i for i, n in enumerate(names) if n == "Reference"]
+                if len(ref_cols) != 1:
+                    raise BaconError(f"{raw}: expected one reference column, found {len(ref_cols)} ({names})")
+                ref_col = ref_cols[0]
                 keep = sorted((i for i, n in enumerate(names) if n != "Reference"), key=lambda i: names[i])
-                dst.write("##fileformat=VCFv4.2\n")
-                dst.write(f"##source={source}\n")
-                dst.writelines(f"##contig=<ID={name},length={length}>\n" for name, length in lengths)
-                if not any(m.startswith("##FORMAT=<ID=GT,") for m in meta):
-                    meta.append('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-                dst.writelines(meta)
-                dst.write("\t".join(fields[:9] + [names[i] for i in keep]) + "\n")
+                header = fields[:9] + [names[i] for i in keep]
                 continue
-            if fields[4] in (".", ""):
+            if header is None or ref_col is None:
+                raise BaconError(f"{raw}: variant records before the #CHROM header line")
+            if len(fields) < 9 + len(names):
+                raise BaconError(f"{raw}: truncated record: {line[:80]}")
+            genotypes = fields[9:]
+            if genotypes[ref_col] != "0":
                 continue
-            dst.write("\t".join(fields[:9] + [fields[9 + i] for i in keep]) + "\n")
-            records += 1
-    return records
+            alts = fields[4].split(",")
+            remap, kept_alts = {}, []
+            for index, allele in enumerate(alts, 1):
+                if allele in ("N", ".", ""):
+                    remap[str(index)] = "."
+                else:
+                    kept_alts.append(allele)
+                    remap[str(index)] = str(len(kept_alts))
+            if not kept_alts:
+                continue
+            chrom, pos = fields[0], int(fields[1])
+            length = lengths.get(chrom)
+            if length and pos > length:
+                pos -= length
+            if (chrom, pos) in records:
+                continue
+            filters = [f for f in fields[6].split(";") if f not in ("N", "")]
+            row = [chrom, str(pos), fields[2], fields[3], ",".join(kept_alts), fields[5],
+                   ";".join(filters) if filters else ("PASS" if fields[6] not in (".", "") else "."),
+                   "." if fields[7] in ("NA", "") else fields[7], fields[8]]
+            records[(chrom, pos)] = row + [_genotype_fix(genotypes[i], remap) for i in keep]
+    if header is None:
+        raise BaconError(f"{raw}: no #CHROM header line")
+    if not any(m.startswith("##FORMAT=<ID=GT,") for m in meta):
+        meta.append('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">')
+    order = {name: i for i, name in enumerate(lengths)}
+    tmp = out.with_name(out.name + ".tmp")
+    with open(tmp, "w") as dst:
+        dst.write("##fileformat=VCFv4.2\n")
+        dst.write(f"##source={source}\n")
+        dst.writelines(f"##contig=<ID={name},length={length}>\n" for name, length in lengths.items())
+        dst.writelines(m + "\n" for m in meta)
+        dst.write("\t".join(header) + "\n")
+        for key in sorted(records, key=lambda k: (order.get(k[0], len(order)), k[0], k[1])):
+            dst.write("\t".join(records[key]) + "\n")
+    tmp.replace(out)
+    return len(records)
 
 
 def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, threads: int,
               assemblies: dict[str, Path], source: str) -> tuple[Path, int]:
-    """Variants of every genome relative to the reference, as VCF (`snps.vcf` in the comparison folder)."""
+    """SNPs of every genome relative to the reference, as VCF (`snps.vcf` in the comparison folder)."""
     raw = out_dir / "snps.raw.vcf"
-    if method == "ska":
-        run(["ska", "map", str(reference), str(out_dir / "ska.skf"), "-f", "vcf", "-o", str(raw),
-             "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")
-        rename: dict[str, str] = {}
-    else:
-        run(["harvesttools", "-i", str(out_dir / "parsnp.ggr"), "-V", str(raw)], log_dir / "parsnp.log",
-            what="(HarvestTools VCF)")
-        rename = _parsnp_names(assemblies, reference)
     out = out_dir / "snps.vcf"
+    out.unlink(missing_ok=True)
     try:
+        if method == "ska":
+            mapped_to = out_dir / SKA_REFERENCE
+            run(["ska", "map", str(mapped_to if mapped_to.exists() else reference), str(out_dir / "ska.skf"),
+                 "-f", "vcf", "-o", str(raw), "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")
+            rename: dict[str, str] = {}
+        else:
+            run(["harvesttools", "-i", str(out_dir / "parsnp.ggr"), "-V", str(raw)], log_dir / "parsnp.log",
+                what="(HarvestTools VCF)")
+            rename = _parsnp_names(assemblies, reference)
         count = clean_vcf(raw, out, rename=rename, reference=reference, source=source)
     finally:
         raw.unlink(missing_ok=True)

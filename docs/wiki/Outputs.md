@@ -22,6 +22,7 @@ OUTPUT/
 │       ├── tree.nwk                        midpoint-rooted tree (Newick)
 │       ├── tree.svg                        picture of the tree
 │       ├── snps.vcf                        SNPs of each genome relative to the reference (VCF)
+│       ├── ska_reference.fasta             SKA2: the reference as used, extended when circular
 │       └── ...                             the method's own files (alignments)
 └── logs/<step>/<sample>.log              the commands run and the programs' messages
 ```
@@ -117,18 +118,25 @@ nucleotides (A, C, G, T; gaps and N are ignored), with the reference as `Referen
 - **Parsnp** (`4_compared/parsnp/`): `parsnp.core.fasta` is the core-genome alignment, used for the tree;
   `parsnp.snps.fasta` the SNP sites; plus Parsnp's own files.
 
-`snps.vcf` lists, for each position of the reference where a genome differs from it, the genotype of every
-genome (`1` alternate allele, `0` reference, `.` missing), one column per genome, sorted by name (the reference
-itself has no column). Contig names and lengths are those of the reference (the files of the validation were
-read without warning by bcftools).
+`snps.vcf` lists, for each position of the reference where a genome has a SNP, the genotype of every genome:
+`1` (or `2`, `3` at a position with several alternate alleles) for an alternate allele, `0` for the reference
+allele, `.` when the genome lacks the position or its base there is ambiguous. There is one column per genome,
+sorted by name; the reference itself has no column. Contig names and lengths are those of the reference. On the
+simulated plastid of the validation (both methods, templated and de novo assemblies), the files load in bcftools
+without warnings, their reference alleles match the reference (`bcftools norm --check-ref`), and SKA2's hold
+exactly the SNPs of the truth.
 
-- **SKA2**: from `ska map`, which maps the split k-mers of every genome to the reference. A SNP inside an inverted
-  repeat is listed at both of its positions. All SNPs are listed, whatever `--ska-min-freq` (which only affects the
-  alignment, the distances and the tree).
-- **Parsnp**: from HarvestTools; the core-genome SNPs, with Parsnp's filters in the FILTER column (for example
-  `IND` next to an indel). SNPs in inverted repeats are missing, as in the distances.
+- **SKA2**: from `ska map`, which maps the split k-mers of every genome to the reference as SKA2 used it
+  (extended by the start of each sequence when the genomes are circular, so that SNPs next to the ends are kept;
+  `ska_reference.fasta` in the comparison folder). All SNPs are listed, whatever `--ska-min-freq` (which only
+  affects the alignment, the distances and the tree). A SNP in both copies of an inverted repeat is listed at
+  both of its positions; a difference between the two copies of one genome is ambiguous and is not listed.
+- **Parsnp**: from HarvestTools: the SNPs of the core-genome alignment, with HarvestTools' filters in the FILTER
+  column (for example `IND` next to an indel). SNPs in inverted repeats are missing, as in the distances.
 
-Positions that some genomes lack (a deletion, missing data) without any alternate allele are left out.
+`N` is never an allele: a genome's `N` gives `.`. Positions where no genome has an alternate allele (a deletion,
+missing data) are left out, and so are positions where the reference's own sequence is ambiguous (its split
+k-mer occurs with different middle bases, in repeats).
 
 `tree.nwk` is rooted at the midpoint of the longest path and ladderized; internal labels are the supports
 (SH-like local supports from 100 resamples for FastTree, ultrafast bootstraps for IQ-TREE). `tree.svg` draws it with a scale in
