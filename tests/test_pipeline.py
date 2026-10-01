@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from bacon import BaconError
+from bacon import BaconError, __version__
 from bacon.pipeline import Settings, run
 from bacon.seqio import read_records
 
@@ -459,6 +459,22 @@ def test_comparison_from_before_the_vcf_gets_one(stubs, dataset, tmp_path):
     run(settings(ref, reads, out))
     assert (ska_dir / "snps.vcf").exists() and (ska_dir / "ska_reference.fasta").exists()
     assert "vcf" in json.loads(checkpoint.read_text())["results"]
+
+
+def test_vcf_from_before_0_3_3_is_rewritten_on_resume(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    vcf = out / "4_compared" / "ska" / "snps.vcf"
+    current = vcf.read_text()
+    vcf.write_text(current.replace(f"##source=BACoN {__version__}", "##source=BACoN 0.3.2"))
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert vcf.read_text() == current  # Rewritten from the comparison's files, without redoing the comparison
+    assert calls(stubs).count("ska") == 1 and "FastTree" not in calls(stubs)
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert "ska" not in calls(stubs)  # A current VCF is kept
 
 
 def test_reference_and_added_genomes_are_upper_case_acgtn(stubs, dataset, tmp_path):

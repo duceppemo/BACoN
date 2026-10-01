@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- A VCF written by BACoN 0.3.2 or earlier is rewritten on resume, from the comparison's files (no need for
+  `--redo compare`).
+
 ## 0.3.3 (2026-10-01)
 
 ### Added

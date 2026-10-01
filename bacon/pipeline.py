@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import platform
+import re
 import threading
 import time
 import traceback
@@ -441,8 +442,9 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
         result = saved["results"]
-        if not result.get("vcf") or not Path(result["vcf"]).is_file():
-            # A comparison from BACoN < 0.3.2, or whose VCF failed: the VCF is made from the comparison's files.
+        if not result.get("vcf") or not Path(result["vcf"]).is_file() or _vcf_outdated(Path(result["vcf"])):
+            # A comparison from BACoN < 0.3.2, whose VCF failed, or whose VCF predates the fixes of 0.3.3: the VCF
+            # is made from the comparison's files.
             out = Path(result["distances"]).parent
             paths = {k: v for k, v in assemblies.items() if v is not None}
             result["vcf"] = _write_vcf(s, reference, out, log_dir, paths, set(added))
@@ -479,6 +481,23 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result
+
+
+# VCFs written by earlier versions are rewritten on resume: 0.3.3 fixed N alleles, SNPs next to the ends of
+# circular genomes and Parsnp's INFO values.
+VCF_REWRITE_BEFORE = (0, 3, 3)
+
+
+def _vcf_outdated(vcf: Path) -> bool:
+    """True if the VCF was written by a BACoN older than VCF_REWRITE_BEFORE (or does not say)."""
+    with open(vcf, encoding="ascii", errors="replace") as fh:
+        for line in fh:
+            if not line.startswith("##"):
+                break
+            if line.startswith("##source=BACoN "):
+                numbers = [int(n) for n in re.findall(r"\d+", line.split(maxsplit=1)[1])[:3]]
+                return tuple(numbers) < VCF_REWRITE_BEFORE
+    return True
 
 
 def _write_vcf(s: Settings, reference: Path, out: Path, log_dir: Path, paths: dict[str, Path],
