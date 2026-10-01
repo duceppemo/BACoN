@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from bacon.compare import clean_alignment, snp_distances, write_distances
 from bacon.seqio import Record, read_records
 
@@ -138,3 +140,49 @@ def test_ska_vcf_has_snps_next_to_the_ends_of_circular_genomes(tmp_path):
     assert [(r[1], r[9:]) for r in rows] == [("6", ["1", "0", "0", "0"]), ("2001", ["0", "0", "1", "0"]),
                                             ("4981", ["0", "1", "0", "0"])]
     assert not (tmp_path / "out" / "snps.raw.vcf").exists()
+
+
+def test_genotype_renumbering_handles_diploid_phased_and_extra_fields():
+    from bacon.compare import _genotype_fix
+    remap = {"1": ".", "2": "1"}
+    assert _genotype_fix("2", remap) == "1"
+    assert _genotype_fix("0/2", remap) == "0/1"
+    assert _genotype_fix("1|2:35", remap) == ".|1:35"
+    assert _genotype_fix(".", remap) == "."
+
+
+def test_write_ska_reference_extends_when_most_assemblies_are_circular(tmp_path):
+    from bacon.compare import write_ska_reference
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(">chr\n" + "ACGT" * 20 + "\n")
+    asm = {}
+    for i, circular in enumerate([True, True, False]):
+        asm[str(i)] = tmp_path / f"{i}.fasta"
+        asm[str(i)].write_text(f">c{i}{' circular=true' if circular else ''}\nACGT\n")
+    assert write_ska_reference(ref, asm, tmp_path / "out.fasta", kmer=5)
+    assert next(read_records(tmp_path / "out.fasta")).seq == "ACGT" * 20 + "ACGT"
+    assert not write_ska_reference(ref, {"0": asm["2"]}, tmp_path / "out.fasta", kmer=5)
+
+
+def test_parsnp_warns_when_the_core_is_a_fraction_of_the_reference(tmp_path, monkeypatch, caplog):
+    import bacon.compare as compare
+    ref = tmp_path / "reference.fasta"
+    ref.write_text(">chr\n" + "A" * 1000 + "\n")
+    asm = {"a": tmp_path / "a.fasta"}
+    asm["a"].write_text(">a\n" + "A" * 300 + "\n")
+
+    def fake_run(cmd, log, **kwargs):
+        if cmd[0] == "parsnp":
+            out = Path(cmd[cmd.index("-o") + 1])
+            out.mkdir(parents=True)
+            (out / "parsnp.xmfa").write_text("x")
+            (out / "parsnp.ggr").write_text("x")
+        elif "-M" in cmd:
+            Path(cmd[cmd.index("-M") + 1]).write_text(">reference.fasta.ref\n" + "A" * 300 + "\n>a.fasta\n" + "A" * 300 + "\n")
+        elif "-S" in cmd:
+            Path(cmd[cmd.index("-S") + 1]).write_text(">reference.fasta.ref\nA\n>a.fasta\nA\n")
+
+    monkeypatch.setattr(compare, "run", fake_run)
+    (tmp_path / "logs").mkdir()
+    compare.run_parsnp(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1)
+    assert "core genome is 300 bp, 30% of the reference" in caplog.text

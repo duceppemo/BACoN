@@ -10,5 +10,4 @@ dist/
 .vscode/
 .coverage
 coverage.xml
-example/data/
-example/results/
+example_output/

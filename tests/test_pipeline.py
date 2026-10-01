@@ -435,8 +435,78 @@ def test_comparison_from_before_the_vcf_gets_one(stubs, dataset, tmp_path):
     (ska_dir / "snps.vcf").unlink()
     checkpoint = out / ".checkpoints" / "compare.json"
     data = json.loads(checkpoint.read_text())
-    del data["results"]["vcf"]  # As written by BACoN 0.3.1
+    del data["results"]["vcf"]  # As written by BACoN 0.3.1, which kept no ska_reference.fasta either
     checkpoint.write_text(json.dumps(data))
+    (ska_dir / "ska_reference.fasta").unlink()
     run(settings(ref, reads, out))
-    assert (ska_dir / "snps.vcf").exists()
+    assert (ska_dir / "snps.vcf").exists() and (ska_dir / "ska_reference.fasta").exists()
     assert "vcf" in json.loads(checkpoint.read_text())["results"]
+
+
+def test_reference_and_added_genomes_are_upper_case_acgtn(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    soft = tmp_path / "soft.fasta"
+    soft.write_text(">ref masked\n" + "acgt" * 10 + "RYKM" + "ACGT" * 240 + "\n")
+    public = tmp_path / "pub.fasta"
+    public.write_text(">p\nacgtnRYacgt\n")
+    out = tmp_path / "out"
+    assert run(settings(soft, reads, out, add_genomes=[public])) == 0
+    copy = "".join((out / "reference.fasta").read_text().split("\n")[1:])
+    assert copy == "ACGT" * 10 + "NNNN" + "ACGT" * 240
+    assert (out / "4_compared" / "added_genomes" / "pub.fasta").read_text() == ">pub_p\nACGTNNNACGT\n"
+
+
+def test_added_genomes_do_not_redo_the_comparison(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    public = tmp_path / "pub.fasta"
+    public.write_text(">p\nACGTACGT\n")
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, add_genomes=[public]))
+    stubs.unlink()
+    import time
+    time.sleep(1.1)  # A new modification time for anything rewritten
+    run(settings(ref, reads, out, add_genomes=[public]))
+    assert "ska" not in calls(stubs) and "FastTree" not in calls(stubs)
+    public.write_text(">p\nACGTACGA\n")  # A changed genome: compared again
+    run(settings(ref, reads, out, add_genomes=[public]))
+    assert "ska" in calls(stubs)
+
+
+def test_unexpected_error_fails_one_sample_not_the_run(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    real = bacon.steps.filter_filtlong
+
+    def flaky(name, *args, **kwargs):
+        if name == "s2":
+            raise UnicodeEncodeError("ascii", "x", 0, 1, "boom")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(bacon.steps, "filter_filtlong", flaky)
+    out = tmp_path / "out"
+    assert run(settings(*dataset, out, snp_method="none")) == 0
+    rows = summary(out)
+    assert rows["s2"]["Status"] == "failed (filter)" and "unexpected error: UnicodeEncodeError" in rows["s2"]["Note"]
+    assert rows["s1"]["Status"] == "ok"
+
+
+def test_unexpected_error_in_the_comparison_keeps_the_summary(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.compare
+
+    def broken(*args, **kwargs):
+        raise FileNotFoundError("missing.contree")
+
+    monkeypatch.setattr(bacon.compare, "run_ska", broken)
+    out = tmp_path / "out"
+    with pytest.raises(BaconError, match="comparison failed unexpectedly"):
+        run(settings(*dataset, out))
+    assert summary(out)["s1"]["Status"] == "ok"
+    assert "FileNotFoundError" in json.loads((out / "run_info.json").read_text())["comparison"]["failed"]
+
+
+def test_templated_assembly_removes_graphs_of_an_earlier_de_novo_assembly(stubs, dataset, tmp_path):
+    out = tmp_path / "out"
+    run(settings(*dataset, out, snp_method="none"))
+    graphs = out / "3_assembled" / "assembly_graphs"
+    assert (graphs / "s1.gfa").exists()
+    run(settings(*dataset, out, snp_method="none", assembler="samtools"))
+    assert not list(graphs.glob("s1.*"))

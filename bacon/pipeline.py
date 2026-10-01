@@ -17,7 +17,15 @@ from bacon import BaconError, __version__, compare, steps
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
 from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
-from bacon.seqio import Record, check_reference, read_records, sniff_format, split_extension, write_fasta
+from bacon.seqio import (
+    Record,
+    acgtn,
+    check_reference,
+    read_records,
+    sniff_format,
+    split_extension,
+    write_fasta,
+)
 from bacon.tools import require, version
 
 log = logging.getLogger(__name__)
@@ -152,6 +160,11 @@ def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], st
             message = str(exc).splitlines()[0]
             log.warning("  %s: %s", st.sample.name, message)
             return st.sample.name, {"failed": message}
+        except Exception as exc:  # noqa: BLE001 - an unexpected error fails this sample, not the run
+            message = f"unexpected error: {type(exc).__name__}: {exc}".splitlines()[0]
+            log.warning("  %s: %s", st.sample.name, message)
+            log.debug("Traceback of %s", st.sample.name, exc_info=True)
+            return st.sample.name, {"failed": message}
         log.info("  %s done (%.0f s)", st.sample.name, time.monotonic() - start)
         return st.sample.name, {"output": str(res.output) if res.output else None, "stats": res.stats,
                                 "notes": res.notes}
@@ -186,8 +199,9 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
     lengths = check_reference(s.reference)
     s.output.mkdir(parents=True, exist_ok=True)
     local = s.output / "reference.fasta"
-    # An uncompressed copy with plain names: every tool reads it, and it records what was used.
-    records = list(read_records(s.reference))
+    # An uncompressed copy with plain names, upper case and N for ambiguity codes: every tool reads it (ska map is
+    # case-sensitive, and SKA2 reads IUPAC codes as fixed bases), and it records what was used.
+    records = [Record(r.header, acgtn(r.seq)) for r in read_records(s.reference)]
     tmp = local.with_suffix(".tmp")
     write_fasta(tmp, records)
     if not local.exists() or local.read_bytes() != tmp.read_bytes():
@@ -353,9 +367,12 @@ def _run(s: Settings, started: float) -> int:
     try:
         comparison = _compare(s, states, reference, folder["compare"], logs / "4_compare", checkpoints,
                               fingerprint, bool(refreshed) or redo_from <= STEPS.index("compare"))
-    except BaconError as exc:  # The assemblies are still worth reporting
-        _finish(s, states, tools, {"failed": str(exc).splitlines()[0]}, started)
-        raise
+    except Exception as exc:  # The assemblies are still worth reporting
+        message = str(exc).splitlines()[0] if isinstance(exc, BaconError) else f"{type(exc).__name__}: {exc}"
+        _finish(s, states, tools, {"failed": message}, started)
+        if isinstance(exc, BaconError):
+            raise
+        raise BaconError(f"The comparison failed unexpectedly: {message}") from exc
     _finish(s, states, tools, comparison, started)
     return 0
 
@@ -373,7 +390,8 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         return {"skipped": f"only {len(assemblies)} assemblies"}
     fingerprint = _fingerprint(fingerprint, {"method": s.snp_method, "tree": s.tree,
                                              "ska_min_freq": s.ska_min_freq, "assemblies": sorted(assemblies),
-                                             "added": {k: _file_signature(v) for k, v in added.items()}})
+                                             "added": {k: hashlib.md5(v.read_bytes()).hexdigest()
+                                                       for k, v in added.items()}})
     saved = None if force else checkpoints.load("compare", fingerprint)
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
@@ -443,7 +461,12 @@ def _prepare_added_genomes(s: Settings, root: Path, samples: set[str]) -> dict[s
                              "rename the file")
         target = root / "added_genomes" / f"{name}.fasta"
         target.parent.mkdir(parents=True, exist_ok=True)
-        write_fasta(target, [Record(f"{name}_{r.name}", r.seq.upper()) for r in read_records(path)])
+        tmp = target.with_suffix(".tmp")
+        write_fasta(tmp, [Record(f"{name}_{r.name}", acgtn(r.seq)) for r in read_records(path)])
+        if target.exists() and target.read_bytes() == tmp.read_bytes():
+            tmp.unlink()  # Unchanged: the copy (and the comparison's fingerprint) stays as it was
+        else:
+            tmp.replace(target)
         added[name] = target
     if added:
         log.info("Added to the comparison: %s", ", ".join(added))

@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[2])
 from make_example import EXPECTED_DISTANCES
 
-found = sorted(Path(sys.argv[1], "4_compared").glob("*/snp_distances.tsv"))
+found = [p for p in [Path(sys.argv[1], "4_compared", "ska", "snp_distances.tsv")] if p.exists()]  # The default
 if not found:
     sys.exit("FAILED: no snp_distances.tsv")
 lines = found[0].read_text().splitlines()

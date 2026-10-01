@@ -88,8 +88,8 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
                     prev.close()  # So that the upstream process gets SIGPIPE if the downstream one dies
                 prev = procs[-1].stdout
             if stdout is not None:
-                opener = gzip.open if str(stdout).endswith(".gz") else open
-                with opener(stdout, "wb") as out_fh:
+                gz = str(stdout).endswith(".gz")
+                with (gzip.open(stdout, "wb", compresslevel=4) if gz else open(stdout, "wb")) as out_fh:
                     shutil.copyfileobj(procs[-1].stdout, out_fh, 1 << 20)
                 procs[-1].stdout.close()
             codes = [p.wait() for p in procs]
@@ -101,10 +101,13 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
             for p in procs:
                 p.kill()
             raise
-    for cmd, code in zip(pipeline, codes):
-        if code != 0:
-            raise ToolError(f"{Path(cmd[0]).name} failed with exit code {code}{' ' + what if what else ''}; "
-                            f"see {log_file}\n{_tail(log_file)}")
+    failed = [(cmd, code) for cmd, code in zip(pipeline, codes) if code != 0]
+    if failed:
+        # In a pipeline, a program killed by SIGPIPE (-13) only reports that a later one stopped reading:
+        # blame the program that failed on its own.
+        cmd, code = next(((c, k) for c, k in failed if k > 0), failed[0])
+        raise ToolError(f"{Path(cmd[0]).name} failed with exit code {code}{' ' + what if what else ''}; "
+                        f"see {log_file}\n{_tail(log_file)}")
 
 
 def version(name: str) -> str:

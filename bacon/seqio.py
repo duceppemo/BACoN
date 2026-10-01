@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import gzip
 import io
+import re
+import zlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from bacon import BaconError
 
+# Errors raised while decompressing a truncated or corrupt gzip file.
+DECOMPRESSION_ERRORS: tuple[type[BaseException], ...] = (EOFError, zlib.error, gzip.BadGzipFile)
 try:  # Optional: python-isal decompresses gzip several times faster
     from isal import igzip as _gzip
+    from isal.igzip_lib import IsalError
+
+    DECOMPRESSION_ERRORS += (IsalError,)
 except ImportError:  # pragma: no cover - depends on the environment
     _gzip = gzip
 
@@ -42,8 +49,8 @@ def open_text(path: Path) -> io.TextIOBase:
 def open_write(path: Path) -> io.TextIOBase:
     """Open a text file for writing, gzipped if its name ends with .gz."""
     if str(path).endswith(".gz"):
-        return gzip.open(path, "wt", compresslevel=4, encoding="ascii")
-    return open(path, "w", encoding="ascii")
+        return gzip.open(path, "wt", compresslevel=4, encoding="ascii", errors="replace")
+    return open(path, "w", encoding="ascii", errors="replace")
 
 
 @dataclass
@@ -64,6 +71,13 @@ class Record:
 
 def sniff_format(path: Path) -> str | None:
     """'fastq', 'fasta', or None for an empty file, from the first non-blank character."""
+    try:
+        return _sniff_format(path)
+    except DECOMPRESSION_ERRORS as exc:
+        raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
+
+
+def _sniff_format(path: Path) -> str | None:
     with open_text(path) as fh:
         for line in fh:
             if line.strip():
@@ -76,7 +90,16 @@ def sniff_format(path: Path) -> str | None:
 
 
 def read_records(path: Path) -> Iterator[Record]:
-    """Iterate over the records of a fasta (multi-line allowed) or fastq (4 lines per record) file."""
+    """Iterate over the records of a fasta (multi-line allowed) or fastq (4 lines per record) file.
+
+    A truncated or corrupt compressed file is a BaconError (decompression errors are not)."""
+    try:
+        yield from _read_records(path)
+    except DECOMPRESSION_ERRORS as exc:
+        raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
+
+
+def _read_records(path: Path) -> Iterator[Record]:
     fmt = sniff_format(path)
     if fmt is None:
         return
@@ -162,10 +185,18 @@ def check_reference(path: Path) -> list[tuple[str, int]]:
     return lengths
 
 
+_NOT_ACGT = re.compile(r"[^ACGT]")
+
+
+def acgtn(seq: str) -> str:
+    """Upper case, and N for anything that is not A, C, G or T (IUPAC codes, soft-masked bases)."""
+    return _NOT_ACGT.sub("N", seq.upper())
+
+
 def write_fasta(path: Path, records: Iterable[Record], width: int = 80) -> int:
     """Write records as plain fasta wrapped at `width`. Returns the number of records written."""
     count = 0
-    with open(path, "w", encoding="ascii") as out:
+    with open(path, "w", encoding="ascii", errors="replace") as out:
         for rec in records:
             out.write(f">{rec.header}\n")
             for i in range(0, len(rec.seq), width):

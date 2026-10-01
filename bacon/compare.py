@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 from pathlib import Path
 
@@ -81,6 +82,12 @@ def run_parsnp(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_
     clean_alignment(out_dir / "parsnp.snps.raw.fasta", out_dir / "parsnp.snps.fasta", rename)
     for raw in ("parsnp.core.raw.fasta", "parsnp.snps.raw.fasta"):
         (out_dir / raw).unlink()
+    reference_length = sum(len(r.seq) for r in read_records(reference))
+    core_length = next((len(r.seq) for r in read_records(out_dir / "parsnp.core.fasta")), 0)
+    if core_length < 0.5 * reference_length:
+        log.warning("Parsnp's core genome is %s bp, %.0f%% of the reference: an incomplete assembly limits the "
+                    "comparison of every genome to that core; check the assemblies, or use --snp-method ska",
+                    f"{core_length:,}", 100 * core_length / reference_length)
     return out_dir / "parsnp.core.fasta", out_dir / "parsnp.snps.fasta"
 
 
@@ -96,6 +103,16 @@ def wrap_circular(rec: Record, kmer: int, force: bool = False) -> Record:
 
 
 SKA_REFERENCE = "ska_reference.fasta"
+
+
+def write_ska_reference(reference: Path, assemblies: dict[str, Path], out: Path, kmer: int = 31) -> bool:
+    """The reference as SKA2 uses it: extended by its first k-1 bases when most assemblies are circular.
+    Returns whether it was extended."""
+    circular = sum(1 for path in assemblies.values()
+                   if any(r.header.endswith("circular=true") for r in read_records(path)))
+    wrap = circular > len(assemblies) / 2
+    write_fasta(out, [wrap_circular(r, kmer, force=wrap) for r in read_records(reference)])
+    return wrap
 
 
 def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *, threads: int,
@@ -114,17 +131,11 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
     inputs = out_dir / "inputs"
     inputs.mkdir()
     genomes: dict[str, Path] = {}
-    circular_samples = 0
     for name, path in assemblies.items():
-        records = list(read_records(path))
-        if any(r.header.endswith("circular=true") for r in records):
-            circular_samples += 1
         genomes[name] = inputs / f"{name}.fasta"
-        write_fasta(genomes[name], [wrap_circular(r, kmer) for r in records])
-    ref_records = list(read_records(reference))
-    wrap_ref = circular_samples > len(assemblies) / 2
+        write_fasta(genomes[name], [wrap_circular(r, kmer) for r in read_records(path)])
     genomes = {"Reference": inputs / "Reference.fasta", **genomes}
-    write_fasta(genomes["Reference"], [wrap_circular(r, kmer, force=wrap_ref) for r in ref_records])
+    write_ska_reference(reference, assemblies, genomes["Reference"], kmer)
     table = out_dir / "input.tsv"
     table.write_text("".join(f"{name}\t{path}\n" for name, path in genomes.items()))
     run(["ska", "build", "-o", str(out_dir / "ska"), "-k", str(kmer), "-f", str(table), "--threads", str(threads)],
@@ -146,8 +157,11 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
 # VCF
 # ---------------------------------------------------------------------------------------------------------------
 
-def _genotype_fix(gt: str, remap: dict[str, str]) -> str:
-    return remap.get(gt, gt)
+def _genotype_fix(value: str, remap: dict[str, str]) -> str:
+    """Renumber the alleles of a genotype field (GT first; '0', '1/2', '0|1' and extra ':' fields kept)."""
+    gt, sep, rest = value.partition(":")
+    alleles = re.split(r"([/|])", gt)
+    return "".join(remap.get(a, a) if a not in "/|" else a for a in alleles) + sep + rest
 
 
 def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, source: str) -> int:
@@ -242,7 +256,9 @@ def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, thr
     try:
         if method == "ska":
             mapped_to = out_dir / SKA_REFERENCE
-            run(["ska", "map", str(mapped_to if mapped_to.exists() else reference), str(out_dir / "ska.skf"),
+            if not mapped_to.exists():  # A comparison made by BACoN 0.3.1: rebuild it by the same rule
+                write_ska_reference(reference, assemblies, mapped_to)
+            run(["ska", "map", str(mapped_to), str(out_dir / "ska.skf"),
                  "-f", "vcf", "-o", str(raw), "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")
             rename: dict[str, str] = {}
         else:

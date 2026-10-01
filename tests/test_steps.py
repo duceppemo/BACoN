@@ -49,3 +49,33 @@ def test_filter_by_length_keeps_longest_up_to_target(tmp_path):
     assert [r.name for r in read_records(out)] == ["r1", "r3"]  # 900 + 700 reach 1,500: one of the two 700s
     filter_by_length(src, out, min_length=80, target_bases=10_000)
     assert [r.name for r in read_records(out)] == ["r0", "r1", "r3", "r4", "r5"]  # All but the 50 bp read
+
+
+def test_filter_by_length_keeps_nothing_when_no_read_is_long_enough(tmp_path):
+    from bacon.seqio import read_records
+    from bacon.steps import filter_by_length
+    src = tmp_path / "r.fasta"
+    src.write_text(">r1\nACGT\n>r2\nACGTACGT\n")
+    out = tmp_path / "o.fasta.gz"
+    filter_by_length(src, out, min_length=100, target_bases=1000)
+    assert list(read_records(out)) == []
+
+
+def test_pipe_failure_names_the_program_that_failed(tmp_path):
+    import pytest
+
+    from bacon.tools import ToolError, run
+    with pytest.raises(ToolError, match="^false failed with exit code 1"):
+        run([["yes"], ["false"]], tmp_path / "log")
+    with pytest.raises(ToolError, match="^sh failed with exit code 7"):
+        run([["sh", "-c", "exit 7"], ["cat"]], tmp_path / "log")
+
+
+def test_published_assemblies_are_upper_case_acgtn(tmp_path):
+    from bacon.seqio import read_records
+    from bacon.steps import AssemblyDirs, _publish_assembly
+    raw = tmp_path / "raw.fasta"
+    raw.write_text(">c1\nacgtRYKMn\n")
+    dirs = AssemblyDirs(tmp_path / "asm")
+    _publish_assembly("s1", raw, dirs, rename=False)
+    assert next(read_records(dirs.assemblies / "s1.fasta")).seq == "ACGTNNNNN"

@@ -90,3 +90,30 @@ def test_check_reference_rejects_fastq_and_missing(fastq, tmp_path):
         check_reference(fastq("r.fastq.gz", [("r1", "ACGT")]))
     with pytest.raises(BaconError, match="not found"):
         check_reference(tmp_path / "missing.fasta")
+
+
+def test_truncated_or_corrupt_gzip_is_a_bacon_error(tmp_path, fastq):
+    import random
+    rng = random.Random(3)  # Random reads: a compressed file large enough to corrupt its middle
+    good = fastq("g.fastq.gz", [(f"r{i}", "".join(rng.choice("ACGT") for _ in range(800))) for i in range(300)])
+    data = good.read_bytes()
+    (tmp_path / "t.fastq.gz").write_bytes(data[: len(data) // 2])
+    corrupt = bytearray(data)
+    corrupt[10:60] = bytes(50)  # Right after the gzip header: an invalid deflate block
+    (tmp_path / "c.fastq.gz").write_bytes(bytes(corrupt))
+    for name in ("t.fastq.gz", "c.fastq.gz"):
+        with pytest.raises(BaconError, match="truncated or corrupt compressed file"):
+            list(read_records(tmp_path / name))
+
+
+def test_non_ascii_headers_do_not_break_writing(tmp_path):
+    from bacon.seqio import Record, open_write, write_fasta
+    write_fasta(tmp_path / "a.fasta", [Record("Solanum × sp", "ACGT")])
+    with open_write(tmp_path / "b.fastq.gz") as fh:
+        fh.write(Record("é", "AC", "II").format())
+    assert (tmp_path / "a.fasta").read_text().startswith(">Solanum ? sp")
+
+
+def test_acgtn():
+    from bacon.seqio import acgtn
+    assert acgtn("acgtRYN-*x") == "ACGTNNNNNN"

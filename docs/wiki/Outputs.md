@@ -127,8 +127,9 @@ without warnings, their reference alleles match the reference (`bcftools norm --
 exactly the SNPs of the truth.
 
 - **SKA2**: from `ska map`, which maps the split k-mers of every genome to the reference as SKA2 used it
-  (extended by the start of each sequence when the genomes are circular, so that SNPs next to the ends are kept;
-  `ska_reference.fasta` in the comparison folder). All SNPs are listed, whatever `--ska-min-freq` (which only
+  (extended by the start of each sequence when more than half of the assemblies have a circular contig, so that
+  SNPs next to the ends are kept; `ska_reference.fasta` in the comparison folder; see
+  [Methods](Methods#4-comparison)). All SNPs are listed, whatever `--ska-min-freq` (which only
   affects the alignment, the distances and the tree). A SNP in both copies of an inverted repeat is listed at
   both of its positions; a difference between the two copies of one genome is ambiguous and is not listed.
 - **Parsnp**: from HarvestTools: the SNPs of the core-genome alignment, with HarvestTools' filters in the FILTER

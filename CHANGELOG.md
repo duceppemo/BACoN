@@ -3,6 +3,22 @@
 ## Unreleased
 
 ### Fixed
+- A soft-masked (lower-case) reference lost the SNPs of its lower-case regions from `snps.vcf` (`ska map` and
+  HarvestTools are case-sensitive), and IUPAC codes in a reference or added genome were read by SKA2 as fixed
+  bases (false SNPs): the reference, the assemblies and the added genomes are now upper case with N for any
+  ambiguity code.
+- An unexpected error in one sample (a truncated or corrupt gzip file, a non-ASCII read name) stopped the whole
+  run without a summary; it now fails that sample only, with a clear message. An unexpected error in the
+  comparison still writes the summary, `run_info.json` and the report.
+- `--add-genomes` made the comparison run again on every resume.
+- Reads from fasta files were all kept when none reached `--min-read-length`.
+- A failure in a pipe of programs was attributed to the upstream program killed by SIGPIPE.
+- Parsnp: a warning when the core genome is less than half of the reference (a short genome can shrink it for
+  every genome).
+- Switching from a de novo to the templated assembly left the de novo assembly graphs.
+- The VCF of a comparison made by BACoN 0.3.1 now uses the reference as SKA2 used it (extended when circular).
+- Genotypes such as `0/1` or `1|0:35` are renumbered correctly when an `N` allele is removed.
+- `example/run_example.sh` checks the SKA2 comparison, and its output folder is ignored by git.
 - VCF: `N` (ambiguous or missing bases, such as the N of templated assemblies) was written as an alternate
   allele, and Parsnp wrote one record per `N`; it is now a missing genotype, and records left without an
   alternate allele are dropped, as are records where the reference's own base is ambiguous.

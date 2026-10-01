@@ -13,6 +13,7 @@ from bacon.samples import Sample
 from bacon.seqio import (
     ReadStats,
     Record,
+    acgtn,
     concatenate,
     extract_reads,
     n50,
@@ -143,6 +144,9 @@ def filter_filtlong(name: str, reads: Path, fmt: str, out_dir: Path, log_dir: Pa
 def filter_by_length(reads: Path, output: Path, *, min_length: int, target_bases: int) -> None:
     """Keep the longest reads of at least `min_length` bp, up to `target_bases` (in their original order)."""
     lengths = sorted((len(r.seq) for r in read_records(reads) if len(r.seq) >= min_length), reverse=True)
+    if not lengths:  # No read long enough: an empty output, and the sample fails like Filtlong's
+        open_write(output).close()
+        return
     total, threshold, ties = 0, 0, 0
     for length in lengths:  # The shortest length still kept, and how many reads of that length to keep
         if total >= target_bases:
@@ -195,7 +199,7 @@ def _publish_assembly(name: str, contigs: Path, dirs: AssemblyDirs, *, rename: b
         header = f"{name}_{i}" if rename else f"{name}_{rec.name}"
         if rec.name in (circular or set()) or _CIRCULAR_TAGS.search(rec.header):
             header += " circular=true"
-        out.append(Record(header, rec.seq.upper()))
+        out.append(Record(header, acgtn(rec.seq)))  # Ambiguity codes (e.g. from consensus calls) become N
     write_fasta(dirs.assemblies / f"{name}.fasta", out)
     return out
 
@@ -303,6 +307,8 @@ def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDir
     """Templated assembly: samtools consensus of the reads aligned to the reference with minimap2."""
     work = dirs.work(name)
     shutil.rmtree(work, ignore_errors=True)
+    for old in (dirs.graphs / f"{name}.gfa", dirs.graphs / f"{name}.png"):  # From an earlier de novo assembly
+        old.unlink(missing_ok=True)
     work.mkdir(parents=True)
     log_file = log_dir / f"{name}.log"
     bam = work / "aligned.bam"

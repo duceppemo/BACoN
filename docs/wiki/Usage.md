@@ -9,7 +9,8 @@ bacon -r REFERENCE.fasta -i READS -o OUTPUT [options]
 **Reference** (`-r`): a fasta file, gzipped or not, with one or more sequences, for example a complete
 chloroplast genome. It is used to bait the reads, as the template of the templated assembly, and as the
 anchor of the SNP comparison. A reference of the same species works best; a closely related species works for
-baiting and de novo assembly.
+baiting and de novo assembly. BACoN uses an upper-case copy (soft-masked, lower-case regions are compared like
+the rest) in which IUPAC ambiguity codes are `N`; the same applies to the assemblies and to `--add-genomes`.
 
 **Reads**, as fastq or fasta, gzipped or not (`.fastq`, `.fq`, `.fasta`, `.fa`, `.fna`, `.fas`, with or
 without `.gz`). Three ways to give them:
@@ -66,7 +67,9 @@ bacon -r ref.fasta -i reads/ -o out/ -a flye --snp-method parsnp   # reuses the 
 Each comparison is written to its own folder (`4_compared/ska/`, `4_compared/parsnp/`,
 `4_compared/ska_0.5/`), so several can be kept side by side. A sample that failed is retried on the next run;
 samples added to the input are processed without redoing the others' baiting and filtering (their
-assemblies are compared again).
+assemblies are compared again). The files of a sample removed from the input stay in the output folder, unused;
+after switching from a de novo to the templated assembly, the de novo assembly graphs of each sample are
+removed.
 
 `--redo STEP` forces a step to run again, for example after installing a newer assembler.
 

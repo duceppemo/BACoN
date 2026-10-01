@@ -76,12 +76,16 @@ Limits of the de novo assemblies:
   alignment. `--ska-min-freq 1` (default) keeps SNPs whose context is in every genome: core SNPs.
   Lower values keep SNPs missing from some genomes (a pan-genome SNP alignment with gaps, like kSNP, which
   BACoN 0.1 used). A SNP in an inverted repeat is counted once. Before SKA2, circular contigs are extended by
-  their first 30 bases so that SNPs next to the start of the sequence are not lost.
+  their first 30 bases so that SNPs next to the start of the sequence are not lost, and so is the reference
+  when more than half of the assemblies have a circular contig (Flye and myloasm report them; templated
+  assemblies follow the reference and are never flagged circular, so with them the SNPs within 15 bases of the
+  ends of the reference are not compared).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
   with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
-  divergent, which in
-  the validation removed a low-depth sample. SNPs inside inverted repeats are missed, and SNPs next to
-  large deletions may be.
+  divergent, which in the validation removed a low-depth sample. A genome much shorter than the reference can
+  still make Parsnp fail, or be kept and reduce the core genome of every genome to what it covers: BACoN warns
+  when the core genome is less than half of the reference. SNPs inside inverted repeats are missed, and SNPs
+  next to large deletions may be.
 
 **Distances.** `snp_distances.tsv` counts, for each pair of genomes, the positions of the SNP alignment where
 both have a nucleotide and they differ.
@@ -103,7 +107,7 @@ example with fragmented assemblies), the distances are written but no tree is bu
 | Rebaler | samtools consensus | Rebaler is unmaintained (2019); samtools consensus was far more accurate in every test |
 | Snippy | SKA2 | Snippy (2020) can no longer be installed with current assemblers; it misses SNPs in inverted repeats and was the noisiest on real data |
 | PhaME | removed | its dependency check compares versions as decimals and rejects samtools 1.10 to 1.29 (1.21 reads as older than 1.3; observed with 1.16 and 1.21) |
-| Parsnp without `-c` | Parsnp with `-c` | no longer drops divergent genomes (assemblies much shorter than the reference still make Parsnp fail) |
+| Parsnp without `-c` | Parsnp with `-c` | no longer drops divergent genomes (a genome much shorter than the reference can still make Parsnp fail, or shrink the core genome; BACoN warns) |
 | RAxML 8 | IQ-TREE | maintained; model selection |
 | ete3 PDF | SVG, drawn by BACoN | ete3 needs Qt and a display |
 
