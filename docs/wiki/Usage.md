@@ -32,8 +32,9 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `-i`, `--input` | | Reads file or folder (this or `--sample-sheet`) |
 | `--sample-sheet` | | TSV/CSV with `sample` and `file` columns |
 | `-o`, `--output` | | Output folder (required) |
-| `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (up to 2 mismatches) |
+| `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
+| `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |
 | `--keep-bam` | off | Keep the sorted BAM of the baited reads (minimap2) |
 | `--min-read-length` | 500 | Shorter reads are discarded |
 | `--keep-percent` | 95 | Filtlong keeps this percentage of the best reads (fastq only: fasta reads have no qualities and are selected by length) |
@@ -50,7 +51,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--redo` | | Rerun this step and the following ones: `bait`, `filter`, `assemble`, `compare` |
 | `-t`, `--threads` | all | Total threads, shared between the samples processed in parallel |
 | `-p`, `--parallel` | 2 | Samples processed at the same time |
-| `-m`, `--memory` | 85% of RAM | Memory for BBDuk, in GB |
+| `-m`, `--memory` | 85% of RAM | Total memory for BBDuk, in GB, divided between the samples processed in parallel (`-p`) |
 | `--debug` | | Verbose log |
 
 ## Resuming and changing parameters
@@ -72,6 +73,10 @@ after switching from a de novo to the templated assembly, the de novo assembly g
 removed.
 
 `--redo STEP` forces a step to run again, for example after installing a newer assembler.
+
+A run stopped with Ctrl-C stops the programs it started; each sample finished before the interruption is
+recorded, so the next run redoes only the samples that were still running. Two runs cannot use the same
+output folder at the same time: the second one stops with an error.
 
 ## Performance
 

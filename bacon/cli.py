@@ -79,6 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
                            "with it. Default: %(default)s")
     bait.add_argument("-k", "--kmer-size", metavar="31", type=_kmer, default=31,
                       help="K-mer size for bbduk (at most 31). Default: %(default)s")
+    bait.add_argument("--hdist", type=int, choices=[0, 1, 2], default=1,
+                      help="Mismatches allowed in BBDuk's k-mers. Each one multiplies BBDuk's memory: with 2, a "
+                           "155 kb plastome needs about 14 GB per sample. Default: %(default)s")
     bait.add_argument("--keep-bam", action="store_true",
                       help="Keep the sorted BAM of the reads aligned to the reference (minimap2 only).")
 
@@ -131,7 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_group.add_argument("-p", "--parallel", metavar="2", type=_positive_int, default=2,
                            help="Number of samples processed at the same time. Default: %(default)s")
     run_group.add_argument("-m", "--memory", metavar="GB", type=_positive_int, default=max_mem,
-                           help="Memory in GB, for bbduk. Default: 85%% of the total (%(default)s)")
+                           help="Total memory in GB for BBDuk, divided between the samples processed in "
+                                "parallel (-p). Default: 85%% of the total (%(default)s)")
     parser.add_argument("--debug", action="store_true", help="Verbose logging.")
     parser.add_argument("-v", "--version", action="version", version=f"BACoN {__version__}")
     return parser
@@ -164,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         sample_sheet=args.sample_sheet,
         baiting=args.baiting_method,
         kmer=args.kmer_size,
+        hdist=args.hdist,
         keep_bam=args.keep_bam,
         min_read_length=args.min_read_length,
         keep_percent=args.keep_percent,

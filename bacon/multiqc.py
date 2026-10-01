@@ -149,6 +149,8 @@ def write_multiqc(output: Path, rows: list[dict[str, str]], distances: Path | No
         if content is None:
             path.unlink(missing_ok=True)
             continue
-        path.write_text(json.dumps(content, indent=1) + "\n")
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(content, indent=1) + "\n")
+        tmp.replace(path)
         written.append(path)
     return written

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import logging
 import os
 import platform
+import threading
 import time
+import traceback
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from bacon import BaconError, __version__, compare, steps
+from bacon import BaconError, __version__, compare, steps, tools
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
 from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
@@ -32,6 +35,7 @@ log = logging.getLogger(__name__)
 
 STEPS = ("bait", "filter", "assemble", "compare")
 FOLDERS = {"bait": "1_extracted", "filter": "2_filtered", "assemble": "3_assembled", "compare": "4_compared"}
+LOG_FOLDERS = {"bait": "1_bait", "filter": "2_filter", "assemble": "3_assemble", "compare": "4_compare"}
 SUMMARY_COLUMNS = [
     "Sample", "Status", "Raw_reads", "Raw_bases", "Baited_reads", "Baited_bases", "Baited_pct",
     "Filtered_reads", "Filtered_bases", "Filtered_N50", "Est_depth",
@@ -49,6 +53,7 @@ class Settings:
     sample_sheet: Path | None = None
     baiting: str = "minimap2"
     kmer: int = 31
+    hdist: int = 1
     keep_bam: bool = False
     min_read_length: int = 500
     keep_percent: float = 95.0
@@ -146,8 +151,12 @@ def _load_samples(s: Settings) -> list[Sample]:
 
 
 def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], steps.StepResult],
-                  s: Settings, step: str) -> dict[str, dict]:
-    """Run `fn` on every sample still in the race; failures of one sample do not stop the others."""
+                  s: Settings, step: str, log_dir: Path,
+                  on_done: Callable[[str, dict], None] | None = None) -> dict[str, dict]:
+    """Run `fn` on every sample still in the race; failures of one sample do not stop the others.
+
+    `on_done(name, result)` is called as each sample finishes (to save progress). On an interruption, the
+    programs still running are killed and the samples not started are cancelled."""
     active = [st for st in states if not st.failed]
     workers = max(1, min(s.parallel, len(active)))
     threads = max(1, s.threads // workers)
@@ -161,16 +170,36 @@ def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], st
             log.warning("  %s: %s", st.sample.name, message)
             return st.sample.name, {"failed": message}
         except Exception as exc:  # noqa: BLE001 - an unexpected error fails this sample, not the run
-            message = f"unexpected error: {type(exc).__name__}: {exc}".splitlines()[0]
+            log_file = log_dir / f"{st.sample.name}.log"
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_file, "a") as fh:  # The traceback, for a bug report
+                fh.write("Unexpected error in BACoN:\n" + traceback.format_exc())
+            message = f"unexpected error: {type(exc).__name__}: {exc}".splitlines()[0] + f"; see {log_file}"
             log.warning("  %s: %s", st.sample.name, message)
-            log.debug("Traceback of %s", st.sample.name, exc_info=True)
             return st.sample.name, {"failed": message}
         log.info("  %s done (%.0f s)", st.sample.name, time.monotonic() - start)
         return st.sample.name, {"output": str(res.output) if res.output else None, "stats": res.stats,
                                 "notes": res.notes}
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return dict(pool.map(one, active))
+    results: dict[str, dict] = {}
+    tools.allow_programs()
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        futures = [pool.submit(one, st) for st in active]
+        for future in as_completed(futures):
+            name, res = future.result()
+            results[name] = res
+            if on_done is not None:
+                on_done(name, res)
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        killed = tools.kill_running()
+        if killed:
+            log.warning("Interrupted: %d running program(s) stopped", killed)
+        pool.shutdown(wait=True)
+        raise
+    pool.shutdown(wait=True)
+    return {st.sample.name: results[st.sample.name] for st in active}
 
 
 def _apply(states: list[SampleState], results: dict[str, dict], step: str) -> None:
@@ -236,10 +265,12 @@ def summary_row(st: SampleState) -> dict[str, str]:
 
 
 def write_tsv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
-    with open(path, "w") as fh:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as fh:
         fh.write("\t".join(columns) + "\n")
         for row in rows:
             fh.write("\t".join(str(row.get(c, "NA")) for c in columns) + "\n")
+    tmp.replace(path)
 
 
 def format_table(columns: list[str], rows: list[dict[str, str]]) -> str:
@@ -257,6 +288,13 @@ def run(s: Settings) -> int:
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
     s.add_genomes = [p.resolve() for p in s.add_genomes]
     s.output.mkdir(parents=True, exist_ok=True)
+    lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        raise BaconError(f"Another BACoN run is using {s.output}; wait for it to end, or use another output "
+                         "folder") from None
     file_handler = logging.FileHandler(s.output / "bacon.log")
     file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"))
     logger = logging.getLogger("bacon")
@@ -268,6 +306,7 @@ def run(s: Settings) -> int:
     finally:
         logging.getLogger("bacon").removeHandler(file_handler)
         file_handler.close()
+        lock.close()  # Releases the lock
 
 
 def _run(s: Settings, started: float) -> int:
@@ -292,7 +331,8 @@ def _run(s: Settings, started: float) -> int:
     inputs = {x.name: [_file_signature(f) for f in x.files] for x in samples}
     params = {
         "bait": {"reference": hashlib.md5(reference.read_bytes()).hexdigest(),
-                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam},
+                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None,
+                 "hdist": s.hdist if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam},
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
                    "target_depth": s.target_depth, "genome_size": genome_size},
         "assemble": {"assembler": s.assembler, "read_type": s.read_type, "min_size": s.min_size,
@@ -303,7 +343,7 @@ def _run(s: Settings, started: float) -> int:
     def bait(st: SampleState, threads: int) -> steps.StepResult:
         if s.baiting == "minimap2":
             return steps.bait_minimap2(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.keep_bam)
-        return steps.bait_bbduk(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.kmer,
+        return steps.bait_bbduk(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.kmer, s.hdist,
                                 max(1, s.memory_gb // max(1, min(s.parallel, len(states)))))
 
     def filt(st: SampleState, threads: int) -> steps.StepResult:
@@ -346,15 +386,20 @@ def _run(s: Settings, started: float) -> int:
         else:
             if results:
                 log.info("%s: resuming, %d sample(s) already done", labels[step], len(results))
-            checkpoints.clear(step)
             log.info("%s...", labels[step])
-            new = _run_parallel(todo, functions[step], s, step)
-            if step == "bait":
-                for name, res in new.items():
+            lock = threading.Lock()
+
+            def done(name: str, res: dict, step: str = step, fp: str = fingerprint,
+                     results: dict = results, lock: threading.Lock = lock) -> None:
+                # Saved as each sample finishes: an interruption loses only the samples still running.
+                if step == "bait":
                     res["input"] = inputs[name]
+                with lock:
+                    results[name] = res
+                    checkpoints.save(step, fp, results)
+
+            new = _run_parallel(todo, functions[step], s, step, logs / LOG_FOLDERS[step], on_done=done)
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
-            results.update(new)
-            checkpoints.save(step, fingerprint, results)
         _apply(states, results, step)
         if all(st.failed for st in states):
             _finish(s, states, tools, None, started)
@@ -383,7 +428,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         log.info("Comparison skipped (--snp-method none)")
         return None
     assemblies = {st.sample.name: st.assembly for st in states if not st.failed and st.assembly}
-    added = _prepare_added_genomes(s, root, set(assemblies))
+    added = _prepare_added_genomes(s, root, {st.sample.name for st in states})  # Failed samples' names too
     assemblies.update(added)
     if len(assemblies) < 3:
         log.warning("Comparison skipped: a tree needs at least three assemblies (%d available)", len(assemblies))
@@ -400,7 +445,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
             # A comparison from BACoN < 0.3.2, or whose VCF failed: the VCF is made from the comparison's files.
             out = Path(result["distances"]).parent
             paths = {k: v for k, v in assemblies.items() if v is not None}
-            result["vcf"] = _write_vcf(s, reference, out, log_dir, paths)
+            result["vcf"] = _write_vcf(s, reference, out, log_dir, paths, set(added))
             checkpoints.save("compare", fingerprint, result)
     else:
         checkpoints.clear("compare")
@@ -412,11 +457,11 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
             tree_input, snps = compare.run_parsnp(reference, paths, out, log_dir, threads=s.threads)
         else:
             tree_input, snps = compare.run_ska(reference, paths, out, log_dir, threads=s.threads,
-                                                       min_freq=s.ska_min_freq)
+                                               min_freq=s.ska_min_freq, added=set(added))
         records = list(read_records(snps))
         names, matrix = compare.snp_distances(records)
         compare.write_distances(out / "snp_distances.tsv", names, matrix)
-        vcf = _write_vcf(s, reference, out, log_dir, paths)
+        vcf = _write_vcf(s, reference, out, log_dir, paths, set(added))
         sites = _alignment_length(snps)
         tree = None
         if sites == 0:
@@ -436,11 +481,12 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     return result
 
 
-def _write_vcf(s: Settings, reference: Path, out: Path, log_dir: Path, paths: dict[str, Path]) -> str | None:
+def _write_vcf(s: Settings, reference: Path, out: Path, log_dir: Path, paths: dict[str, Path],
+               added: set[str]) -> str | None:
     """snps.vcf of the comparison; an extra output, whose failure is logged and does not fail the comparison."""
     try:
         vcf_path, records = compare.write_vcf(s.snp_method, reference, out, log_dir, threads=s.threads,
-                                              assemblies=paths, source=f"BACoN {__version__}")
+                                              assemblies=paths, source=f"BACoN {__version__}", added=added)
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not write the VCF: %s", str(exc).splitlines()[0] if str(exc) else repr(exc))
         return None

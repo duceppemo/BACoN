@@ -8,7 +8,9 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -24,6 +26,37 @@ PACKAGES = {
 }
 # Alternative executable names, tried in order.
 ALIASES = {"FastTree": ("FastTree", "fasttree"), "iqtree": ("iqtree3", "iqtree2", "iqtree")}
+
+
+# Programs running now, in every thread: killed when BACoN is interrupted (see kill_running). Once stopping,
+# no new program starts (a thread could otherwise start one just after the others were killed).
+_RUNNING: set[subprocess.Popen] = set()
+_RUNNING_LOCK = threading.Lock()
+_STOPPING = threading.Event()
+
+
+def kill_running() -> int:
+    """Stop starting programs, and kill every program started by run() that is still running. Returns how many
+    were killed. allow_programs() lifts the stop."""
+    with _RUNNING_LOCK:
+        _STOPPING.set()
+        procs = [p for p in _RUNNING if p.poll() is None]
+    for p in procs:
+        _kill(p)
+    return len(procs)
+
+
+def allow_programs() -> None:
+    _STOPPING.clear()
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    """Kill a program and the programs it started (each program runs in its own process group: Flye, for
+    one, starts helpers that would otherwise outlive it)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        proc.kill()
 
 
 class ToolError(BaconError):
@@ -83,7 +116,12 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
             for i, cmd in enumerate(pipeline):
                 last = i == len(pipeline) - 1
                 out = subprocess.PIPE if (not last or stdout) else log_fh
-                procs.append(subprocess.Popen(cmd, stdin=prev, stdout=out, stderr=log_fh, cwd=cwd, env=full_env))
+                with _RUNNING_LOCK:
+                    if _STOPPING.is_set():
+                        raise ToolError(f"{Path(cmd[0]).name} not started: BACoN is stopping")
+                    procs.append(subprocess.Popen(cmd, stdin=prev, stdout=out, stderr=log_fh, cwd=cwd,
+                                                  env=full_env, start_new_session=True))
+                    _RUNNING.add(procs[-1])
                 if prev is not None:
                     prev.close()  # So that the upstream process gets SIGPIPE if the downstream one dies
                 prev = procs[-1].stdout
@@ -95,12 +133,15 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
             codes = [p.wait() for p in procs]
         except FileNotFoundError as exc:
             for p in procs:
-                p.kill()
+                _kill(p)
             raise ToolError(f"Program not found: {exc.filename}") from None
         except BaseException:
             for p in procs:
-                p.kill()
+                _kill(p)
             raise
+        finally:
+            with _RUNNING_LOCK:
+                _RUNNING.difference_update(procs)
     failed = [(cmd, code) for cmd, code in zip(pipeline, codes) if code != 0]
     if failed:
         # In a pipeline, a program killed by SIGPIPE (-13) only reports that a later one stopped reading:

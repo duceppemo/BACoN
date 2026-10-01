@@ -65,9 +65,9 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
             what=f"(mapping {sample.name})")
         run(["samtools", "index", str(bam)], log_file)
         names_file = out_dir / f".{sample.name}.names"
-        run(["samtools", "view", "-F", "0x4", str(bam)], log_file, stdout=names_file)
+        run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1"]], log_file, stdout=names_file)
         with open(names_file) as fh:
-            names = {line.split("\t", 1)[0] for line in fh if line.strip()}
+            names = {line.strip() for line in fh if line.strip()}
         names_file.unlink()
     else:
         paf = out_dir / f".{sample.name}.paf"
@@ -83,8 +83,8 @@ _BBDUK_COUNTS = re.compile(r"^(Input|Contaminants):\s+(\d+) reads\s.*?(\d+) base
 
 
 def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, threads: int, kmer: int,
-               memory_gb: int) -> StepResult:
-    """Keep the reads sharing at least one k-mer (up to 2 mismatches) with the reference."""
+               hdist: int, memory_gb: int) -> StepResult:
+    """Keep the reads sharing at least one k-mer (up to `hdist` mismatches) with the reference."""
     out_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{sample.name}.log"
     source = sample.files[0]
@@ -97,8 +97,16 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
     start = log_file.stat().st_size if log_file.exists() else 0
     try:
         run(["bbduk.sh", f"-Xmx{max(1, memory_gb)}g", "-eoom", "overwrite=true", f"in={source}",
-             f"ref={reference}", f"threads={threads}", f"k={kmer}", "hdist=2", "maskmiddle=f",
+             f"ref={reference}", f"threads={threads}", f"k={kmer}", f"hdist={hdist}", "maskmiddle=f",
              f"outm={output}"], log_file, what=f"(baiting {sample.name})")
+    except BaconError as exc:
+        with open(log_file, errors="replace") as fh:
+            fh.seek(start)
+            if "OutOfMemoryError" in fh.read():
+                raise SampleFailed(f"BBDuk ran out of memory with {memory_gb} GB: increase -m, lower -p, or use "
+                                   f"--hdist {max(0, hdist - 1)} (each mismatch allowed multiplies the memory "
+                                   f"needed); see {log_file}") from exc
+        raise
     finally:
         if merged:
             merged.unlink(missing_ok=True)

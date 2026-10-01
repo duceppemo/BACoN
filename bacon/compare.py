@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 from bacon import BaconError
@@ -46,10 +47,12 @@ def snp_distances(records: list[Record]) -> tuple[list[str], list[list[int]]]:
 
 
 def write_distances(path: Path, names: list[str], matrix: list[list[int]]) -> None:
-    with open(path, "w") as fh:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w") as fh:
         fh.write("\t".join(["snp-dists", *names]) + "\n")
         for name, row in zip(names, matrix):
             fh.write("\t".join([name, *map(str, row)]) + "\n")
+    tmp.replace(path)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -105,18 +108,26 @@ def wrap_circular(rec: Record, kmer: int, force: bool = False) -> Record:
 SKA_REFERENCE = "ska_reference.fasta"
 
 
-def write_ska_reference(reference: Path, assemblies: dict[str, Path], out: Path, kmer: int = 31) -> bool:
-    """The reference as SKA2 uses it: extended by its first k-1 bases when most assemblies are circular.
-    Returns whether it was extended."""
-    circular = sum(1 for path in assemblies.values()
+def circular_genomes(assemblies: dict[str, Path], added: Iterable[str] = ()) -> bool:
+    """Whether the genomes are treated as circular: more than half of the samples' assemblies (not the added
+    genomes, whose circularity is unknown) have a contig flagged circular."""
+    samples = {name: path for name, path in assemblies.items() if name not in set(added)}
+    circular = sum(1 for path in samples.values()
                    if any(r.header.endswith("circular=true") for r in read_records(path)))
-    wrap = circular > len(assemblies) / 2
+    return circular > len(samples) / 2 if samples else False
+
+
+def write_ska_reference(reference: Path, assemblies: dict[str, Path], out: Path, kmer: int = 31,
+                        added: Iterable[str] = ()) -> bool:
+    """The reference as SKA2 uses it: extended by its first k-1 bases when the genomes are circular
+    (see circular_genomes). Returns whether it was extended."""
+    wrap = circular_genomes(assemblies, added)
     write_fasta(out, [wrap_circular(r, kmer, force=wrap) for r in read_records(reference)])
     return wrap
 
 
 def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *, threads: int,
-            min_freq: float, kmer: int = 31) -> tuple[Path, Path]:
+            min_freq: float, kmer: int = 31, added: Iterable[str] = ()) -> tuple[Path, Path]:
     """Split k-mer alignment of the assemblies and the reference.
 
     `min_freq` is the fraction of genomes that must contain a split k-mer for its variant to be kept: 1 gives
@@ -131,11 +142,15 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
     inputs = out_dir / "inputs"
     inputs.mkdir()
     genomes: dict[str, Path] = {}
+    added = set(added)
+    # Added (finished) genomes are like the reference: extended when the genomes are circular.
+    wrap_finished = circular_genomes(assemblies, added)
     for name, path in assemblies.items():
         genomes[name] = inputs / f"{name}.fasta"
-        write_fasta(genomes[name], [wrap_circular(r, kmer) for r in read_records(path)])
+        force = wrap_finished and name in added
+        write_fasta(genomes[name], [wrap_circular(r, kmer, force=force) for r in read_records(path)])
     genomes = {"Reference": inputs / "Reference.fasta", **genomes}
-    write_ska_reference(reference, assemblies, genomes["Reference"], kmer)
+    write_ska_reference(reference, assemblies, genomes["Reference"], kmer, added)
     table = out_dir / "input.tsv"
     table.write_text("".join(f"{name}\t{path}\n" for name, path in genomes.items()))
     run(["ska", "build", "-o", str(out_dir / "ska"), "-k", str(kmer), "-f", str(table), "--threads", str(threads)],
@@ -235,6 +250,17 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
         meta.append('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">')
     order = {name: i for i, name in enumerate(lengths)}
     tmp = out.with_name(out.name + ".tmp")
+    try:
+        _write_vcf_file(tmp, source, lengths, meta, header, records, order)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(out)
+    return len(records)
+
+
+def _write_vcf_file(tmp: Path, source: str, lengths: dict[str, int], meta: list[str], header: list[str],
+                    records: dict[tuple[str, int], list[str]], order: dict[str, int]) -> None:
     with open(tmp, "w") as dst:
         dst.write("##fileformat=VCFv4.2\n")
         dst.write(f"##source={source}\n")
@@ -243,12 +269,10 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
         dst.write("\t".join(header) + "\n")
         for key in sorted(records, key=lambda k: (order.get(k[0], len(order)), k[0], k[1])):
             dst.write("\t".join(records[key]) + "\n")
-    tmp.replace(out)
-    return len(records)
 
 
 def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, threads: int,
-              assemblies: dict[str, Path], source: str) -> tuple[Path, int]:
+              assemblies: dict[str, Path], source: str, added: Iterable[str] = ()) -> tuple[Path, int]:
     """SNPs of every genome relative to the reference, as VCF (`snps.vcf` in the comparison folder)."""
     raw = out_dir / "snps.raw.vcf"
     out = out_dir / "snps.vcf"
@@ -257,7 +281,7 @@ def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, thr
         if method == "ska":
             mapped_to = out_dir / SKA_REFERENCE
             if not mapped_to.exists():  # A comparison made by BACoN 0.3.1: rebuild it by the same rule
-                write_ska_reference(reference, assemblies, mapped_to)
+                write_ska_reference(reference, assemblies, mapped_to, added=added)
             run(["ska", "map", str(mapped_to), str(out_dir / "ska.skf"),
                  "-f", "vcf", "-o", str(raw), "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")
             rename: dict[str, str] = {}

@@ -7,7 +7,7 @@ The reads of each sample are compared with the reference and those that match ar
 
 - **minimap2** (default): `minimap2 -x map-ont --secondary=no`; a read is kept when it has any alignment to
   the reference. The read is copied unchanged (not trimmed to the aligned part), with its qualities.
-- **BBDuk** (`-b bbduk`): a read is kept when it shares one k-mer (k = 31 by default, up to two mismatches) with
+- **BBDuk** (`-b bbduk`): a read is kept when it shares one k-mer (k = 31 by default, one mismatch allowed: `--hdist`) with
   the reference. Useful when the reference is only distantly related to the samples.
 
 Baiting reads every input read once; everything after works on the baited reads only. The share of bases
@@ -77,7 +77,8 @@ Limits of the de novo assemblies:
   Lower values keep SNPs missing from some genomes (a pan-genome SNP alignment with gaps, like kSNP, which
   BACoN 0.1 used). A SNP in an inverted repeat is counted once. Before SKA2, circular contigs are extended by
   their first 30 bases so that SNPs next to the start of the sequence are not lost, and so is the reference
-  when more than half of the assemblies have a circular contig (Flye and myloasm report them; templated
+  and the genomes of `--add-genomes`
+  when more than half of the assemblies of the samples have a circular contig (Flye and myloasm report them; templated
   assemblies follow the reference and are never flagged circular, so with them the SNPs within 15 bases of the
   ends of the reference are not compared).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it

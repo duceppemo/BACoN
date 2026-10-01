@@ -79,3 +79,16 @@ def test_published_assemblies_are_upper_case_acgtn(tmp_path):
     dirs = AssemblyDirs(tmp_path / "asm")
     _publish_assembly("s1", raw, dirs, rename=False)
     assert next(read_records(dirs.assemblies / "s1.fasta")).seq == "ACGTNNNNN"
+
+
+def test_no_program_starts_once_bacon_is_stopping(tmp_path):
+    import pytest
+
+    from bacon.tools import ToolError, allow_programs, kill_running, run
+    kill_running()
+    try:
+        with pytest.raises(ToolError, match="not started: BACoN is stopping"):
+            run(["true"], tmp_path / "log")
+    finally:
+        allow_programs()
+    run(["true"], tmp_path / "log")

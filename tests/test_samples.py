@@ -63,7 +63,7 @@ def test_sample_sheet(tmp_path, fastq):
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("# comment\nSample,File\nA,a1.fastq.gz;a2.fastq.gz\nB,b.fastq.gz\nA,a2.fastq.gz\n")
     samples = {s.name: s for s in read_sample_sheet(sheet)}
-    assert [f.name for f in samples["A"].files] == ["a1.fastq.gz", "a2.fastq.gz", "a2.fastq.gz"]
+    assert [f.name for f in samples["A"].files] == ["a1.fastq.gz", "a2.fastq.gz"]  # a2 listed twice: used once
     assert samples["B"].files == [tmp_path / "b.fastq.gz"]
 
 

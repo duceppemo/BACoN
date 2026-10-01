@@ -84,15 +84,33 @@ STUBS = {
         import sys
         from pathlib import Path
         args = sys.argv[1:]
-        if args[0] == "sort":
-            sys.stdin.read()
-            open(args[args.index("-o") + 1], "w").write("BAM")
+        if args[0] == "sort":  # The "BAM" holds the aligner's output as is
+            open(args[args.index("-o") + 1], "w").write(sys.stdin.read())
+        elif args[0] == "view":
+            sys.stdout.write(open(args[-1]).read())
         elif args[0] == "consensus":
             out = Path(args[args.index("-o") + 1])
             ref = out.parents[2] / "reference.fasta"
             name, seq = ref.read_text().split("\\n", 1)
             seq = seq.replace("\\n", "")
             out.write_text(f"{name}\\n{'N' * 10}{seq[10:]}\\n")
+    """,
+    # Keeps reads whose name starts with "on"; reports BBDuk's counts; STUB_BBDUK_OOM: runs out of memory.
+    "bbduk.sh": """
+        import gzip, os, sys
+        opts = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
+        if os.environ.get("STUB_BBDUK_OOM"):
+            sys.stderr.write("Allocating kmer table: Terminating due to java.lang.OutOfMemoryError: Java heap space\\n")
+            sys.exit(3)
+        with gzip.open(opts["in"], "rt") as fh:
+            lines = fh.read().splitlines()
+        kept = [lines[i:i + 4] for i in range(0, len(lines), 4) if lines[i][1:].startswith("on")]
+        with gzip.open(opts["outm"], "wt") as out:
+            out.write("".join("\\n".join(r) + "\\n" for r in kept))
+        total = sum(len(lines[i + 1]) for i in range(0, len(lines), 4))
+        sys.stderr.write(f"Input:                  \\t{len(lines) // 4} reads \\t\\t{total} bases.\\n")
+        sys.stderr.write(f"Contaminants:           \\t{len(kept)} reads (x%) \\t{sum(len(r[1]) for r in kept)} bases (x%)\\n")
+        sys.stderr.write("hdist=" + opts["hdist"] + "\\n")
     """,
     "Bandage": """
         import sys
@@ -486,6 +504,8 @@ def test_unexpected_error_fails_one_sample_not_the_run(stubs, dataset, tmp_path,
     assert run(settings(*dataset, out, snp_method="none")) == 0
     rows = summary(out)
     assert rows["s2"]["Status"] == "failed (filter)" and "unexpected error: UnicodeEncodeError" in rows["s2"]["Note"]
+    sample_log = (out / "logs" / "2_filter" / "s2.log").read_text()
+    assert "Traceback" in sample_log and "flaky" in sample_log  # Where the error happened, for a bug report
     assert rows["s1"]["Status"] == "ok"
 
 
@@ -510,3 +530,111 @@ def test_templated_assembly_removes_graphs_of_an_earlier_de_novo_assembly(stubs,
     assert (graphs / "s1.gfa").exists()
     run(settings(*dataset, out, snp_method="none", assembler="samtools"))
     assert not list(graphs.glob("s1.*"))
+
+
+def test_an_interruption_loses_only_the_samples_still_running(stubs, dataset, tmp_path, monkeypatch):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none"))
+    _reads(reads / "s4.fastq.gz", [("on1", 900), ("on2", 850)])
+    import bacon.steps
+    real = bacon.steps.assemble_flye
+
+    def interrupted(name, *args, **kwargs):
+        if name == "s4":
+            raise KeyboardInterrupt
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(bacon.steps, "assemble_flye", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out, snp_method="none"))
+    monkeypatch.setattr(bacon.steps, "assemble_flye", real)
+    stubs.unlink()
+    run(settings(ref, reads, out, snp_method="none"))
+    assert calls(stubs).count("flye") == 1  # Only s4: the assemblies of s1-s3 were kept
+
+
+def test_bbduk_counts_hdist_and_out_of_memory(stubs, dataset, tmp_path, monkeypatch):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, baiting="bbduk", hdist=1, snp_method="none")) == 0
+    rows = summary(out)
+    assert rows["s1"]["Raw_reads"] == "3" and rows["s1"]["Baited_reads"] == "2"
+    assert "hdist=1" in (out / "logs" / "1_bait" / "s1.log").read_text()
+    monkeypatch.setenv("STUB_BBDUK_OOM", "1")
+    with pytest.raises(BaconError, match="All samples failed"):
+        run(settings(ref, reads, tmp_path / "oom", baiting="bbduk", hdist=2, memory_gb=4, snp_method="none"))
+    note = summary(tmp_path / "oom")["s1"]["Note"]
+    assert "ran out of memory with 2 GB" in note and "--hdist 1" in note
+
+
+def test_added_genome_cannot_take_the_name_of_a_failed_sample(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    clash = tmp_path / "none.fasta"  # Sample "none" fails at baiting
+    clash.write_text(">x\nACGT\n")
+    with pytest.raises(BaconError, match="already used"):
+        run(settings(ref, reads, tmp_path / "out", add_genomes=[clash]))
+
+
+def test_interruption_kills_the_programs_still_running(tmp_path):
+    import time
+
+    from bacon.pipeline import SampleState, _run_parallel
+    from bacon.samples import Sample
+    from bacon.steps import StepResult
+    from bacon.tools import run as run_tool
+
+    pidfile = tmp_path / "child.pid"
+
+    def fn(st, threads):
+        if st.sample.name == "slow":  # A program that starts a program of its own, like Flye
+            run_tool(["sh", "-c", f"sleep 30 & echo $! > {pidfile}.tmp; mv {pidfile}.tmp {pidfile}; wait"],
+                     tmp_path / "slow.log")
+        else:  # "fast" ends (and the interruption comes) once the slow program and its child are running
+            for _ in range(100):
+                if pidfile.exists():
+                    break
+                time.sleep(0.05)
+        return StepResult(None)
+
+    def on_done(name, res):
+        if name == "fast":
+            raise KeyboardInterrupt
+
+    states = [SampleState(Sample(n, [tmp_path / f"{n}.fq"])) for n in ("slow", "fast")]
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        _run_parallel(states, fn, settings(tmp_path, tmp_path, tmp_path, parallel=2), "bait", tmp_path,
+                      on_done=on_done)
+    assert time.monotonic() - start < 10  # The program was killed
+    assert pidfile.exists()
+    if pidfile.exists():  # ... and so was the program it started
+        import os
+        pid = int(pidfile.read_text())
+        time.sleep(0.5)
+        try:
+            os.kill(pid, 0)
+            alive = Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            alive = False
+        assert not alive
+
+
+def test_two_runs_cannot_share_an_output_folder(stubs, dataset, tmp_path):
+    import fcntl
+    out = tmp_path / "out"
+    out.mkdir()
+    with open(out / ".bacon.lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)  # Another run holds it
+        with pytest.raises(BaconError, match="Another BACoN run is using"):
+            run(settings(*dataset, out))
+    assert run(settings(*dataset, out, snp_method="none")) == 0  # Released: this run goes ahead
+
+
+def test_keep_bam(stubs, dataset, tmp_path):
+    out = tmp_path / "out"
+    assert run(settings(*dataset, out, keep_bam=True, snp_method="none")) == 0
+    rows = summary(out)
+    assert rows["s1"]["Baited_reads"] == "2" and rows["s1"]["Status"] == "ok"
+    assert (out / "1_extracted" / "s1.bam").exists()
+    assert not list((out / "1_extracted").glob(".*.names"))

@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Added
+- `--hdist`: the mismatches BBDuk allows in a k-mer; the default is now 1 (was 2), which baits the same reads
+  in the example with a fraction of the memory. BBDuk running out of memory gives a hint.
+
 ### Fixed
+- An interrupted run (Ctrl-C) lost the samples finished in the step it was in; each sample is now recorded
+  when it finishes. The programs still running, and their children (Flye's minimap2), are stopped.
+- Two runs in the same output folder at the same time overwrote each other's files; the second one now stops.
+- The traceback of an unexpected error in a sample is written to that sample's log.
+- A file listed twice for one sample in a sample sheet doubled its reads; it is used once, with a warning.
+- An `--add-genomes` genome could take the name of a sample that failed.
+- SKA2: added genomes counted towards the rule that decides whether the genomes are circular, and were not
+  extended when the reference was; the rule now counts the samples' assemblies, and the added genomes are
+  extended with the reference.
+- `--keep-bam` read all the read names through Python; `summary.tsv`, the distances, the VCF and the MultiQC
+  files are written atomically; the report shows no inline heatmap above 150 genomes (the file is linked).
 - A soft-masked (lower-case) reference lost the SNPs of its lower-case regions from `snps.vcf` (`ska map` and
   HarvestTools are case-sensitive), and IUPAC codes in a reference or added genome were read by SKA2 as fixed
   bases (false SNPs): the reference, the assemblies and the added genomes are now upper case with N for any
@@ -29,6 +44,11 @@
   comparison's files, without redoing the comparison.
 - A failed `ska map` left `snps.raw.vcf`; a malformed VCF from the tools stopped the run or gave an invalid
   file: it is now reported and the run goes on.
+
+### Upgrading from 0.3.2
+- A soft-masked or IUPAC reference rewrites `reference.fasta`, so every step runs again once.
+- Comparisons with `--add-genomes` are redone once.
+- `-b bbduk` baiting runs again once, for the new `--hdist` default.
 
 ## 0.3.2 (2026-09-26)
 

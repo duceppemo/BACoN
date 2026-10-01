@@ -7,7 +7,7 @@ OUTPUT/
 ├── bacon_*_mqc.json            MultiQC sections (samples table, bases, SNP distances)
 ├── run_info.json               version, command, settings, program versions, samples, comparison
 ├── bacon.log                   the log of every run in this folder
-├── reference.fasta             the reference used (uncompressed copy)
+├── reference.fasta             the reference used: upper case, ambiguity codes as N
 ├── 1_extracted/<sample>.fastq.gz          baited reads (.fasta.gz for fasta input; <sample>.bam and .bam.bai
 │                                          with --keep-bam)
 ├── 2_filtered/<sample>.fastq.gz           filtered reads (.fasta.gz for fasta input)
@@ -86,7 +86,7 @@ Tested with MultiQC 1.19 and 1.35.
 | `Status` | `ok`, or `failed (step)` with the reason in `Note` |
 | `Raw_reads`, `Raw_bases` | Input reads and bases (`NA` with `-b bbduk` when BBDuk does not report them) |
 | `Baited_reads`, `Baited_bases`, `Baited_pct` | Reads matching the reference, and their share of the input bases (%) |
-| `Filtered_reads`, `Filtered_bases`, `Filtered_N50` | Reads kept by Filtlong |
+| `Filtered_reads`, `Filtered_bases`, `Filtered_N50` | Reads kept by Filtlong (fasta reads: by BACoN's length filter, `--min-read-length`) |
 | `Est_depth` | Filtered bases / genome size (`-s`, or the reference length) |
 | `Contigs` | Number of contigs |
 | `Circular_contigs` | Contigs the assembler reports as circular (Flye, myloasm; `NA` for the templated assembly) |

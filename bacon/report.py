@@ -19,6 +19,7 @@ from bacon.seqio import split_extension
 LOW_DEPTH = 20  # Same thresholds as the notes in summary.tsv
 LENGTH_RANGE = (0.8, 1.2)
 MAX_LABELLED_CELLS = 60  # Above this many genomes, heatmap cells show their value on hover only
+MAX_HEATMAP_GENOMES = 150  # Above this, no inline heatmap (the page would be tens of MB): see the TSV
 
 TABLE_COLUMNS = [
     ("Sample", "Sample"), ("Status", "Status"), ("Raw_reads", "Raw reads"), ("Baited_reads", "Baited reads"),
@@ -416,7 +417,12 @@ def build_report(output: Path) -> str:
         out.append("<h2>SNP distances</h2>")
         order_text = "in tree order" if in_tree_order else "in the order of the distance table"
         out.append(f'<p class="sub">Pairwise SNP distances, {order_text}. Hover a cell for its pair.</p>')
-        out.append(heatmap(order, matrix))
+        if len(order) <= MAX_HEATMAP_GENOMES:
+            out.append(heatmap(order, matrix))
+        else:
+            shown = distances.relative_to(output) if distances.is_relative_to(output) else distances
+            out.append(f"<p>{len(order)} genomes: too many for a heatmap in this page; the distances are in "
+                       f"<code>{esc(str(shown))}</code>.</p>")
         if comparison.get("core_snps") == 0:
             out.append("<p>No SNP site was compared: the distances say nothing about identity.</p>")
         else:

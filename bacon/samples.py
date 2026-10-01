@@ -112,7 +112,12 @@ def read_sample_sheet(path: Path) -> list[Sample]:
             file = file if file.is_absolute() else path.parent / file
             if not file.is_file():
                 raise BaconError(f"Sample sheet {path}: file not found for {name}: {file}")
-            grouped.setdefault(name, []).append(file)
+            files_of = grouped.setdefault(name, [])
+            if file.resolve() in {f.resolve() for f in files_of}:
+                log.warning("Sample sheet %s: %s is listed twice for %s; its reads are used once",
+                            path, file, name)
+                continue
+            files_of.append(file)
     candidates = [(name, files, path) for name, files in grouped.items()]
     return _finalize(candidates, path)
 

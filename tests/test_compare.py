@@ -186,3 +186,39 @@ def test_parsnp_warns_when_the_core_is_a_fraction_of_the_reference(tmp_path, mon
     (tmp_path / "logs").mkdir()
     compare.run_parsnp(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1)
     assert "core genome is 300 bp, 30% of the reference" in caplog.text
+
+
+def test_circular_rule_counts_samples_not_added_genomes(tmp_path):
+    from bacon.compare import circular_genomes
+    asm = {}
+    for name, circular in [("a", True), ("b", True), ("pub1", False), ("pub2", False), ("pub3", False)]:
+        asm[name] = tmp_path / f"{name}.fasta"
+        asm[name].write_text(f">{name}{' circular=true' if circular else ''}\nACGT\n")
+    assert circular_genomes(asm, added={"pub1", "pub2", "pub3"})  # 2 of 2 samples
+    assert not circular_genomes(asm)  # 2 of 5 genomes
+    assert not circular_genomes({k: asm[k] for k in ("pub1",)}, added={"pub1"})  # No sample at all
+
+
+def test_added_genomes_are_extended_like_the_reference(tmp_path, monkeypatch):
+    import bacon.compare as compare
+    seen = {}
+
+    def fake_run(cmd, log, **kwargs):
+        if cmd[1] == "build":  # Record the genomes as SKA2 would read them
+            for line in Path(cmd[cmd.index("-f") + 1]).read_text().splitlines():
+                name, path = line.split("\t")
+                seen[name] = len(next(read_records(Path(path))).seq)
+        elif cmd[1] == "align":
+            Path(cmd[cmd.index("-o") + 1]).write_text("".join(f">{n}\nA\n" for n in seen))
+
+    monkeypatch.setattr(compare, "run", fake_run)
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(">chr\n" + "ACGT" * 25 + "\n")
+    asm = {}
+    for name, header in [("a", "a_1 circular=true"), ("b", "b_1 circular=true"), ("pub", "pub")]:
+        asm[name] = tmp_path / f"{name}.fasta"
+        asm[name].write_text(f">{header}\n" + "ACGT" * 25 + "\n")
+    (tmp_path / "logs").mkdir()
+    compare.run_ska(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1, min_freq=1.0, kmer=31,
+                    added={"pub"})
+    assert seen == {"Reference": 130, "a": 130, "b": 130, "pub": 130}  # All extended by 30 bases

@@ -183,3 +183,13 @@ def test_multiqc_ids_differ_between_runs_and_stale_files_go(tmp_path):
     assert len(ids) == 6
     write_multiqc(tmp_path / "run A", ROWS, None)
     assert not (tmp_path / "run A" / "bacon_distances_mqc.json").exists()
+
+
+def test_no_inline_heatmap_for_hundreds_of_genomes(tmp_path):
+    names = ["Reference"] + [f"g{i}" for i in range(160)]
+    rows = ["\t".join([n] + ["1" if n != m else "0" for m in names]) for n in names]
+    matrix = "\t".join(["snp-dists", *names]) + "\n" + "\n".join(rows) + "\n"
+    out = _folder(tmp_path, {"method": "ska", "core_snps": 5, "distances": "4_compared/ska/snp_distances.tsv"},
+                  matrix=matrix)
+    page = build_report(out)
+    assert 'class="heat"' not in page and "too many for a heatmap" in page and "4_compared/ska/snp_distances.tsv" in page
