@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 (2026-10-01)
 
 ### Added
 - `--hdist`: the mismatches BBDuk allows in a k-mer; the default is now 1 (was 2), which baits the same reads
