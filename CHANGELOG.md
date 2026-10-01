@@ -49,6 +49,7 @@
 - A soft-masked or IUPAC reference rewrites `reference.fasta`, so every step runs again once.
 - Comparisons with `--add-genomes` are redone once.
 - `-b bbduk` baiting runs again once, for the new `--hdist` default.
+- A comparison made by 0.3.2 keeps its VCF; `--redo compare` rewrites it with the VCF fixes.
 
 ## 0.3.2 (2026-09-26)
 
