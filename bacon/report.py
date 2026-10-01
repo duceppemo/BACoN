@@ -164,7 +164,9 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
     if ref.get("length"):
         ref_desc += f", {ref['length']:,} bp"
     if s.get("baiting") == "bbduk":
-        parts.append(f"Reads sharing a {s.get('kmer', 31)}-mer (up to two mismatches) with the reference "
+        hdist = s.get("hdist", 2)  # 2 before 0.3.3
+        mismatches = {0: "no mismatch", 1: "up to one mismatch"}.get(hdist, f"up to {hdist} mismatches")
+        parts.append(f"Reads sharing a {s.get('kmer', 31)}-mer ({mismatches}) with the reference "
                      f"({ref_desc}) were extracted with BBDuk{_tool(info, 'bbduk.sh')}.")
     else:
         parts.append(f"Reads aligning to the reference ({ref_desc}) were extracted with "

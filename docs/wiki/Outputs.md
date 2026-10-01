@@ -7,6 +7,7 @@ OUTPUT/
 ├── bacon_*_mqc.json            MultiQC sections (samples table, bases, SNP distances)
 ├── run_info.json               version, command, settings, program versions, samples, comparison
 ├── bacon.log                   the log of every run in this folder
+├── .bacon.lock                 held by the run using this folder (see Usage)
 ├── reference.fasta             the reference used: upper case, ambiguity codes as N
 ├── 1_extracted/<sample>.fastq.gz          baited reads (.fasta.gz for fasta input; <sample>.bam and .bam.bai
 │                                          with --keep-bam)
@@ -127,7 +128,7 @@ without warnings, their reference alleles match the reference (`bcftools norm --
 exactly the SNPs of the truth.
 
 - **SKA2**: from `ska map`, which maps the split k-mers of every genome to the reference as SKA2 used it
-  (extended by the start of each sequence when more than half of the assemblies have a circular contig, so that
+  (extended by the start of each sequence when more than half of the samples' assemblies have a circular contig, so that
   SNPs next to the ends are kept; `ska_reference.fasta` in the comparison folder; see
   [Methods](Methods#4-comparison)). All SNPs are listed, whatever `--ska-min-freq` (which only
   affects the alignment, the distances and the tree). A SNP in both copies of an inverted repeat is listed at

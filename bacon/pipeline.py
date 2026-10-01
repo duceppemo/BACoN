@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import json
@@ -100,6 +101,7 @@ class Checkpoints:
     its per-sample results. A step runs again when its parameters or an earlier step's changed."""
 
     def __init__(self, output: Path):
+        self.root = str(output)
         self.folder = output / ".checkpoints"
 
     def path(self, step: str) -> Path:
@@ -110,16 +112,54 @@ class Checkpoints:
             data = json.loads(self.path(step).read_text())
         except (OSError, ValueError):
             return None
-        return data if data.get("fingerprint") == fingerprint else None
+        if data.get("fingerprint") != fingerprint:
+            return None
+        root = data.get("root") or _guess_root(data.get("results"))  # No root before 0.3.4
+        if root and root != self.root:  # A moved or copied output folder: its own files
+            data = _moved(data, root, self.root)
+        return data
 
     def save(self, step: str, fingerprint: str, results: dict) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
         tmp = self.path(step).with_suffix(".tmp")
-        tmp.write_text(json.dumps({"fingerprint": fingerprint, "results": results}, indent=1, default=str))
+        tmp.write_text(json.dumps({"fingerprint": fingerprint, "root": self.root, "results": results}, indent=1,
+                                  default=str))
         tmp.replace(self.path(step))
 
     def clear(self, step: str) -> None:
         self.path(step).unlink(missing_ok=True)
+
+
+def _guess_root(results: dict | None) -> str | None:
+    """The output folder of a checkpoint's results, from the path of an output (not of an input, which can be in
+    another BACoN folder) and the names of BACoN's folders."""
+    results = results or {}
+    outputs = [results.get("distances")] + [r.get("output") for r in results.values() if isinstance(r, dict)]
+    for path in filter(None, outputs):
+        for name in FOLDERS.values():
+            if f"{os.sep}{name}{os.sep}" in path:
+                return path.rsplit(f"{os.sep}{name}{os.sep}", 1)[0]
+    return None
+
+
+def _moved(data: object, old: str, new: str) -> object:
+    """`data` with the paths under the folder `old` moved to `new`."""
+    if isinstance(data, str):
+        return new + data[len(old):] if data == old or data.startswith(old + os.sep) else data
+    if isinstance(data, list):
+        return [_moved(x, old, new) for x in data]
+    if isinstance(data, dict):
+        return {k: _moved(v, old, new) for k, v in data.items()}
+    return data
+
+
+def _output_signature(path: Path | None) -> list[object] | None:
+    """Size and modification time of a step's output, recorded by the next step: if the output changes (a sample
+    run again, then interrupted), the next step's result is not reused."""
+    if path is None or not path.exists():
+        return None
+    st = path.stat()
+    return [st.st_size, st.st_mtime_ns]
 
 
 def _file_signature(path: Path) -> list[object]:
@@ -168,6 +208,9 @@ def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], st
             res = fn(st, threads)
         except (steps.SampleFailed, BaconError) as exc:
             message = str(exc).splitlines()[0]
+            if tools.stopping():  # Killed by the interruption: not a failure of the sample (and not saved)
+                log.debug("  %s: %s", st.sample.name, message)
+                return st.sample.name, {"failed": "interrupted"}
             log.warning("  %s: %s", st.sample.name, message)
             return st.sample.name, {"failed": message}
         except Exception as exc:  # noqa: BLE001 - an unexpected error fails this sample, not the run
@@ -289,13 +332,17 @@ def run(s: Settings) -> int:
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
     s.add_genomes = [p.resolve() for p in s.add_genomes]
     s.output.mkdir(parents=True, exist_ok=True)
+    tools.allow_programs()  # After an interruption of an earlier run in this process
     lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        lock.close()
-        raise BaconError(f"Another BACoN run is using {s.output}; wait for it to end, or use another output "
-                         "folder") from None
+    except OSError as exc:
+        if exc.errno not in (errno.EAGAIN, errno.EACCES):  # A file system without locks (some NFS, SMB mounts)
+            log.warning("Could not lock %s (%s): make sure no other BACoN run uses it", s.output, exc.strerror)
+        else:
+            lock.close()
+            raise BaconError(f"Another BACoN run is using {s.output}; wait for it to end, or use another output "
+                             "folder") from None
     file_handler = logging.FileHandler(s.output / "bacon.log")
     file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"))
     logger = logging.getLogger("bacon")
@@ -332,8 +379,8 @@ def _run(s: Settings, started: float) -> int:
     inputs = {x.name: [_file_signature(f) for f in x.files] for x in samples}
     params = {
         "bait": {"reference": hashlib.md5(reference.read_bytes()).hexdigest(),
-                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None,
-                 "hdist": s.hdist if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam},
+                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam,
+                 **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},  # Same checkpoints as 0.3.2 for minimap2
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
                    "target_depth": s.target_depth, "genome_size": genome_size},
         "assemble": {"assembler": s.assembler, "read_type": s.read_type, "min_size": s.min_size,
@@ -377,10 +424,16 @@ def _run(s: Settings, started: float) -> int:
     for i, step in enumerate(STEPS[:-1]):
         fingerprint = _fingerprint(fingerprint, params[step])
         saved = None if i >= redo_from else checkpoints.load(step, fingerprint)
-        # Reuse the samples that succeeded with the same parameters; run the others (new or failed before).
+        # What each sample's step reads: its input files (bait), or the output of the previous step.
+        upstream = {st.sample.name: inputs[st.sample.name] if step == "bait" else _output_signature(st.reads)
+                    for st in states}
+        # Reuse the samples that succeeded with the same parameters and the same input; run the others (new,
+        # failed before, or whose input changed). Results of BACoN < 0.3.4 have no "upstream".
         results = {name: res for name, res in (saved or {}).get("results", {}).items()
                    if name in inputs and not res.get("failed") and name not in refreshed
-                   and (step != "bait" or res.get("input") == inputs[name]) and _outputs_exist({name: res})}
+                   and (step != "bait" or res.get("input") == inputs[name])
+                   and res.get("upstream", upstream.get(name)) == upstream.get(name)
+                   and _outputs_exist({name: res})}
         todo = [st for st in states if not st.failed and st.sample.name not in results]
         if not todo:
             log.info("%s: already done, skipping", labels[step])
@@ -388,13 +441,18 @@ def _run(s: Settings, started: float) -> int:
             if results:
                 log.info("%s: resuming, %d sample(s) already done", labels[step], len(results))
             log.info("%s...", labels[step])
+            # Saved at once: a checkpoint left by other parameters must not outlive the start of the step (an
+            # interruption could leave outputs made with these parameters under it).
+            checkpoints.save(step, fingerprint, results)
             lock = threading.Lock()
 
-            def done(name: str, res: dict, step: str = step, fp: str = fingerprint,
-                     results: dict = results, lock: threading.Lock = lock) -> None:
+            def done(name: str, res: dict, step: str = step, fp: str = fingerprint, results: dict = results,
+                     upstream: dict = upstream, lock: threading.Lock = lock) -> None:
                 # Saved as each sample finishes: an interruption loses only the samples still running.
                 if step == "bait":
                     res["input"] = inputs[name]
+                elif not res.get("failed"):
+                    res["upstream"] = upstream[name]
                 with lock:
                     results[name] = res
                     checkpoints.save(step, fp, results)
@@ -438,7 +496,10 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
                                              "ska_min_freq": s.ska_min_freq, "assemblies": sorted(assemblies),
                                              "added": {k: hashlib.md5(v.read_bytes()).hexdigest()
                                                        for k, v in added.items()}})
+    signatures = {k: _output_signature(v) for k, v in sorted(assemblies.items())}
     saved = None if force else checkpoints.load("compare", fingerprint)
+    if saved is not None and saved["results"].pop("inputs", signatures) != signatures:
+        saved = None  # An assembly changed since (made again, then interrupted before the comparison)
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
         result = saved["results"]
@@ -448,7 +509,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
             out = Path(result["distances"]).parent
             paths = {k: v for k, v in assemblies.items() if v is not None}
             result["vcf"] = _write_vcf(s, reference, out, log_dir, paths, set(added))
-            checkpoints.save("compare", fingerprint, result)
+            checkpoints.save("compare", fingerprint, {**result, "inputs": signatures})
     else:
         checkpoints.clear("compare")
         out = root / (s.snp_method if s.snp_method != "ska" or s.ska_min_freq == 1 else f"ska_{s.ska_min_freq:g}")
@@ -477,7 +538,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
                   "tree_svg": str(out / "tree.svg") if tree else None,
                   "distances": str(out / "snp_distances.tsv"), "alignment": str(tree_input), "vcf": vcf,
                   "core_snps": sites}
-        checkpoints.save("compare", fingerprint, result)
+        checkpoints.save("compare", fingerprint, {**result, "inputs": signatures})
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result
@@ -495,8 +556,8 @@ def _vcf_outdated(vcf: Path) -> bool:
             if not line.startswith("##"):
                 break
             if line.startswith("##source=BACoN "):
-                numbers = [int(n) for n in re.findall(r"\d+", line.split(maxsplit=1)[1])[:3]]
-                return tuple(numbers) < VCF_REWRITE_BEFORE
+                numbers = [int(n) for n in re.findall(r"\d+", line[len("##source=BACoN "):])[:3]]
+                return tuple(numbers) < VCF_REWRITE_BEFORE  # () if no version
     return True
 
 

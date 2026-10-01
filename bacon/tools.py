@@ -50,6 +50,11 @@ def allow_programs() -> None:
     _STOPPING.clear()
 
 
+def stopping() -> bool:
+    """True once kill_running() was called (until allow_programs())."""
+    return _STOPPING.is_set()
+
+
 def _kill(proc: subprocess.Popen) -> None:
     """Kill a program and the programs it started (each program runs in its own process group: Flye, for
     one, starts helpers that would otherwise outlive it)."""

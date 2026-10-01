@@ -592,7 +592,7 @@ def test_added_genome_cannot_take_the_name_of_a_failed_sample(stubs, dataset, tm
         run(settings(ref, reads, tmp_path / "out", add_genomes=[clash]))
 
 
-def test_interruption_kills_the_programs_still_running(tmp_path):
+def test_interruption_kills_the_programs_still_running(tmp_path, caplog):
     import time
 
     from bacon.pipeline import SampleState, _run_parallel
@@ -623,6 +623,7 @@ def test_interruption_kills_the_programs_still_running(tmp_path):
         _run_parallel(states, fn, settings(tmp_path, tmp_path, tmp_path, parallel=2), "bait", tmp_path,
                       on_done=on_done)
     assert time.monotonic() - start < 10  # The program was killed
+    assert "slow:" not in caplog.text  # Killed by the interruption: not reported as a failure of the sample
     assert pidfile.exists()
     if pidfile.exists():  # ... and so was the program it started
         import os
@@ -654,3 +655,172 @@ def test_keep_bam(stubs, dataset, tmp_path):
     assert rows["s1"]["Baited_reads"] == "2" and rows["s1"]["Status"] == "ok"
     assert (out / "1_extracted" / "s1.bam").exists()
     assert not list((out / "1_extracted").glob(".*.names"))
+
+
+def _interrupt(monkeypatch, module, function: str, sample: str, after: bool = False):
+    """Make `module.function` raise KeyboardInterrupt for `sample` (after running it, with after=True)."""
+    real = getattr(module, function)
+
+    def interrupted(name, *args, **kwargs):
+        if getattr(name, "name", name) != sample:  # A sample name, or a Sample
+            return real(name, *args, **kwargs)
+        if after:
+            real(name, *args, **kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(module, function, interrupted)
+    return lambda: monkeypatch.setattr(module, function, real)
+
+
+def test_new_reads_interrupted_after_baiting_are_filtered_again(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none", parallel=1))
+    for name in ("s1", "s2"):  # New reads: one read matches
+        _reads(reads / f"{name}.fastq.gz", [("on1", 950)])
+    restore = _interrupt(monkeypatch, bacon.steps, "bait_minimap2", "s2")  # After s1 was baited
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out, snp_method="none", parallel=1))
+    restore()
+    run(settings(ref, reads, out, snp_method="none", parallel=1))
+    row = summary(out)["s1"]
+    assert row["Baited_reads"] == "1" and row["Filtered_reads"] == "1"  # Not the filtered reads of the old input
+    assert sum(1 for _ in read_records(out / "2_filtered" / "s1.fastq.gz")) == 1
+
+
+def test_output_of_interrupted_parameter_change_is_not_reused(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none", parallel=1))
+    restore = _interrupt(monkeypatch, bacon.steps, "filter_filtlong", "s1", after=True)
+    with pytest.raises(KeyboardInterrupt):  # s1 filtered with 850, interrupted before it was recorded
+        run(settings(ref, reads, out, snp_method="none", parallel=1, min_read_length=850))
+    restore()
+    run(settings(ref, reads, out, snp_method="none", parallel=1))  # Back to 100
+    assert summary(out)["s1"]["Filtered_reads"] == "2"
+    assert sum(1 for _ in read_records(out / "2_filtered" / "s1.fastq.gz")) == 2
+
+
+def test_assemblies_changed_before_an_interrupted_comparison_are_compared(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.pipeline
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    _reads(reads / "s1.fastq.gz", [("on1", 950)])
+    real = bacon.pipeline._compare
+    monkeypatch.setattr(bacon.pipeline, "_compare", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt))
+    with pytest.raises(KeyboardInterrupt):  # s1 assembled again, interrupted before the comparison
+        run(settings(ref, reads, out))
+    monkeypatch.setattr(bacon.pipeline, "_compare", real)
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert "ska" in calls(stubs)
+
+
+def test_sigterm_kills_the_programs_still_running(stubs, dataset, tmp_path):
+    import signal
+    import subprocess
+    import time
+    ref, reads = dataset
+    pidfile = tmp_path / "child.pid"
+    flye = tmp_path / "bin" / "flye"  # A Flye that starts a program of its own and waits
+    flye.write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && exit 0\n'
+                    f"sleep 30 & echo $! > {pidfile}.tmp; mv {pidfile}.tmp {pidfile}; wait\n")
+    code = (f"import sys; from bacon.cli import main; sys.exit(main(['-r', {str(ref)!r}, '-i', {str(reads)!r}, "
+            f"'-o', {str(tmp_path / 'out')!r}, '-a', 'flye', '-t', '1', '-p', '1']))")
+    bacon = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(200):
+        if pidfile.exists():
+            break
+        time.sleep(0.05)
+    child = int(pidfile.read_text())
+    bacon.send_signal(signal.SIGTERM)
+    assert bacon.wait(timeout=20) == 130
+    for _ in range(100):  # The child is gone (or a zombie of init)
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        if Path(f"/proc/{child}/stat").exists() and Path(f"/proc/{child}/stat").read_text().split()[2] == "Z":
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(child, 9)
+        raise AssertionError("the program started by Flye outlived BACoN")
+
+
+def test_checkpoints_of_0_3_2_are_reused(stubs, dataset, tmp_path):
+    import hashlib
+
+    from bacon.pipeline import _fingerprint
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    md5 = hashlib.md5((out / "reference.fasta").read_bytes()).hexdigest()
+    params_032 = {"reference": md5, "method": "minimap2", "kmer": None, "keep_bam": False}  # As in BACoN 0.3.2
+    saved = json.loads((out / ".checkpoints" / "bait.json").read_text())
+    assert saved["fingerprint"] == _fingerprint("0", params_032)
+
+
+def test_a_moved_output_folder_resumes_with_its_own_files(stubs, dataset, tmp_path):
+    import shutil
+    ref, reads = dataset
+    out, moved = tmp_path / "out", tmp_path / "moved"
+    run(settings(ref, reads, out))
+    shutil.move(out, moved)
+    stubs.unlink()
+    assert run(settings(ref, reads, moved)) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the failed sample is tried again
+    info = json.loads((moved / "run_info.json").read_text())
+    assert info["comparison"]["distances"] == str(moved / "4_compared" / "ska" / "snp_distances.tsv")
+
+
+def test_output_folder_on_a_file_system_without_locks(stubs, dataset, tmp_path, monkeypatch, caplog):
+    import errno
+    import fcntl
+
+    def no_locks(fd, operation):
+        raise OSError(errno.ENOLCK, "No locks available")
+
+    monkeypatch.setattr(fcntl, "flock", no_locks)
+    ref, reads = dataset
+    assert run(settings(ref, reads, tmp_path / "out", snp_method="none")) == 0
+    assert "Could not lock" in caplog.text
+
+
+def test_vcf_version_check(tmp_path):
+    from bacon.pipeline import _vcf_outdated
+    vcf = tmp_path / "snps.vcf"
+    for source, outdated in [("BACoN 0.3.2", True), ("BACoN 0.3.3", False), ("BACoN 0.3.10", False),
+                             ("BACoN 1.0", False), ("BACoN ", True), (None, True)]:
+        vcf.write_text("##fileformat=VCFv4.2\n" + (f"##source={source}\n" if source else "") + "#CHROM\n")
+        assert _vcf_outdated(vcf) is outdated, source
+
+
+def test_a_run_after_an_interrupted_one_can_start_programs(stubs, dataset, tmp_path):
+    from bacon import tools
+    ref, reads = dataset
+    (reads / "none.fastq.gz").unlink()  # No failed sample: the resumed run only compares
+    run(settings(ref, reads, tmp_path / "out", snp_method="none"))
+    tools.kill_running()  # As left by an interrupted run in this process
+    assert run(settings(ref, reads, tmp_path / "out")) == 0
+    assert "ska" in calls(stubs)
+
+
+def test_a_moved_folder_of_0_3_3_resumes_with_its_own_files(stubs, dataset, tmp_path):
+    import shutil
+    ref, reads = dataset
+    out, moved = tmp_path / "out", tmp_path / "moved"
+    run(settings(ref, reads, out))
+    for checkpoint in (out / ".checkpoints").glob("*.json"):  # As written by BACoN 0.3.3: no root
+        data = json.loads(checkpoint.read_text())
+        del data["root"]
+        checkpoint.write_text(json.dumps(data))
+    shutil.move(out, moved)
+    stubs.unlink()
+    assert run(settings(ref, reads, moved)) == 0
+    assert calls(stubs) == ["minimap2"]
+    info = json.loads((moved / "run_info.json").read_text())
+    assert info["comparison"]["distances"] == str(moved / "4_compared" / "ska" / "snp_distances.tsv")

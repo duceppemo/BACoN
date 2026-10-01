@@ -74,9 +74,11 @@ removed.
 
 `--redo STEP` forces a step to run again, for example after installing a newer assembler.
 
-A run stopped with Ctrl-C stops the programs it started; each sample finished before the interruption is
-recorded, so the next run redoes only the samples that were still running. Two runs cannot use the same
-output folder at the same time: the second one stops with an error.
+A run stopped with Ctrl-C (or SIGTERM, SIGHUP: `kill`, a closed terminal, a job scheduler's time limit) stops
+the programs it started; each sample finished before the interruption is recorded, so the next run redoes only
+the samples that were still running. Two runs cannot use the same output folder at the same time: the second
+one stops with an error. An output folder can be moved or copied (keeping the files' times, as `mv` or
+`cp -a` do) and resumed from its new place.
 
 ## Performance
 

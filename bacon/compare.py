@@ -280,7 +280,7 @@ def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, thr
     try:
         if method == "ska":
             mapped_to = out_dir / SKA_REFERENCE
-            if not mapped_to.exists():  # A comparison made by BACoN 0.3.1: rebuild it by the same rule
+            if not mapped_to.exists():  # A comparison made by BACoN <= 0.3.2: rebuild it by the same rule
                 write_ska_reference(reference, assemblies, mapped_to, added=added)
             run(["ska", "map", str(mapped_to), str(out_dir / "ska.skf"),
                  "-f", "vcf", "-o", str(raw), "--threads", str(threads)], log_dir / "ska.log", what="(ska map)")

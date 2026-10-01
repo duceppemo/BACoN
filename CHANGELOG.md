@@ -5,6 +5,25 @@
 ### Changed
 - A VCF written by BACoN 0.3.2 or earlier is rewritten on resume, from the comparison's files (no need for
   `--redo compare`).
+- SIGTERM and SIGHUP (`kill`, a closed terminal, a scheduler's time limit) stop BACoN like Ctrl-C: the programs
+  it started are stopped. In 0.3.3 they kept running.
+
+### Fixed
+- 0.3.3 ran every step again on output folders of 0.3.2 (its checkpoints differed even with minimap2).
+- A sample's result could be reused after its input changed, when a run was interrupted in between: new reads
+  baited, then the run stopped before filtering; or a step run with other parameters, interrupted, and run
+  again with the first ones. Each result now records the input it was made from, and so does the comparison.
+- A moved or copied output folder resumed with the files of the original folder.
+- After an interruption, the programs killed were reported as failures of their samples.
+- On a file system without locks (some NFS or SMB mounts), BACoN said another run was using the folder.
+- The report's methods said BBDuk allowed two mismatches, whatever `--hdist`.
+
+### Upgrading
+- From 0.3.2: output folders resume, and their VCF is rewritten. Steps run again once only for a soft-masked or
+  IUPAC reference (every step), `--add-genomes` (the comparison) and `-b bbduk` (baiting, for the new `--hdist`
+  default).
+- From 0.3.3: output folders baited with minimap2 run every step again once (0.3.3 changed the checkpoints by
+  mistake); with `-b bbduk`, they resume.
 
 ## 0.3.3 (2026-10-01)
 
@@ -37,7 +56,7 @@
 - Parsnp: a warning when the core genome is less than half of the reference (a short genome can shrink it for
   every genome).
 - Switching from a de novo to the templated assembly left the de novo assembly graphs.
-- The VCF of a comparison made by BACoN 0.3.1 now uses the reference as SKA2 used it (extended when circular).
+- The VCF of a comparison made by BACoN 0.3.1 or 0.3.2 now uses the reference as SKA2 used it (extended when circular).
 - Genotypes such as `0/1` or `1|0:35` are renumbered correctly when an `N` allele is removed.
 - `example/run_example.sh` checks the SKA2 comparison, and its output folder is ignored by git.
 - VCF: `N` (ambiguous or missing bases, such as the N of templated assemblies) was written as an alternate
@@ -52,10 +71,11 @@
   file: it is now reported and the run goes on.
 
 ### Upgrading from 0.3.2
+- Every step runs again once: the checkpoints changed (by mistake; 0.3.4 resumes folders of 0.3.2, with the
+  exceptions below).
 - A soft-masked or IUPAC reference rewrites `reference.fasta`, so every step runs again once.
 - Comparisons with `--add-genomes` are redone once.
 - `-b bbduk` baiting runs again once, for the new `--hdist` default.
-- A comparison made by 0.3.2 keeps its VCF; `--redo compare` rewrites it with the VCF fixes.
 
 ## 0.3.2 (2026-09-26)
 

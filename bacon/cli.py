@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -188,6 +189,11 @@ def main(argv: list[str] | None = None) -> int:
         redo=args.redo,
         command_line=list(sys.argv if argv is None else ["bacon", *argv]),
     )
+    def stop(signum: int, frame: object) -> None:
+        raise KeyboardInterrupt  # The programs still running are killed, as with Ctrl-C
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):  # A closed terminal, `kill`, a job scheduler's time limit
+        signal.signal(sig, stop)
     try:
         return run(settings)
     except BaconError as exc:

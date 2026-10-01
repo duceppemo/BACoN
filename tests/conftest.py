@@ -27,3 +27,11 @@ def fastq(tmp_path):
 @pytest.fixture
 def fasta(tmp_path):
     return lambda name, records: write_fasta(tmp_path / name, records)
+
+
+@pytest.fixture(autouse=True)
+def _programs_allowed():
+    """A test that interrupts BACoN leaves it stopping: the next test must be able to run programs."""
+    yield
+    from bacon import tools
+    tools.allow_programs()

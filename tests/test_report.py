@@ -193,3 +193,11 @@ def test_no_inline_heatmap_for_hundreds_of_genomes(tmp_path):
                   matrix=matrix)
     page = build_report(out)
     assert 'class="heat"' not in page and "too many for a heatmap" in page and "4_compared/ska/snp_distances.tsv" in page
+
+
+def test_methods_text_gives_bbduk_mismatches():
+    from bacon.report import methods_text
+    for hdist, text in [(0, "no mismatch"), (1, "up to one mismatch"), (2, "up to 2 mismatches"),
+                        (None, "up to 2 mismatches")]:
+        settings = {"baiting": "bbduk", "kmer": 31, **({"hdist": hdist} if hdist is not None else {})}
+        assert f"31-mer ({text})" in methods_text({"settings": settings})
