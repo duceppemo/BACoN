@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 (2026-10-02)
 
 ### Changed
 - BACoN stopped by SIGTERM or SIGHUP exits with 143 or 129 (128 + the signal), Ctrl-C with 130.
