@@ -737,7 +737,7 @@ def test_sigterm_kills_the_programs_still_running(stubs, dataset, tmp_path):
         time.sleep(0.05)
     child = int(pidfile.read_text())
     bacon.send_signal(signal.SIGTERM)
-    assert bacon.wait(timeout=20) == 130
+    assert bacon.wait(timeout=20) == 128 + signal.SIGTERM
     for _ in range(100):  # The child is gone (or a zombie of init)
         try:
             os.kill(child, 0)
@@ -824,3 +824,131 @@ def test_a_moved_folder_of_0_3_3_resumes_with_its_own_files(stubs, dataset, tmp_
     assert calls(stubs) == ["minimap2"]
     info = json.loads((moved / "run_info.json").read_text())
     assert info["comparison"]["distances"] == str(moved / "4_compared" / "ska" / "snp_distances.tsv")
+
+
+def _bacon_cli(ref, reads, out, **popen):
+    """Start `bacon` (Flye assembly, one sample at a time) in a separate process."""
+    import subprocess
+    code = (f"import sys; from bacon.cli import main; sys.exit(main(['-r', {str(ref)!r}, '-i', {str(reads)!r}, "
+            f"'-o', {str(out)!r}, '-a', 'flye', '-t', '1', '-p', '1']))")
+    return subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            **popen)
+
+
+def test_nohup_runs_survive_a_closed_terminal(stubs, dataset, tmp_path):
+    import signal
+    import time
+    ref, reads = dataset
+    started = tmp_path / "started"
+    flye = tmp_path / "bin" / "flye"  # A Flye that takes a while
+    flye.write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && exit 0\ntouch {started}\nsleep 30\n')
+    bacon = _bacon_cli(ref, reads, tmp_path / "out",
+                       preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN))  # As nohup starts it
+    for _ in range(200):
+        if started.exists():
+            break
+        time.sleep(0.05)
+    bacon.send_signal(signal.SIGHUP)  # The terminal is closed
+    time.sleep(1)
+    assert bacon.poll() is None  # Still running
+    bacon.send_signal(signal.SIGTERM)
+    assert bacon.wait(timeout=20) == 128 + signal.SIGTERM
+
+
+def test_cli_in_another_thread_and_signal_handlers_restored(stubs, dataset, tmp_path):
+    import signal
+    import threading
+
+    from bacon.cli import main
+    ref, reads = dataset
+    args = ["-r", str(ref), "-i", str(reads), "-a", "flye", "-t", "1", "--snp-method", "none"]
+    codes = []
+    thread = threading.Thread(target=lambda: codes.append(main([*args, "-o", str(tmp_path / "a")])))
+    thread.start()
+    thread.join()
+    assert codes == [0]
+    before = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)
+    assert main([*args, "-o", str(tmp_path / "b")]) == 0
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)) == before
+
+
+def test_errors_and_interruptions_are_in_bacon_log(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    ref, reads = dataset
+    out = tmp_path / "out"
+    with pytest.raises(BaconError, match="All samples failed"):
+        run(settings(ref, reads, out, min_read_length=5000))
+    assert "[ERROR] All samples failed at the filter step" in (out / "bacon.log").read_text()
+    _interrupt(monkeypatch, bacon.steps, "filter_filtlong", "s1")
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out))
+    assert (out / "bacon.log").read_text().rstrip().endswith("[ERROR] Interrupted")
+
+
+def test_guess_root_takes_the_last_bacon_folder_in_the_path():
+    from bacon.pipeline import _guess_root
+    assert _guess_root({"s1": {"output": "/data/1_extracted/out/3_assembled/all_assemblies/s1.fasta"}}) == \
+        "/data/1_extracted/out"
+    assert _guess_root({"distances": "/x/4_compared/out/4_compared/ska/snp_distances.tsv"}) == "/x/4_compared/out"
+    assert _guess_root({"s1": {"failed": "no reads"}}) is None
+
+
+def _as_0_3_3(out: Path) -> None:
+    """Rewrite the checkpoints of a run as BACoN 0.3.3 wrote them: no folder, no input signatures."""
+    for checkpoint in (out / ".checkpoints").glob("*.json"):
+        data = json.loads(checkpoint.read_text())
+        data.pop("root", None)
+        data["results"].pop("inputs", None)
+        for res in data["results"].values():
+            if isinstance(res, dict):
+                res.pop("upstream", None)
+        checkpoint.write_text(json.dumps(data))
+
+
+def test_new_reads_interrupted_after_baiting_with_checkpoints_of_0_3_3(stubs, dataset, tmp_path, monkeypatch):
+    import time
+
+    import bacon.steps
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none", parallel=1))
+    _as_0_3_3(out)
+    time.sleep(0.01)  # The new outputs must be newer than the old ones, whatever the file system's clock
+    for name in ("s1", "s2"):
+        _reads(reads / f"{name}.fastq.gz", [("on1", 950)])
+    restore = _interrupt(monkeypatch, bacon.steps, "bait_minimap2", "s2")  # After s1 was baited
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out, snp_method="none", parallel=1))
+    restore()
+    run(settings(ref, reads, out, snp_method="none", parallel=1))
+    assert summary(out)["s1"]["Filtered_reads"] == "1"
+    assert sum(1 for _ in read_records(out / "2_filtered" / "s1.fastq.gz")) == 1
+
+
+def test_resumed_checkpoints_of_0_3_3_get_signatures(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    _as_0_3_3(out)
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert calls(stubs) == ["minimap2"]  # Only the failed sample: the results of 0.3.3 are reused ...
+    filt = json.loads((out / ".checkpoints" / "filter.json").read_text())
+    comp = json.loads((out / ".checkpoints" / "compare.json").read_text())
+    assert filt["root"] == str(out) and all("upstream" in r for r in filt["results"].values())  # ... and updated
+    assert "inputs" in comp["results"]
+
+
+def test_comparison_of_0_3_3_older_than_an_assembly_is_redone(stubs, dataset, tmp_path):
+    import os
+    import time
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    _as_0_3_3(out)
+    assembly = out / "3_assembled" / "all_assemblies" / "s1.fasta"
+    later = time.time() + 5
+    os.utime(assembly, (later, later))  # Assembled again after the comparison (interrupted before comparing)
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert "ska" in calls(stubs)

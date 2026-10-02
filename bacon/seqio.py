@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bacon import BaconError
+from bacon.tools import stopping
 
 # Errors raised while decompressing a truncated or corrupt gzip file.
 DECOMPRESSION_ERRORS: tuple[type[BaseException], ...] = (EOFError, zlib.error, gzip.BadGzipFile)
@@ -92,9 +93,13 @@ def _sniff_format(path: Path) -> str | None:
 def read_records(path: Path) -> Iterator[Record]:
     """Iterate over the records of a fasta (multi-line allowed) or fastq (4 lines per record) file.
 
-    A truncated or corrupt compressed file is a BaconError (decompression errors are not)."""
+    A truncated or corrupt compressed file is a BaconError (decompression errors are not). Reading stops when
+    BACoN is interrupted (a sample's reads can take minutes to go through)."""
     try:
-        yield from _read_records(path)
+        for count, rec in enumerate(_read_records(path)):
+            if count % 4096 == 0 and stopping():
+                raise BaconError(f"{path}: reading stopped: BACoN is stopping")
+            yield rec
     except DECOMPRESSION_ERRORS as exc:
         raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- BACoN stopped by SIGTERM or SIGHUP exits with 143 or 129 (128 + the signal), Ctrl-C with 130.
+
+### Fixed
+- `nohup bacon ... &` stopped when the terminal was closed (0.3.4 replaced nohup's ignored SIGHUP with its own
+  handler); an ignored SIGHUP or SIGTERM now stays ignored.
+- A resumed output folder of 0.3.3 or earlier could still reuse a result made from an earlier input (new reads
+  baited, then a run interrupted before filtering): such results are now reused only if newer than their input,
+  and get the input signatures of 0.3.4.
+- The final error of a run (all samples failed, a failed comparison, "Interrupted") was not written to
+  `bacon.log`.
+- `bacon.cli.main` failed when called from a thread other than the main one, and left its signal handlers
+  installed after returning.
+- An interruption waited for the reads being copied or counted by BACoN itself (not by a program) to finish.
+- A moved output folder of 0.3.3 or earlier whose path contained the name of a BACoN folder (such as
+  `/data/1_extracted/out`) ran every step again.
+- The upgrade notes: with `-b bbduk`, every step runs again once after an upgrade from 0.3.2, not only baiting.
+
 ## 0.3.4 (2026-10-01)
 
 ### Changed
@@ -20,8 +40,8 @@
 
 ### Upgrading to 0.3.4
 - From 0.3.2: output folders resume, and their VCF is rewritten. Steps run again once only for a soft-masked or
-  IUPAC reference (every step), `--add-genomes` (the comparison) and `-b bbduk` (baiting, for the new `--hdist`
-  default).
+  IUPAC reference (every step), `--add-genomes` (the comparison) and `-b bbduk` (every step, as baiting runs
+  again for the new `--hdist` default).
 - From 0.3.3: output folders baited with minimap2 run every step again once (0.3.3 changed the checkpoints by
   mistake); with `-b bbduk`, they resume.
 
@@ -75,7 +95,7 @@
   exceptions below).
 - A soft-masked or IUPAC reference rewrites `reference.fasta`, so every step runs again once.
 - Comparisons with `--add-genomes` are redone once.
-- `-b bbduk` baiting runs again once, for the new `--hdist` default.
+- `-b bbduk`: every step runs again once, as baiting runs again for the new `--hdist` default.
 
 ## 0.3.2 (2026-09-26)
 

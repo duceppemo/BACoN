@@ -76,9 +76,12 @@ removed.
 
 A run stopped with Ctrl-C (or SIGTERM, SIGHUP: `kill`, a closed terminal, a job scheduler's time limit) stops
 the programs it started; each sample finished before the interruption is recorded, so the next run redoes only
-the samples that were still running. Two runs cannot use the same output folder at the same time: the second
-one stops with an error. An output folder can be moved or copied (keeping the files' times, as `mv` or
-`cp -a` do) and resumed from its new place.
+the samples that were still running. A run started with `nohup` keeps running when the terminal is closed. Two
+runs cannot use the same output folder at the same time: the second one stops with an error.
+
+An output folder can be moved or copied and resumed from its new place. A copy that does not keep the files'
+times (`cp -r` without `-a`, `rsync` without `-t`) keeps the baiting, but filtering, assembly and comparison
+run again: BACoN recognizes each step's input by its size and time.
 
 ## Performance
 

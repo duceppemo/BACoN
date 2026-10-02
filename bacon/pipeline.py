@@ -136,9 +136,10 @@ def _guess_root(results: dict | None) -> str | None:
     results = results or {}
     outputs = [results.get("distances")] + [r.get("output") for r in results.values() if isinstance(r, dict)]
     for path in filter(None, outputs):
-        for name in FOLDERS.values():
-            if f"{os.sep}{name}{os.sep}" in path:
-                return path.rsplit(f"{os.sep}{name}{os.sep}", 1)[0]
+        # The last folder name in the path: a parent folder may have the name of one of BACoN's folders
+        at = max(path.rfind(f"{os.sep}{name}{os.sep}") for name in FOLDERS.values())
+        if at > 0:
+            return path[:at]
     return None
 
 
@@ -151,6 +152,20 @@ def _moved(data: object, old: str, new: str) -> object:
     if isinstance(data, dict):
         return {k: _moved(v, old, new) for k, v in data.items()}
     return data
+
+
+def _same_input(res: dict, upstream: object, reads: Path | None) -> bool:
+    """Whether a sample's saved result was made from its current input (`upstream`: the signature of the
+    previous step's output). A result of BACoN < 0.3.5 may have no signature: it must then be newer than its
+    input (an input made again after it, by a run interrupted before this step, is newer)."""
+    if "upstream" in res:
+        return res["upstream"] == upstream
+    if reads is None or not res.get("output"):
+        return True
+    try:
+        return Path(res["output"]).stat().st_mtime_ns >= reads.stat().st_mtime_ns
+    except OSError:
+        return False
 
 
 def _output_signature(path: Path | None) -> list[object] | None:
@@ -351,6 +366,14 @@ def run(s: Settings) -> int:
         logger.setLevel(logging.INFO)
     try:
         return _run(s, started)
+    except BaconError as exc:  # Logged here, while bacon.log still records
+        log.error("%s", exc)
+        exc.logged = True  # type: ignore[attr-defined]
+        raise
+    except KeyboardInterrupt as exc:
+        log.error("Interrupted")
+        exc.logged = True  # type: ignore[attr-defined]
+        raise
     finally:
         logging.getLogger("bacon").removeHandler(file_handler)
         file_handler.close()
@@ -427,16 +450,21 @@ def _run(s: Settings, started: float) -> int:
         # What each sample's step reads: its input files (bait), or the output of the previous step.
         upstream = {st.sample.name: inputs[st.sample.name] if step == "bait" else _output_signature(st.reads)
                     for st in states}
+        reads = {st.sample.name: st.reads for st in states}
         # Reuse the samples that succeeded with the same parameters and the same input; run the others (new,
-        # failed before, or whose input changed). Results of BACoN < 0.3.4 have no "upstream".
+        # failed before, or whose input changed).
         results = {name: res for name, res in (saved or {}).get("results", {}).items()
                    if name in inputs and not res.get("failed") and name not in refreshed
-                   and (step != "bait" or res.get("input") == inputs[name])
-                   and res.get("upstream", upstream.get(name)) == upstream.get(name)
+                   and (res.get("input") == inputs[name] if step == "bait"
+                        else _same_input(res, upstream.get(name), reads.get(name)))
                    and _outputs_exist({name: res})}
+        for name, res in results.items():  # Results of earlier versions get their input's signature
+            if step != "bait":
+                res.setdefault("upstream", upstream[name])
         todo = [st for st in states if not st.failed and st.sample.name not in results]
         if not todo:
             log.info("%s: already done, skipping", labels[step])
+            checkpoints.save(step, fingerprint, results)  # With the signatures and the folder of this version
         else:
             if results:
                 log.info("%s: resuming, %d sample(s) already done", labels[step], len(results))
@@ -498,11 +526,13 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
                                                        for k, v in added.items()}})
     signatures = {k: _output_signature(v) for k, v in sorted(assemblies.items())}
     saved = None if force else checkpoints.load("compare", fingerprint)
-    if saved is not None and saved["results"].pop("inputs", signatures) != signatures:
+    if saved is not None and not _same_assemblies(saved["results"].pop("inputs", None), signatures, assemblies,
+                                                  saved["results"].get("distances")):
         saved = None  # An assembly changed since (made again, then interrupted before the comparison)
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
         result = saved["results"]
+        checkpoints.save("compare", fingerprint, {**result, "inputs": signatures})  # Signatures of this version
         if not result.get("vcf") or not Path(result["vcf"]).is_file() or _vcf_outdated(Path(result["vcf"])):
             # A comparison from BACoN < 0.3.2, whose VCF failed, or whose VCF predates the fixes of 0.3.3: the VCF
             # is made from the comparison's files.
@@ -542,6 +572,19 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result
+
+
+def _same_assemblies(saved: dict | None, signatures: dict, assemblies: dict[str, Path | None],
+                     distances: str | None) -> bool:
+    """Whether a saved comparison was made from the current assemblies. A comparison of BACoN < 0.3.4 has no
+    signatures: it must then be newer than every assembly."""
+    if saved is not None:
+        return saved == signatures
+    try:
+        made = Path(distances or "").stat().st_mtime_ns
+        return all(p is None or p.stat().st_mtime_ns <= made for p in assemblies.values())
+    except OSError:
+        return False
 
 
 # VCFs written by earlier versions are rewritten on resume: 0.3.3 fixed N alleles, SNPs next to the ends of

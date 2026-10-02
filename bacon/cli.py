@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 from bacon import BaconError, __version__
@@ -189,19 +190,32 @@ def main(argv: list[str] | None = None) -> int:
         redo=args.redo,
         command_line=list(sys.argv if argv is None else ["bacon", *argv]),
     )
+    received = [signal.SIGINT]
+
     def stop(signum: int, frame: object) -> None:
+        received[0] = signum
         raise KeyboardInterrupt  # The programs still running are killed, as with Ctrl-C
 
-    for sig in (signal.SIGTERM, signal.SIGHUP):  # A closed terminal, `kill`, a job scheduler's time limit
-        signal.signal(sig, stop)
+    # SIGTERM and SIGHUP (`kill`, a job scheduler's time limit, a closed terminal) stop BACoN like Ctrl-C, unless
+    # they are ignored (`nohup` ignores SIGHUP). Signal handlers can only be set from the main thread.
+    previous = {}
+    if threading.current_thread() is threading.main_thread():
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            if signal.getsignal(sig) != signal.SIG_IGN:
+                previous[sig] = signal.signal(sig, stop)
     try:
         return run(settings)
     except BaconError as exc:
-        log.error("%s", exc)
+        if not getattr(exc, "logged", False):  # run() logs the errors of a started run (in bacon.log too)
+            log.error("%s", exc)
         return 1
-    except KeyboardInterrupt:
-        log.error("Interrupted")
-        return 130
+    except KeyboardInterrupt as exc:
+        if not getattr(exc, "logged", False):
+            log.error("Interrupted")
+        return 128 + received[0]
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 if __name__ == "__main__":

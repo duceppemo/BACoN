@@ -117,3 +117,16 @@ def test_non_ascii_headers_do_not_break_writing(tmp_path):
 def test_acgtn():
     from bacon.seqio import acgtn
     assert acgtn("acgtRYN-*x") == "ACGTNNNNNN"
+
+
+def test_reading_stops_when_bacon_is_interrupted(fastq):
+    import pytest
+
+    from bacon import BaconError, tools
+    from bacon.seqio import read_records
+    path = fastq("r.fq.gz", [(f"r{i}", "ACGT") for i in range(10)])
+    tools.kill_running()
+    with pytest.raises(BaconError, match="BACoN is stopping"):
+        list(read_records(path))
+    tools.allow_programs()
+    assert len(list(read_records(path))) == 10
