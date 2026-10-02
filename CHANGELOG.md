@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 (2026-10-01)
 
 ### Changed
 - A VCF written by BACoN 0.3.2 or earlier is rewritten on resume, from the comparison's files (no need for
@@ -18,7 +18,7 @@
 - On a file system without locks (some NFS or SMB mounts), BACoN said another run was using the folder.
 - The report's methods said BBDuk allowed two mismatches, whatever `--hdist`.
 
-### Upgrading
+### Upgrading to 0.3.4
 - From 0.3.2: output folders resume, and their VCF is rewritten. Steps run again once only for a soft-masked or
   IUPAC reference (every step), `--add-genomes` (the comparison) and `-b bbduk` (baiting, for the new `--hdist`
   default).
