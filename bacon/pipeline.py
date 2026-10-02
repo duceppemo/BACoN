@@ -135,7 +135,7 @@ def _guess_root(results: dict | None) -> str | None:
     another BACoN folder) and the names of BACoN's folders."""
     results = results or {}
     outputs = [results.get("distances")] + [r.get("output") for r in results.values() if isinstance(r, dict)]
-    for path in filter(None, outputs):
+    for path in (p for p in outputs if isinstance(p, str)):  # "distances" can also be a sample's name
         # The last folder name in the path: a parent folder may have the name of one of BACoN's folders
         at = max(path.rfind(f"{os.sep}{name}{os.sep}") for name in FOLDERS.values())
         if at > 0:
@@ -227,7 +227,7 @@ def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], st
                 log.debug("  %s: %s", st.sample.name, message)
                 return st.sample.name, {"failed": "interrupted"}
             log.warning("  %s: %s", st.sample.name, message)
-            return st.sample.name, {"failed": message}
+            return st.sample.name, {"failed": message, "stats": getattr(exc, "stats", {})}
         except Exception as exc:  # noqa: BLE001 - an unexpected error fails this sample, not the run
             log_file = log_dir / f"{st.sample.name}.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -269,6 +269,7 @@ def _apply(states: list[SampleState], results: dict[str, dict], step: str) -> No
         if res.get("failed"):
             st.failed = f"failed ({step})"
             st.notes.append(res["failed"])
+            st.stats.update(res.get("stats", {}))  # E.g. the raw reads of a sample with none baited
             continue
         st.stats.update(res.get("stats", {}))
         st.notes.extend(res.get("notes", []))
@@ -346,6 +347,9 @@ def run(s: Settings) -> int:
     s.input = s.input.resolve() if s.input else None
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
     s.add_genomes = [p.resolve() for p in s.add_genomes]
+    if s.input and s.input.is_dir() and (s.output == s.input or s.output.is_relative_to(s.input)):
+        # Its files would be taken for a sample's reads on the next run
+        raise BaconError(f"The output folder {s.output} cannot be the input folder or inside it")
     s.output.mkdir(parents=True, exist_ok=True)
     tools.allow_programs()  # After an interruption of an earlier run in this process
     lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
@@ -362,6 +366,7 @@ def run(s: Settings) -> int:
     file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"))
     logger = logging.getLogger("bacon")
     logger.addHandler(file_handler)
+    level = logger.level
     if logger.getEffectiveLevel() > logging.INFO:  # The file log always records progress
         logger.setLevel(logging.INFO)
     try:
@@ -375,7 +380,8 @@ def run(s: Settings) -> int:
         exc.logged = True  # type: ignore[attr-defined]
         raise
     finally:
-        logging.getLogger("bacon").removeHandler(file_handler)
+        logger.removeHandler(file_handler)
+        logger.setLevel(level)
         file_handler.close()
         lock.close()  # Releases the lock
 
@@ -411,11 +417,14 @@ def _run(s: Settings, started: float) -> int:
                      "template_gaps": s.template_gaps if s.assembler == "samtools" else None},
     }
 
+    baiting = {"samples": len(states)}  # Samples to bait in this run
+
     def bait(st: SampleState, threads: int) -> steps.StepResult:
         if s.baiting == "minimap2":
             return steps.bait_minimap2(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.keep_bam)
+        # The memory is shared between the samples baited at the same time
         return steps.bait_bbduk(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.kmer, s.hdist,
-                                max(1, s.memory_gb // max(1, min(s.parallel, len(states)))))
+                                max(1, s.memory_gb // max(1, min(s.parallel, baiting["samples"]))))
 
     def filt(st: SampleState, threads: int) -> steps.StepResult:
         assert st.reads is not None
@@ -485,6 +494,8 @@ def _run(s: Settings, started: float) -> int:
                     results[name] = res
                     checkpoints.save(step, fp, results)
 
+            if step == "bait":
+                baiting["samples"] = len(todo)
             new = _run_parallel(todo, functions[step], s, step, logs / LOG_FOLDERS[step], on_done=done)
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
         _apply(states, results, step)
@@ -697,9 +708,33 @@ def _reference_info(s: Settings) -> dict[str, object]:
             "md5": hashlib.md5(s.reference.read_bytes()).hexdigest() if s.reference.is_file() else None}
 
 
+CGROUP_MEMORY_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")  # v2, v1
+
+
+def _cgroup_memory_limit(files: tuple[str, ...] = CGROUP_MEMORY_FILES) -> int | None:
+    """The memory limit of this process's control group (a job scheduler's or a container's), in bytes."""
+    for path in files:
+        try:
+            value = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if value.isdigit() and int(value) < 1 << 60:  # "max" or a huge number: no limit
+            return int(value)
+    return None
+
+
 def default_memory_gb() -> int:
+    """85% of the memory BACoN may use: the physical memory, or less under a job scheduler or in a container."""
     try:
         total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
     except (ValueError, OSError, AttributeError):  # pragma: no cover
         return 8
+    total = min(total, _cgroup_memory_limit() or total)
     return max(1, int(total * 0.85 / 1e9))
+
+
+def usable_cpus() -> int:
+    """The CPUs BACoN may use: all of them, or those a job scheduler or `taskset` gave it."""
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0)) or 1
+    return os.cpu_count() or 1  # pragma: no cover - macOS

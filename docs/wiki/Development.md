@@ -68,7 +68,8 @@ paths removed from `run_info.json` first.
 ## Releases
 
 1. Update `version` in `pyproject.toml`, `__version__` in `bacon/__init__.py`, `CITATION.cff` (version and
-   date) and `CHANGELOG.md`.
+   date), `CHANGELOG.md`, the citation in `README.md` and the `pip install` line of `docs/wiki/Installation.md`
+   (`tests/test_cli.py` checks that they agree), and rebuild the reports of `docs/reports/`.
 2. Commit, tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the versions, builds the
    package and creates the GitHub release with the changelog section.
 3. Zenodo archives the release and mints a version DOI: add it to `CITATION.cff` (`doi` and `identifiers`).

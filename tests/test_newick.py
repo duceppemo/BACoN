@@ -91,3 +91,16 @@ def test_ladderize_and_svg_is_valid_xml():
     root = ET.fromstring(svg)
     texts = [el.text for el in root.iter("{http://www.w3.org/2000/svg}text")]
     assert "E&F" in texts and "title <x>" in texts
+
+
+def test_midpoint_keeps_the_support_of_the_split_edge():
+    rooted = to_newick(midpoint_root(parse("((A:1,B:1)0.99:10,C:1,D:1);")))
+    assert rooted == "((A:1,B:1)0.99:5,(C:1,D:1):5);"
+
+
+def test_unterminated_quoted_label():
+    import pytest
+
+    from bacon import BaconError
+    with pytest.raises(BaconError):
+        parse("('A:1,B:1);")

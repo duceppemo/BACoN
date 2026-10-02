@@ -76,6 +76,7 @@ def test_clean_vcf_n_is_not_an_allele(tmp_path):
                          "chr\t6\t.\tA\tG,T,N\t40\tN\tNA\tGT\t0\t3\t2\n"   # N removed, 3 -> ., 2 stays 2
                          "chr\t7\t.\tA\tN,C\t40\tN;IND\tNA\tGT\t0\t1\t2\n"  # C renumbered to 1
                          "chr\t8\t.\tA\tC\t.\t.\t.\tGT\t1\t1\t1\n"          # reference not 0: dropped
+                         "chr\t9\t.\tN\tA\t40\tPASS\tNA\tGT\t0\t1\t1\n"     # reference base N (HarvestTools): dropped
                          "\n")
     n, rows = _clean(tmp_path, raw)
     assert n == 2
@@ -180,12 +181,14 @@ def test_parsnp_warns_when_the_core_is_a_fraction_of_the_reference(tmp_path, mon
         elif "-M" in cmd:
             Path(cmd[cmd.index("-M") + 1]).write_text(">reference.fasta.ref\n" + "A" * 300 + "\n>a.fasta\n" + "A" * 300 + "\n")
         elif "-S" in cmd:
-            Path(cmd[cmd.index("-S") + 1]).write_text(">reference.fasta.ref\nA\n>a.fasta\nA\n")
+            Path(cmd[cmd.index("-S") + 1]).write_text(">reference.fasta.ref\nAA\n>a.fasta\nCA\n")  # SNP, constant
 
     monkeypatch.setattr(compare, "run", fake_run)
     (tmp_path / "logs").mkdir()
-    compare.run_parsnp(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1)
+    core, snps = compare.run_parsnp(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1)
     assert "core genome is 300 bp, 30% of the reference" in caplog.text
+    assert [r.seq for r in read_records(snps)] == ["A", "C"]  # SNP sites only
+    assert {len(r.seq) for r in read_records(core)} == {300}  # The core genome keeps every column
 
 
 def test_circular_rule_counts_samples_not_added_genomes(tmp_path):
@@ -222,3 +225,45 @@ def test_added_genomes_are_extended_like_the_reference(tmp_path, monkeypatch):
     compare.run_ska(ref, asm, tmp_path / "out", tmp_path / "logs", threads=1, min_freq=1.0, kmer=31,
                     added={"pub"})
     assert seen == {"Reference": 130, "a": 130, "b": 130, "pub": 130}  # All extended by 30 bases
+
+
+def test_snp_alignment_keeps_only_columns_with_two_nucleotides(tmp_path):
+    from bacon.compare import clean_alignment
+    src = tmp_path / "raw.fasta"
+    #                    SNP  ambiguity only  gap only  constant  SNP with N
+    src.write_text(">Reference\nA" "A" "A" "A" "A\n>a\nC" "R" "-" "A" "N\n>b\nA" "A" "A" "A" "G\n")
+    records = clean_alignment(src, tmp_path / "out.fasta", snps_only=True)
+    assert [r.seq for r in records] == ["AA", "CN", "AG"]
+    assert [r.seq for r in clean_alignment(src, tmp_path / "all.fasta")] == ["AAAAA", "CN-AN", "AAAAG"]
+
+
+def test_ska_pan_alignment_has_only_snp_sites(tmp_path):
+    """With the real SKA2 and --ska-min-freq below 1: a genome lacking a region does not make SNP sites."""
+    import random
+    import shutil
+
+    import pytest
+    if not shutil.which("ska"):
+        pytest.skip("ska not installed")
+    from bacon.compare import run_ska
+    from bacon.seqio import read_records
+    rng = random.Random(2)
+    ref = "".join(rng.choice("ACGT") for _ in range(4000))
+    (tmp_path / "ref.fasta").write_text(f">chr\n{ref}\n")
+    swap = {"A": "C", "C": "G", "G": "T", "T": "A"}
+    assemblies = {}
+    for name in ("a", "b", "c", "d"):
+        g = list(ref)
+        if name == "a":
+            g[1000] = swap[g[1000]]  # The only SNP
+        if name == "b":
+            g[3000] = "R"  # An ambiguous base: no SNP
+        g = "".join(g)
+        if name == "d":
+            g = g[:2000] + g[2600:]  # Lacks 600 bp
+        assemblies[name] = tmp_path / f"{name}.fasta"
+        assemblies[name].write_text(f">{name}\n{g}\n")
+    (tmp_path / "logs").mkdir()
+    _, snps = run_ska(tmp_path / "ref.fasta", assemblies, tmp_path / "out", tmp_path / "logs", threads=1,
+                      min_freq=0.5)
+    assert {len(r.seq) for r in read_records(snps)} == {1}

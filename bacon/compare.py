@@ -18,8 +18,12 @@ log = logging.getLogger(__name__)
 NUCLEOTIDES = frozenset("ACGT")
 
 
-def clean_alignment(src: Path, dst: Path, rename: dict[str, str] | None = None) -> list[Record]:
-    """Uppercase, and replace anything that is not A, C, G, T or '-' by N (like snippy-clean_full_aln)."""
+def clean_alignment(src: Path, dst: Path, rename: dict[str, str] | None = None,
+                    snps_only: bool = False) -> list[Record]:
+    """Uppercase, and replace anything that is not A, C, G, T or '-' by N (like snippy-clean_full_aln).
+
+    snps_only: keep only the columns with at least two different nucleotides (a column whose only variation was an
+    ambiguity code, or a gap, is not a SNP site)."""
     keep = frozenset("ACGT-")
     records = []
     for rec in read_records(src):
@@ -28,6 +32,10 @@ def clean_alignment(src: Path, dst: Path, rename: dict[str, str] | None = None) 
         records.append(Record(name, seq))
     if len({len(r.seq) for r in records}) > 1:
         raise BaconError(f"Sequences of {src} have different lengths: not an alignment")
+    if snps_only and records:
+        sites = [i for i, column in enumerate(zip(*(r.seq for r in records)))
+                 if len(NUCLEOTIDES.intersection(column)) >= 2]
+        records = [Record(r.header, "".join(r.seq[i] for i in sites)) for r in records]
     write_fasta(dst, records)
     return records
 
@@ -82,7 +90,7 @@ def run_parsnp(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_
     run(["harvesttools", "-i", str(ggr), "-S", str(out_dir / "parsnp.snps.raw.fasta")], log_file)
     rename = _parsnp_names(assemblies, reference)
     clean_alignment(out_dir / "parsnp.core.raw.fasta", out_dir / "parsnp.core.fasta", rename)
-    clean_alignment(out_dir / "parsnp.snps.raw.fasta", out_dir / "parsnp.snps.fasta", rename)
+    clean_alignment(out_dir / "parsnp.snps.raw.fasta", out_dir / "parsnp.snps.fasta", rename, snps_only=True)
     for raw in ("parsnp.core.raw.fasta", "parsnp.snps.raw.fasta"):
         (out_dir / raw).unlink()
     reference_length = sum(len(r.seq) for r in read_records(reference))
@@ -159,7 +167,9 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
     run(["ska", "align", "--min-freq", f"{min_freq:g}", "--filter", "no-const", "-o", str(raw),
          "--threads", str(threads), str(out_dir / "ska.skf")], log_file, what="(ska align)")
     aln = out_dir / "ska.snps.fasta"
-    clean_alignment(raw, aln)
+    # Without the columns made of one nucleotide and gaps (genomes lacking the k-mer, with --ska-min-freq below 1)
+    # or ambiguous bases
+    clean_alignment(raw, aln, snps_only=True)
     raw.unlink()
     # The reference as SKA2 saw it (extended when circular): write_vcf maps to it, so that the VCF has the SNPs
     # near the ends that the alignment has.
@@ -186,7 +196,8 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
     - The header has the contig names and lengths of `reference`, the source, and the GT format.
     - `N` is not an allele: genotypes pointing to it become missing (`.`) and it is removed from ALT; a record
       left without an alternate allele is dropped (positions a genome lacks, such as a deletion, and ambiguous
-      bases). Records where the reference itself is not `0` (its own split k-mer is ambiguous) are dropped.
+      bases). Records where the reference itself is not `0` (its own split k-mer is ambiguous), or where its base
+      is not A, C, G or T (HarvestTools writes REF=N), are dropped.
     - Positions beyond the end of a contig (the reference was extended by the start of a circular sequence)
       are folded back onto the start; duplicates are dropped.
     - HarvestTools' undeclared INFO value `NA` becomes `.`; its `N` filter is removed with the `N` allele.
@@ -221,7 +232,7 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
             if len(fields) < 9 + len(names):
                 raise BaconError(f"{raw}: truncated record: {line[:80]}")
             genotypes = fields[9:]
-            if genotypes[ref_col] != "0":
+            if genotypes[ref_col] != "0" or fields[3].upper() not in NUCLEOTIDES:  # The reference's base unknown
                 continue
             alts = fields[4].split(",")
             remap, kept_alts = {}, []

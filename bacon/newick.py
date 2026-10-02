@@ -76,7 +76,7 @@ def parse(text: str) -> Node:
 
     try:
         root = subtree()
-    except IndexError:
+    except (IndexError, ValueError):  # ValueError: a quoted label without its closing quote
         raise BaconError("Truncated Newick tree") from None
     if text[pos:] != ";":
         raise BaconError(f"Unexpected text after the Newick tree: {text[pos:pos + 20]!r}")
@@ -159,7 +159,8 @@ def _reroot_on_edge(child: Node, offset: float) -> Node:
     parent = child.parent
     assert parent is not None
     root = Node()
-    root.add(build(child, parent, offset, ""))
+    support = child.name if child.children else ""  # The split edge's support: shown on one of its halves
+    root.add(build(child, parent, offset, support))
     root.add(build(parent, child, child.length - offset, ""))
     return root
 

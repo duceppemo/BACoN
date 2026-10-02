@@ -160,7 +160,7 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
     ref = info.get("reference") or {}
     comparison = info.get("comparison") or {}
     parts = []
-    ref_desc = f"{Path(ref.get('file') or s.get('reference') or 'the reference').name}"
+    ref_desc = html.escape(Path(ref.get('file') or s.get('reference') or 'the reference').name)
     if ref.get("length"):
         ref_desc += f", {ref['length']:,} bp"
     if s.get("baiting") == "bbduk":
@@ -338,6 +338,7 @@ def build_report(output: Path) -> str:
 
     out = ["<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">",
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
+           '<meta name="color-scheme" content="light dark">',  # Its own dark theme: no forced darkening
            f"<title>BACoN report</title><style>{CSS}</style></head><body><main>",
            "<h1><b>BACoN</b> report</h1>",
            f'<p class="sub">{esc(Path(str(output)).name)} · {esc(str(info.get("started", "")))} · '
@@ -407,8 +408,9 @@ def build_report(output: Path) -> str:
         svg = located("tree_svg")
         out.append("<h2>Tree</h2>")
         if svg is not None and svg.exists():
-            out.append(f'<p class="sub">{esc(method_name)} SNPs; {esc(tree_tool)}, midpoint-rooted; internal '
-                       "labels are supports.</p>")
+            data = "Parsnp core-genome alignment" if method == "parsnp" else f"{method_name} SNPs"
+            out.append(f'<p class="sub">{esc(data)}; {esc(tree_tool)}, midpoint-rooted; internal labels are '
+                       "supports.</p>")
             out.append(f'<div class="tree">{svg.read_text()}</div>')
         elif comparison.get("core_snps") == 0:
             why = ("no SNP site is shared by all the genomes; see --ska-min-freq"
@@ -464,4 +466,6 @@ def write_report(output: Path) -> Path:
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("Usage: python -m bacon.report OUTPUT_FOLDER")
+    if not (Path(sys.argv[1]) / "run_info.json").is_file():
+        sys.exit(f"{sys.argv[1]}: no run_info.json (not a BACoN output folder)")
     print(write_report(Path(sys.argv[1])))

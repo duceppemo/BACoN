@@ -75,3 +75,12 @@ def test_sample_sheet_errors(tmp_path):
     sheet.write_text("sample\tfile\nA\tmissing.fq\n")
     with pytest.raises(BaconError, match="file not found"):
         read_sample_sheet(sheet)
+
+
+def test_files_in_hidden_subfolders_are_ignored(tmp_path, fastq):
+    from bacon.samples import discover
+    (tmp_path / "in" / "barcode01" / ".hidden").mkdir(parents=True)
+    for path in ("in/barcode01/a.fastq", "in/barcode01/.hidden/b.fastq"):
+        (tmp_path / path).write_text("@r\nACGT\n+\nIIII\n")
+    [sample] = discover(tmp_path / "in")
+    assert [f.name for f in sample.files] == ["a.fastq"]

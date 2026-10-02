@@ -28,7 +28,11 @@ log = logging.getLogger(__name__)
 
 
 class SampleFailed(BaconError):
-    """This sample cannot go further; the others can."""
+    """This sample cannot go further; the others can. `stats`: what is known about it (e.g. its raw reads)."""
+
+    def __init__(self, message: str, stats: dict[str, object] | None = None):
+        super().__init__(message)
+        self.stats = stats or {}
 
 
 @dataclass
@@ -47,7 +51,7 @@ def reads_suffix(fmt: str) -> str:
 # ---------------------------------------------------------------------------------------------------------------
 
 def _names_from_paf(paf: Path) -> set[str]:
-    with open(paf) as fh:
+    with open(paf, encoding="ascii", errors="replace") as fh:  # As the reads are read (seqio)
         return {line.split("\t", 1)[0] for line in fh if line.strip()}
 
 
@@ -66,7 +70,7 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
         run(["samtools", "index", str(bam)], log_file)
         names_file = out_dir / f".{sample.name}.names"
         run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1"]], log_file, stdout=names_file)
-        with open(names_file) as fh:
+        with open(names_file, encoding="ascii", errors="replace") as fh:
             names = {line.strip() for line in fh if line.strip()}
         names_file.unlink()
     else:
@@ -123,7 +127,7 @@ def _bait_result(output: Path, total: ReadStats | None, kept: ReadStats) -> Step
                                 "Baited_reads": kept.reads, "Baited_bases": kept.bases}
     stats["Baited_pct"] = (f"{100 * kept.bases / total.bases:.3f}" if total and total.bases else "NA")
     if kept.reads == 0:
-        raise SampleFailed("no reads matched the reference")
+        raise SampleFailed("no reads matched the reference", stats)
     return StepResult(output, stats)
 
 
@@ -325,8 +329,9 @@ def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDir
         what=f"(aligning {name})")
     run(["samtools", "index", str(bam)], log_file)
     consensus = work / "consensus.fasta"
-    # -a: every reference position, N where no read; ONT R10.4 SUP error profile; insertions shown, deletions
-    # removed, so the consensus follows the sample, not the reference.
+    # -a: every position of the reference sequences that have reads, N where no read (a reference sequence
+    # without any read is left out); ONT R10.4 SUP error profile; insertions shown, deletions removed, so the
+    # consensus follows the sample, not the reference.
     run(["samtools", "consensus", "-a", "-X", "r10.4_sup", "--show-ins", "yes", "--show-del", "no",
          "-d", "3", "-f", "fasta", "-o", str(consensus), str(bam)], log_file, what=f"(consensus {name})")
     records = [r for r in read_records(consensus) if r.seq]
@@ -339,6 +344,9 @@ def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDir
     n_bases = sum(r.seq.count("N") for r in published)
     stats["N_bases"] = n_bases
     notes = [f"{n_bases:,} N bases (no or ambiguous read support)"] if n_bases else []
+    missing = [r.name for r in read_records(reference) if r.name not in {c.name for c in records}]
+    if missing:
+        notes.append(f"no reads on reference sequence(s) {', '.join(missing)}: not in the assembly")
     return StepResult(dirs.assemblies / f"{name}.fasta", stats, notes)
 
 

@@ -26,8 +26,10 @@ class Sample:
 
 
 def _sequence_files(folder: Path) -> list[Path]:
+    """The sequence files in a folder and its subfolders, hidden ones (and those in hidden folders) excepted."""
     return sorted(p for p in folder.rglob("*")
-                  if p.is_file() and not p.name.startswith(".") and split_extension(p.name))
+                  if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
+                  and split_extension(p.name))
 
 
 def _check_name(name: str, origin: object) -> None:

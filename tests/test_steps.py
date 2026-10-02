@@ -92,3 +92,20 @@ def test_no_program_starts_once_bacon_is_stopping(tmp_path):
     finally:
         allow_programs()
     run(["true"], tmp_path / "log")
+
+
+def test_templated_assembly_notes_reference_sequences_without_reads(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import bacon.steps as steps
+
+    def fake_run(cmd, log_file, **kwargs):  # The consensus has only the reference sequence with reads
+        if "consensus" in cmd:
+            Path(cmd[cmd.index("-o") + 1]).write_text(">chr\nACGTACGTAC\n")
+
+    monkeypatch.setattr(steps, "run", fake_run)
+    reference = tmp_path / "ref.fasta"
+    reference.write_text(">chr\nACGTACGTAC\n>plasmid\nGGGGCCCC\n")
+    res = steps.assemble_samtools("s1", tmp_path / "reads.fq", reference, steps.AssemblyDirs(tmp_path / "asm"),
+                                  tmp_path / "logs", fill_gaps=False, threads=1, reference_length=18)
+    assert "no reads on reference sequence(s) plasmid: not in the assembly" in res.notes

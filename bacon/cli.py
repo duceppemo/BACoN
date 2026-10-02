@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import signal
 import sys
 import threading
 from pathlib import Path
 
 from bacon import BaconError, __version__
-from bacon.pipeline import STEPS, Settings, default_memory_gb, run
+from bacon.pipeline import STEPS, Settings, default_memory_gb, run, usable_cpus
 
 log = logging.getLogger("bacon")
 
@@ -54,7 +53,7 @@ def _kmer(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    max_cpu = os.cpu_count() or 1
+    max_cpu = usable_cpus()
     max_mem = default_memory_gb()
     parser = argparse.ArgumentParser(
         prog="bacon",
@@ -91,7 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     reads.add_argument("--min-read-length", metavar="500", type=_positive_int, default=500,
                        help="Discard reads shorter than this. Default: %(default)s")
     reads.add_argument("--keep-percent", metavar="95", type=_percent, default=95.0,
-                       help="Keep this percentage of the best reads (Filtlong). Default: %(default)s")
+                       help="Filtlong keeps the best reads, up to this percentage of the bases. "
+                            "Default: %(default)s")
     reads.add_argument("--target-depth", metavar="100", type=_positive_int, default=100,
                        help="Keep at most this depth of the best reads (Filtlong). Default: %(default)s")
 
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
-    max_cpu = os.cpu_count() or 1
+    max_cpu = usable_cpus()
     threads = args.threads
     if threads > max_cpu:
         log.warning("Requested %d threads but only %d CPU(s) are available; using %d", threads, max_cpu, max_cpu)

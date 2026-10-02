@@ -8,8 +8,14 @@ from bacon.cli import build_parser, main
 
 
 def test_version_matches_pyproject():
-    text = (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    root = Path(__file__).parents[1]
+    text = (root / "pyproject.toml").read_text()
     assert re.search(r'^version = "([^"]+)"', text, re.M).group(1) == bacon.__version__
+    # The other files that give the version (see the release steps in docs/wiki/Development.md)
+    v = bacon.__version__
+    assert f"\nversion: {v}\n" in (root / "CITATION.cff").read_text()
+    assert f"Nanopore reads (v{v})." in (root / "README.md").read_text()
+    assert f"archive/refs/tags/v{v}.tar.gz" in (root / "docs" / "wiki" / "Installation.md").read_text()
 
 
 def test_version_flag(capsys):

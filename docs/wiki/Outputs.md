@@ -114,7 +114,8 @@ that the assembler reports as circular have ` circular=true` in their header.
 `snp_distances.tsv` is a square matrix of the number of positions where two genomes have different
 nucleotides (A, C, G, T; gaps and N are ignored), with the reference as `Reference`.
 
-- **SKA2** (`4_compared/ska/`, or `ska_<min-freq>/`): `ska.snps.fasta` is the alignment of the variable sites.
+- **SKA2** (`4_compared/ska/`, or `ska_<min-freq>/`): `ska.snps.fasta` is the alignment of the SNP sites (the
+  columns with at least two different nucleotides).
   A SNP in an inverted repeat is counted once (its two copies share the same split k-mer).
 - **Parsnp** (`4_compared/parsnp/`): `parsnp.core.fasta` is the core-genome alignment, used for the tree;
   `parsnp.snps.fasta` the SNP sites; plus Parsnp's own files.

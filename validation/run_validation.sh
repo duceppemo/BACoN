@@ -8,6 +8,10 @@
 # OUTPUT_FOLDER/SCORES_<scenario>.md and .json. See validation/README.md.
 set -euo pipefail
 
+if [ ! -x /usr/bin/time ] || ! realpath -m / >/dev/null 2>&1; then
+    echo "error: needs GNU time (/usr/bin/time; Debian/Ubuntu package 'time') and GNU realpath" >&2
+    exit 1
+fi
 out=$(realpath -m "${1:?output folder}")
 threads=${2:-16}
 here=$(cd "$(dirname "$0")" && pwd)

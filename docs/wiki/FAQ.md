@@ -35,7 +35,7 @@ writes `N`. `N_bases` in `summary.tsv` counts them. A de novo assembly resolves 
 
 **Which reads can I use?**
 Any Nanopore reads, fastq or fasta. Dorado or Guppy 5+ SUP/HAC reads work best. Flye's default `nano-hq` mode
-is meant for R10/Q20 reads (<3% error); for R9 reads basecalled with Guppy < 5 (10–20% error), add
+is meant for R10/Q20 reads (<5% error); for R9 reads basecalled with Guppy < 5 (10–20% error), add
 `--read-type nano-raw`. The templated assembly works with either. The tutorial's older MinION reads (mean
 Q14–16) worked with the defaults, including `-a flye`.
 

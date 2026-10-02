@@ -112,18 +112,19 @@ def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dic
     lines = path.read_text().splitlines()
     names = lines[0].split("\t")[1:]
     rows = {line.split("\t")[0]: [int(x) for x in line.split("\t")[1:]] for line in lines[1:]}
-    order = names
+    order, in_tree_order = names, False
     if tree is not None and tree.exists():  # Rows and columns in tree order, like report.html
         leaves = [leaf.name for leaf in parse(tree.read_text()).leaves()]
         if sorted(leaves) == sorted(names):
-            order = leaves
+            order, in_tree_order = leaves, True
     index = {n: i for i, n in enumerate(names)}
     matrix = [[rows[a][index[b]] for b in order] for a in order]
     return {
         "id": f"bacon_distances_{_run_id(run)}",
         "section_name": f"BACoN {run}: SNP distances".replace("  ", " "),
         "description": "Pairwise SNP distances between the assemblies and the reference, rows and columns in "
-                       "tree order (recent MultiQC versions also offer a clustered view).",
+                       + ("tree order" if in_tree_order else "the order of the distance table")
+                       + " (recent MultiQC versions also offer a clustered view).",
         "plot_type": "heatmap",
         "pconfig": {"id": f"bacon_distances_heatmap_{_run_id(run)}", "title": f"BACoN {run}: SNP distances",
                     "square": True, "min": 0,

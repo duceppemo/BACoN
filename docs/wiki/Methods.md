@@ -31,7 +31,7 @@ maintained.
 | | Templated: `samtools` (default) | De novo: `flye` | De novo: `myloasm` |
 |---|---|---|---|
 | How | reads aligned to the reference (minimap2), consensus with `samtools consensus -X r10.4_sup` | Flye 2.9 | myloasm |
-| Output | one sequence per reference sequence; positions covered by fewer than three reads are `N` | contigs; circular ones flagged | contigs; circular ones flagged |
+| Output | one sequence per reference sequence with reads (one without any read is left out, with a note); positions covered by fewer than three reads are `N` | contigs; circular ones flagged | contigs; circular ones flagged |
 | Accuracy of the consensus | highest | high; some systematic errors on real data | high |
 | Structure (circularity, rearrangements, inverted repeats) | not shown: follows the reference | shown | shown |
 | Insertions absent from the reference | small ones (up to a few hundred bp) | all | all |

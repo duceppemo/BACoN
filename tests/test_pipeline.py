@@ -952,3 +952,62 @@ def test_comparison_of_0_3_3_older_than_an_assembly_is_redone(stubs, dataset, tm
     stubs.unlink()
     run(settings(ref, reads, out))
     assert "ska" in calls(stubs)
+
+
+def test_a_sample_with_no_read_baited_keeps_its_raw_counts(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none"))
+    row = summary(out)["none"]
+    assert row["Raw_reads"] == "1" and row["Baited_reads"] == "0"
+
+
+def test_output_folder_cannot_be_in_the_input_folder(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    for out in (reads, reads / "bacon"):
+        with pytest.raises(BaconError, match="cannot be the input folder or inside it"):
+            run(settings(ref, reads, out))
+    assert not (reads / "bacon").exists()
+
+
+def test_guess_root_with_a_sample_named_distances():
+    from bacon.pipeline import _guess_root
+    assert _guess_root({"distances": {"output": "/out/1_extracted/distances.fastq.gz"}}) == "/out"
+
+
+def test_memory_and_cpus_under_a_job_scheduler(tmp_path, monkeypatch):
+    import bacon.pipeline as pipeline
+    from bacon.cli import build_parser
+    v2, v1 = tmp_path / "memory.max", tmp_path / "limit_in_bytes"
+    v2.write_text("max\n")
+    v1.write_text("4000000000\n")
+    assert pipeline._cgroup_memory_limit((str(v2), str(v1))) == 4_000_000_000  # v2 without limit, v1 with
+    assert pipeline._cgroup_memory_limit((str(tmp_path / "none"),)) is None
+    monkeypatch.setattr(pipeline, "_cgroup_memory_limit", lambda: 4_000_000_000)
+    assert pipeline.default_memory_gb() == 3  # 85% of 4 GB
+    if hasattr(os, "sched_getaffinity"):
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1})
+        assert pipeline.usable_cpus() == 2
+        assert build_parser().parse_args(["-r", "r", "-i", "i", "-o", "o"]).threads == 2
+
+
+def test_bbduk_memory_is_shared_by_the_samples_baited_in_this_run(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, baiting="bbduk", memory_gb=8, parallel=4, snp_method="none"))
+    assert "-Xmx2g" in (out / "logs" / "1_bait" / "none.log").read_text()  # 4 samples at the same time
+    run(settings(ref, reads, out, baiting="bbduk", memory_gb=8, parallel=4, snp_method="none"))
+    assert "-Xmx8g" in (out / "logs" / "1_bait" / "none.log").read_text()  # Only the failed sample is retried
+
+
+def test_run_restores_the_level_of_the_bacon_logger(stubs, dataset, tmp_path):
+    import logging
+    logger = logging.getLogger("bacon")
+    previous = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        ref, reads = dataset
+        run(settings(ref, reads, tmp_path / "out", snp_method="none"))
+        assert logger.level == logging.WARNING
+    finally:
+        logger.setLevel(previous)

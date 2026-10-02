@@ -4,8 +4,32 @@
 
 ### Changed
 - BACoN stopped by SIGTERM or SIGHUP exits with 143 or 129 (128 + the signal), Ctrl-C with 130.
+- SNP alignments (`ska.snps.fasta`, `parsnp.snps.fasta`) keep only the columns with at least two different
+  nucleotides: with `--ska-min-freq` below 1, columns made of one nucleotide and gaps were counted as SNP sites
+  (more than 95% of them in a simulated test) and given to the tree program; with any setting, a column whose
+  only variation was an ambiguous base in one genome was counted too. The SNP distances do not change; the
+  number of SNP sites and the trees' input do. Comparisons are not redone on resume: use `--redo compare`.
+- The default `-t` and `-m` are the CPUs and memory BACoN may use under a job scheduler, `taskset` or in a
+  container, not those of the whole machine.
+- A templated assembly notes the reference sequences that no read covers (they are not in the assembly).
 
 ### Fixed
+- VCF from Parsnp: positions where the reference's base is N (an ambiguity code in the reference) were written as
+  a SNP of every genome.
+- Midpoint rooting dropped the support of the split on which the root is placed (often the deepest one) from
+  `tree.nwk`, `tree.svg` and the report.
+- An output folder inside the input folder (`-i reads -o reads/bacon`) worked once, then every resume failed with
+  an unrelated message (its files were taken for a sample); it is now refused.
+- `-b bbduk`: a resumed run gave each sample its share of `-m` as if all samples were baited at the same time.
+- A sample with no read baited lost its numbers of raw reads and bases in `summary.tsv`.
+- Files in hidden folders inside a sample's folder were used.
+- Read names with non-ASCII characters could not be matched, so their reads were not baited.
+- A checkpoint of 0.3.3 or earlier with a sample named `distances` stopped the run.
+- The report: the reference's file name was not escaped; the tree of a Parsnp comparison was said to be built on
+  SNPs (it is built on the core-genome alignment); browsers that darken pages could make the tree invisible.
+  MultiQC: the heatmap was said to be in tree order when there was no tree.
+- `python -m bacon.report` on a folder that is not a BACoN output gave a traceback.
+- `run()` left the `bacon` logger at the INFO level.
 - `nohup bacon ... &` stopped when the terminal was closed (0.3.4 replaced nohup's ignored SIGHUP with its own
   handler); an ignored SIGHUP or SIGTERM now stays ignored.
 - A resumed output folder of 0.3.3 or earlier could still reuse a result made from an earlier input (new reads

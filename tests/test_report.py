@@ -165,7 +165,9 @@ def test_multiqc_heatmap_in_tree_order(tmp_path):
     assert hm["xcats"] == ["b", "a", "Reference"] == hm["ycats"]
     assert hm["data"] == [[0, 4, 5], [4, 0, 1], [5, 1, 0]]
     assert hm["id"] == "bacon_distances_my_run"
+    assert "in tree order" in hm["description"]
     assert distance_heatmap(dist)["xcats"] == ["Reference", "a", "b"]
+    assert "the order of the distance table" in distance_heatmap(dist)["description"]
     tree.write_text("(b:1,(a_renamed:1,Reference:1):1);\n")  # Names that do not match: table order
     assert distance_heatmap(dist, tree)["xcats"] == ["Reference", "a", "b"]
 
@@ -201,3 +203,21 @@ def test_methods_text_gives_bbduk_mismatches():
                         (None, "up to 2 mismatches")]:
         settings = {"baiting": "bbduk", "kmer": 31, **({"hdist": hdist} if hdist is not None else {})}
         assert f"31-mer ({text})" in methods_text({"settings": settings})
+
+
+def test_report_escapes_the_reference_name_and_names_the_parsnp_tree(tmp_path):
+    out = _folder(tmp_path, {"method": "parsnp", "core_snps": 3, "tree_method": "iqtree", "tree_svg": "t.svg",
+                             "distances": "4_compared/ska/snp_distances.tsv"},
+                  reference={"file": "/x/ref<1>&b.fa", "length": 100})
+    (out / "t.svg").write_text("<svg></svg>")
+    page = build_report(out)
+    assert "ref&lt;1&gt;&amp;b.fa" in page and "ref<1>" not in page
+    assert "Parsnp core-genome alignment; IQ-TREE, midpoint-rooted" in page
+    assert '<meta name="color-scheme" content="light dark">' in page
+
+
+def test_report_command_on_a_folder_that_is_not_bacon(tmp_path):
+    import subprocess
+    import sys
+    done = subprocess.run([sys.executable, "-m", "bacon.report", str(tmp_path)], capture_output=True, text=True)
+    assert done.returncode == 1 and "not a BACoN output folder" in done.stderr and "Traceback" not in done.stderr
