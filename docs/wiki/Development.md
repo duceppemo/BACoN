@@ -68,11 +68,13 @@ paths removed from `run_info.json` first.
 ## Releases
 
 1. Update `version` in `pyproject.toml`, `__version__` in `bacon/__init__.py`, `CITATION.cff` (version and
-   date), `CHANGELOG.md`, the citation in `README.md` and the `pip install` line of `docs/wiki/Installation.md`
-   (`tests/test_cli.py` checks that they agree), and rebuild the reports of `docs/reports/`.
+   date), `CHANGELOG.md`, the citation and the example's download line in `README.md`, and the download and
+   `pip install` lines of `docs/wiki/Installation.md` (`tests/test_cli.py` checks that they agree); rebuild the
+   reports of `docs/reports/`.
 2. Commit, tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the versions, builds the
    package and creates the GitHub release with the changelog section.
 3. Zenodo archives the release and mints a version DOI: add it to `CITATION.cff` (`doi` and `identifiers`).
    The README badge uses the concept DOI (10.5281/zenodo.22970412), which always points to the latest
    version.
-4. Update `recipe/meta.yaml` (version, sha256 of the tag's tarball) and the bioconda-recipes pull request.
+4. Update `recipe/meta.yaml` (version, sha256 of the tag's tarball, build number 0). Bioconda's autobump bot
+   usually opens the update pull request in bioconda-recipes by itself; otherwise open one with the new recipe.

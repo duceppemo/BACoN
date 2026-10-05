@@ -6,6 +6,7 @@
   <a href="https://github.com/duceppemo/BACoN/actions/workflows/ci.yml"><img src="https://github.com/duceppemo/BACoN/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/duceppemo/BACoN"><img src="https://codecov.io/gh/duceppemo/BACoN/graph/badge.svg" alt="Coverage"></a>
   <a href="https://github.com/duceppemo/BACoN/releases/latest"><img src="https://img.shields.io/github/v/release/duceppemo/BACoN?label=release&cacheSeconds=3600" alt="Latest release"></a>
+  <a href="https://anaconda.org/bioconda/bacon-nanopore"><img src="https://img.shields.io/conda/vn/bioconda/bacon-nanopore?label=bioconda" alt="Bioconda"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/duceppemo/BACoN" alt="License: MIT"></a>
   <a href="https://github.com/duceppemo/BACoN/wiki"><img src="https://img.shields.io/badge/docs-wiki-informational" alt="Documentation"></a>
@@ -25,12 +26,14 @@ reads ──► 1. bait (minimap2) ──► 2. filter (Filtlong) ──► 3. a
 ## Quick start
 
 ```bash
-git clone https://github.com/duceppemo/BACoN && cd BACoN
-conda env create -f environment.yml && conda activate BACoN
-pip install .
+conda create -n bacon -c conda-forge -c bioconda bacon-nanopore
+conda activate bacon
 
 bacon -r chloroplast.fasta -i reads/ -o results/
 ```
+
+The bioconda package is named `bacon-nanopore` (conda-forge already has an unrelated `bacon`); the command is
+`bacon`. To install from the source code instead, see [Installation](https://github.com/duceppemo/BACoN/wiki/Installation).
 
 `reads/` holds one fastq file per sample, or one folder per sample (such as MinKNOW's `fastq_pass/barcode01/`).
 Open `results/report.html` for an overview: samples with their read counts, depth and assembly, the tree, a
@@ -39,9 +42,11 @@ heatmap of the SNP distances, and a methods paragraph. The same results are in `
 `*_mqc.json` files. Rerunning the same command resumes where it stopped; changing a parameter reruns only the
 steps it affects.
 
-To check an installation, run the bundled example (simulated reads with known SNPs; a few seconds):
+To check an installation, run the example (simulated reads with known SNPs; a few seconds). It is in the
+repository, not in the conda package:
 
 ```bash
+curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.5.tar.gz | tar -xz --strip-components=1 BACoN-0.3.5/example
 bash example/run_example.sh
 ```
 

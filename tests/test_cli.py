@@ -15,7 +15,9 @@ def test_version_matches_pyproject():
     v = bacon.__version__
     assert f"\nversion: {v}\n" in (root / "CITATION.cff").read_text()
     assert f"Nanopore reads (v{v})." in (root / "README.md").read_text()
-    assert f"archive/refs/tags/v{v}.tar.gz" in (root / "docs" / "wiki" / "Installation.md").read_text()
+    for doc in (root / "README.md", root / "docs" / "wiki" / "Installation.md"):  # The example's download line
+        text = doc.read_text()
+        assert f"archive/refs/tags/v{v}.tar.gz" in text and f"BACoN-{v}/example" in text, doc
 
 
 def test_version_flag(capsys):

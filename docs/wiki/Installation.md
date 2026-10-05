@@ -3,7 +3,20 @@
 BACoN is a Python package (standard library only) that runs command-line programs, which are installed with
 conda.
 
-## conda (recommended)
+## bioconda (recommended)
+
+```bash
+conda create -n bacon -c conda-forge -c bioconda bacon-nanopore
+conda activate bacon
+bacon --version
+```
+
+The package is named `bacon-nanopore` because conda-forge already has an unrelated package called `bacon`; the
+command is `bacon`. It installs BACoN with every program below except Bandage.
+
+## From the source code
+
+For development, or the latest code:
 
 ```bash
 git clone https://github.com/duceppemo/BACoN
@@ -37,7 +50,11 @@ missing ones with the command to install them.
 
 ## Checking the installation
 
+The example is in the repository (`example/`), not in the conda package. From a clone, or after downloading the
+example folder of the release:
+
 ```bash
+curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.5.tar.gz | tar -xz --strip-components=1 BACoN-0.3.5/example
 bash example/run_example.sh
 ```
 

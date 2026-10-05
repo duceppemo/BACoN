@@ -1,6 +1,6 @@
-# Bioconda recipe. The sha256 is that of the GitHub tarball for tag v{{ version }}
-# (curl -sL <url> | sha256sum). To publish, copy this folder to bioconda-recipes/recipes/bacon-nanopore and
-# open a pull request. For a new release: tag it, bump `version`, recompute the sha256 and reset `number` to 0.
+# Bioconda recipe, a copy of bioconda-recipes/recipes/bacon-nanopore (published since 0.3.5). The sha256 is that
+# of the GitHub tarball for tag v{{ version }} (curl -sL <url> | sha256sum). For a new release: bump `version`,
+# recompute the sha256, reset `number` to 0, and update bioconda-recipes (its autobump bot usually does).
 # The package is named bacon-nanopore because conda-forge already has an unrelated `bacon`.
 {% set name = "bacon-nanopore" %}
 {% set version = "0.3.5" %}
