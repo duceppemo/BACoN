@@ -3,7 +3,7 @@
 Three files in the output folder, found by `multiqc OUTPUT_FOLDER`. Their section ids include the name of the
 output folder, so that the files of several runs in one MultiQC search path make separate sections instead of
 being merged (MultiQC merges sections with the same id, and keeps only one heatmap).
-  bacon_samples_mqc.json    table: reads, depth, assembly and status of each sample
+  bacon_samples_mqc.json    table: reads, depth, assembly and status of each sample, with its metadata
   bacon_reads_mqc.json      bar graph: each sample's bases kept, baited but filtered out, and off-target
   bacon_distances_mqc.json  heatmap: pairwise SNP distances (when the samples were compared)
 """
@@ -14,6 +14,7 @@ import json
 import re
 from pathlib import Path
 
+from bacon.metadata import Metadata
 from bacon.newick import parse
 
 SAMPLE_HEADERS = {
@@ -60,19 +61,32 @@ def _run_id(run: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]+", "_", run).strip("_") or "run"
 
 
-def sample_table(rows: list[dict[str, str]], run: str = "") -> dict:
+def sample_table(rows: list[dict[str, str]], run: str = "", metadata: Metadata | None = None) -> dict:
+    """The samples table; the metadata columns (as text) come first, when there are any."""
+    headers: dict[str, dict] = {}
+    columns = {}
+    for column in (metadata.columns if metadata else []):
+        key = f"meta_{_run_id(column).lower()}"
+        if key in headers:  # Two names differing only in punctuation or case
+            key = f"{key}_{len(headers) + 1}"
+        headers[key] = {"title": column, "description": f"Metadata: {column}"}
+        columns[key] = column
+    headers.update(SAMPLE_HEADERS)
     data = {}
     for r in rows:
         values = {k: r.get(k, "") if k in ("Status", "Note") else _number(r.get(k, "")) for k in SAMPLE_HEADERS}
+        if metadata is not None:
+            values.update({k: metadata.value(r["Sample"], c) for k, c in columns.items()})
         data[r["Sample"]] = {k: v for k, v in values.items() if v not in (None, "")}
     return {
         "id": f"bacon_samples_{_run_id(run)}",
         "section_name": f"BACoN {run}: samples".replace("  ", " "),
-        "description": "Reads baited and kept, depth and assembly of each sample (BACoN summary.tsv).",
+        "description": "Reads baited and kept, depth and assembly of each sample (BACoN summary.tsv)"
+                       + (", with the sample metadata." if metadata else "."),
         "plot_type": "table",
         "pconfig": {"id": f"bacon_samples_table_{_run_id(run)}", "title": f"BACoN {run}: samples",
                     "namespace": f"BACoN {run}".strip()},
-        "headers": SAMPLE_HEADERS,
+        "headers": headers,
         "data": data,
     }
 
@@ -137,11 +151,11 @@ def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dic
 
 
 def write_multiqc(output: Path, rows: list[dict[str, str]], distances: Path | None,
-                  tree: Path | None = None) -> list[Path]:
+                  tree: Path | None = None, metadata: Metadata | None = None) -> list[Path]:
     """Write the MultiQC files; remove a stale distance file when there is no comparison."""
     written = []
     run = output.resolve().name
-    sections = [("bacon_samples_mqc.json", sample_table(rows, run)),
+    sections = [("bacon_samples_mqc.json", sample_table(rows, run, metadata)),
                 ("bacon_reads_mqc.json", reads_bargraph(rows, run)),
                 ("bacon_distances_mqc.json", distance_heatmap(distances, tree, run)
                  if distances and distances.exists() else None)]

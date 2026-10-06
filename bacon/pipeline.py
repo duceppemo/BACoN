@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from bacon import BaconError, __version__, compare, steps, tools
+from bacon import metadata as md
 from bacon.annotation import annotation_format, genbank_fasta_records, load_annotation
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
@@ -56,6 +57,8 @@ class Settings:
     input: Path | None = None
     sample_sheet: Path | None = None
     annotation: Path | None = None  # Report only: not part of any checkpoint
+    metadata: Path | None = None  # Report only
+    color_by: str | None = None  # Report only: the metadata column that colours the figures ('none': no colours)
     baiting: str = "minimap2"
     kmer: int = 31
     hdist: int = 1
@@ -357,6 +360,42 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
             "transl_tables": annotation.tables, "md5": hashlib.md5(source.read_bytes()).hexdigest()}
 
 
+def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] | None:
+    """Read the metadata (--metadata, and the extra columns of the sample sheet, which --metadata overrides column
+    by column), match it to the samples, choose the column that colours the report, and write the normalised copy
+    OUTPUT/metadata.tsv for the report; a copy left by an earlier run is removed when this run has no metadata.
+    Fails before any step on an unreadable file, a missing 'sample' column or an unknown --color-by column."""
+    given = md.read_metadata(s.metadata) if s.metadata else None
+    sheet = md.sheet_metadata(s.sample_sheet) if s.sample_sheet else None
+    merged = md.merge(given, sheet)
+    copy = s.output / md.COPY_NAME
+    if merged is None:
+        if s.color_by is not None and s.color_by.lower() != "none":
+            raise BaconError(f"--color-by {s.color_by!r}: no metadata (give --metadata, or a sample sheet with "
+                             "columns besides 'sample' and 'file')")
+        copy.unlink(missing_ok=True)
+        return None
+    names = [x.name for x in samples]
+    metadata, unmatched = md.restrict(merged, names)
+    for warning in metadata.warnings:
+        log.warning("%s", warning)
+    if unmatched:
+        log.warning("Metadata: %d row(s) match no sample: %s%s", len(unmatched), ", ".join(unmatched[:5]),
+                    " …" if len(unmatched) > 5 else "")
+    column, why_not = md.choose_colour_column(metadata, s.color_by)  # BaconError on an unknown column
+    if why_not:
+        log.warning("Metadata: %s", why_not)
+    md.write_copy(copy, metadata)
+    with_row = sum(1 for n in names if n in merged.rows)
+    log.info("Metadata: %d column(s) (%s); %d of %d samples have a row; %s", len(metadata.columns),
+             ", ".join(metadata.columns), with_row, len(names),
+             f"colours by {column}" if column else "no colour column")
+    return {"file": str(s.metadata) if s.metadata else None, "copy": copy.name, "columns": metadata.columns,
+            "sample_sheet_columns": sheet.columns if sheet else [], "matched": with_row,
+            "samples_without_row": len(names) - with_row, "unmatched_rows": len(unmatched), "color_by": column,
+            "md5": hashlib.md5(s.metadata.read_bytes()).hexdigest() if s.metadata else None}
+
+
 def _add_notes(st: SampleState, genome_size: int) -> None:
     bases = st.stats.get("Filtered_bases")
     if isinstance(bases, int):
@@ -402,6 +441,7 @@ def run(s: Settings) -> int:
     # Absolute paths: some tools run in their own working folder.
     s.output, s.reference = s.output.resolve(), s.reference.resolve()
     s.annotation = s.annotation.resolve() if s.annotation else None
+    s.metadata = s.metadata.resolve() if s.metadata else None
     s.input = s.input.resolve() if s.input else None
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
     s.add_genomes = [p.resolve() for p in s.add_genomes]
@@ -448,6 +488,7 @@ def _run(s: Settings, started: float) -> int:
     log.info("BACoN %s", __version__)
     tools = require(needed_tools(s))
     samples = _load_samples(s)
+    metadata = _prepare_metadata(s, samples)  # Fails fast on a bad file or column; not part of any checkpoint
     reference, reference_length = _prepare_reference(s)
     genome_size = s.genome_size or reference_length
     log.info("Reference %s: %s bp in %d sequence(s)%s", s.reference.name, f"{reference_length:,}",
@@ -559,7 +600,7 @@ def _run(s: Settings, started: float) -> int:
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
         _apply(states, results, step)
         if all(st.failed for st in states):
-            _finish(s, states, tools, None, started, annotation)
+            _finish(s, states, tools, None, started, annotation, metadata)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")
 
     for st in states:
@@ -571,11 +612,11 @@ def _run(s: Settings, started: float) -> int:
                               fingerprint, bool(refreshed) or redo_from <= STEPS.index("compare"))
     except Exception as exc:  # The assemblies are still worth reporting
         message = str(exc).splitlines()[0] if isinstance(exc, BaconError) else f"{type(exc).__name__}: {exc}"
-        _finish(s, states, tools, {"failed": message}, started, annotation)
+        _finish(s, states, tools, {"failed": message}, started, annotation, metadata)
         if isinstance(exc, BaconError):
             raise
         raise BaconError(f"The comparison failed unexpectedly: {message}") from exc
-    _finish(s, states, tools, comparison, started, annotation)
+    _finish(s, states, tools, comparison, started, annotation, metadata)
     return 0
 
 
@@ -719,7 +760,8 @@ def _alignment_length(path: Path) -> int:
 
 
 def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], comparison: dict | None,
-            started: float, annotation: dict[str, object] | None = None) -> None:
+            started: float, annotation: dict[str, object] | None = None,
+            metadata: dict[str, object] | None = None) -> None:
     rows = [summary_row(st) for st in states]
     write_tsv(s.output / "summary.tsv", SUMMARY_COLUMNS, rows)
     shown = ["Sample", "Status", "Baited_reads", "Filtered_reads", "Est_depth", "Contigs", "Assembly_length",
@@ -737,6 +779,7 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
         "tools": {name: {"path": path, "version": version(name)} for name, path in tools.items()},
         "reference": _reference_info(s),
         "annotation": annotation,
+        "metadata": metadata,
         "samples": {st.sample.name: {"files": [str(f) for f in st.sample.files], "status": st.failed or "ok"}
                     for st in states},
         "comparison": comparison,
@@ -748,7 +791,8 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
     try:
         distances = Path(comparison["distances"]) if comparison and comparison.get("distances") else None
         tree = Path(comparison["tree"]) if comparison and comparison.get("tree") else None
-        write_multiqc(s.output, rows, distances, tree)
+        columns = md.read_metadata(s.output / md.COPY_NAME) if metadata else None
+        write_multiqc(s.output, rows, distances, tree, columns)
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not write the MultiQC files: %s", exc)
     try:

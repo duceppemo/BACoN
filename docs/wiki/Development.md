@@ -16,6 +16,7 @@ pre-commit install
 | `bacon/cli.py` | command line |
 | `bacon/pipeline.py` | the steps, checkpoints, summary and provenance |
 | `bacon/samples.py` | finding samples (file, folder, sample sheet) |
+| `bacon/metadata.py` | sample metadata: TSV/CSV reading (shared with the sample sheet), merging, the column that colours the report |
 | `bacon/steps.py` | baiting, filtering, assembly |
 | `bacon/compare.py` | SKA2, Parsnp, distances, trees |
 | `bacon/newick.py` | Newick parsing, midpoint rooting, SVG drawing |

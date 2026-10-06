@@ -67,3 +67,18 @@ def test_bacon_error_exits_1(tmp_path, capsys):
     code = main(["-r", str(tmp_path / "missing.fa"), "-i", str(tmp_path), "-o", str(tmp_path / "o"),
                  "--snp-method", "none"])
     assert code == 1
+
+
+def test_metadata_options():
+    args = build_parser().parse_args(["-r", "r.fa", "-i", "in", "-o", "out", "--metadata", "m.tsv",
+                                      "--color-by", "Group"])
+    assert args.metadata == Path("m.tsv") and args.color_by == "Group"
+    args = build_parser().parse_args(["-r", "r.fa", "-i", "in", "-o", "out"])
+    assert args.metadata is None and args.color_by is None
+
+
+def test_color_by_needs_metadata(capsys):
+    from bacon.cli import main
+    with pytest.raises(SystemExit):
+        main(["-r", "r.fa", "-i", "in", "-o", "out", "--color-by", "group"])
+    assert "--color-by needs --metadata" in capsys.readouterr().err

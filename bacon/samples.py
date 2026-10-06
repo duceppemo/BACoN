@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import csv
 import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from bacon import BaconError
+from bacon.metadata import read_table
 from bacon.seqio import sniff_format, split_extension
 
 log = logging.getLogger(__name__)
@@ -90,23 +90,16 @@ def read_sample_sheet(path: Path) -> list[Sample]:
     """Samples from a TSV or CSV file with the columns 'sample' and 'file' (files separated by ';').
 
     Several rows may share a sample name; their files are merged. Relative paths are resolved from the
-    sheet's folder.
+    sheet's folder. The other columns are metadata (bacon.metadata.sheet_metadata).
     """
-    if not path.is_file():
-        raise BaconError(f"Sample sheet not found: {path}")
-    text = path.read_text(encoding="utf-8-sig", errors="replace")
-    lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    if not lines:
-        raise BaconError(f"Sample sheet is empty: {path}")
-    delimiter = "\t" if "\t" in lines[0] else ","
-    reader = csv.DictReader(lines, delimiter=delimiter)
-    columns = {c.strip().lower(): c for c in reader.fieldnames or []}
+    header, rows = read_table(path, "Sample sheet")
+    columns = {c.lower(): c for c in header}
     if "sample" not in columns or "file" not in columns:
-        raise BaconError(f"Sample sheet {path} needs the columns 'sample' and 'file' (found: {reader.fieldnames})")
+        raise BaconError(f"Sample sheet {path} needs the columns 'sample' and 'file' (found: {header})")
     grouped: dict[str, list[Path]] = {}
-    for row in reader:
-        name = (row.get(columns["sample"]) or "").strip()
-        files = [f.strip() for f in (row.get(columns["file"]) or "").split(";") if f.strip()]
+    for row in rows:
+        name = row.get(columns["sample"], "")
+        files = [f.strip() for f in row.get(columns["file"], "").split(";") if f.strip()]
         if not name or not files:
             raise BaconError(f"Sample sheet {path}: row without a sample name or a file: {row}")
         for f in files:

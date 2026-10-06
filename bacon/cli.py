@@ -79,6 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "the report only: genes and regions on the genome map, and the effect of each SNP. "
                          "Adding or changing it reruns nothing. Default: the reference itself when it is a "
                          "GenBank file.")
+    io.add_argument("--metadata", metavar="FILE", type=Path,
+                    help="Sample metadata, for the report only: a TSV/CSV with a 'sample' column naming the "
+                         "samples and any other columns (group, origin, year...), shown in the samples table "
+                         "and, for one column (--color-by), as colours in the tree and the heatmap. The extra "
+                         "columns of a sample sheet are metadata too. Adding or changing it reruns nothing.")
+    io.add_argument("--color-by", metavar="COLUMN",
+                    help="The metadata column that colours the tree and the heatmap, or 'none'. Default: the "
+                         "first column with at most 8 distinct values that is not free text.")
 
     bait = parser.add_argument_group("baiting")
     bait.add_argument("-b", "--baiting-method", choices=["minimap2", "bbduk"], default="minimap2",
@@ -156,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("give exactly one of -i/--input or --sample-sheet")
     if args.keep_bam and args.baiting_method != "minimap2":
         parser.error("--keep-bam only applies to --baiting-method minimap2")
+    if args.color_by is not None and args.metadata is None and args.sample_sheet is None:
+        parser.error("--color-by needs --metadata or a sample sheet with metadata columns")
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -173,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
         reference=args.reference,
         output=args.output,
         annotation=args.annotation,
+        metadata=args.metadata,
+        color_by=args.color_by,
         input=args.input,
         sample_sheet=args.sample_sheet,
         baiting=args.baiting_method,

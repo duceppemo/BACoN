@@ -28,6 +28,34 @@ reference sequence is accepted whatever its name); features on other sequences o
 are ignored with a warning. BACoN copies the file, uncompressed, to `OUTPUT/annotation.gb` or
 `OUTPUT/annotation.gff3`, so that the report can be rebuilt after the folder is moved.
 
+**Sample metadata** (`--metadata`): a TSV or CSV file with a `sample` column (any case) naming the samples and
+any other columns, such as a group, a cultivar, a site or a year, used in the report only
+([Outputs](Outputs#reporthtml)): the columns are added to the samples table, and one of them colours the tree
+and the heatmap, with a table of the groups of identical genomes against its values. Like the annotation, it is
+not part of any checkpoint: adding, changing or removing it reruns nothing, and the report is rebuilt. The
+columns of a sample sheet other than `sample` and `file` are metadata too (a sample on several rows must have the
+same values; otherwise the first is kept, with a warning); when both are given, a column of `--metadata` replaces
+the sheet's column of the same name, and its columns come first. Values are stripped; empty cells, `NA`, `na`
+and `-` are missing values. A sample listed twice keeps its first row (warning); rows naming no sample of the run
+are reported; samples without a row get blank cells. BACoN writes the merged table, limited to the run's samples,
+to `OUTPUT/metadata.tsv`, so that the report can be rebuilt after the folder is moved.
+
+```
+sample      group      year  comment
+alpha       A          2021  Identical to the reference by design
+beta        A          2021  Carries six planted SNPs
+gamma       B          2022  Shares beta's six SNPs, plus four of its own
+delta       NA         2023  Ten SNPs of its own; group unknown
+```
+
+`--color-by COLUMN` chooses the column that colours the figures; `--color-by none` leaves them uncoloured. By
+default it is the first column that can be coloured: a column with at most 8 distinct values (the report's
+palette) that does not look like free text, that is, whose distinct values are at most 30 characters long on
+average and, once 10 or more samples have a value, do not outnumber half of them. Numbers with few distinct
+values (years, batches) are categories like any other. A requested column that does not exist stops BACoN before
+any step; one that cannot be coloured gives a warning and uncoloured figures. The values are coloured in sorted
+order (numerically when they are all numbers).
+
 **Reads**, as fastq or fasta, gzipped or not (`.fastq`, `.fq`, `.fasta`, `.fa`, `.fna`, `.fas`, with or
 without `.gz`). Three ways to give them:
 
@@ -35,7 +63,7 @@ without `.gz`). Three ways to give them:
 |---|---|
 | `-i sample.fastq.gz` | one sample, named after the file (`sample`) |
 | `-i folder/` | each sequence file directly in the folder is a sample named after the file; each subfolder is a sample named after the subfolder, made of all the sequence files it contains, in any depth. MinKNOW's `fastq_pass/` works as is (`barcode01/`, `barcode02/`, ...); `unclassified/` and `mixed/` are skipped |
-| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; lines starting with `#` are ignored |
+| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; lines starting with `#` are ignored; any other column is sample metadata (above) |
 
 Sample names may contain letters, digits and `.` `_` `+` `-`. Two inputs giving the same sample name, or a
 sample mixing fasta and fastq files, are errors. Symbolic links are a quick way to rename samples.
@@ -46,9 +74,11 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 |---|---|---|
 | `-r`, `--reference` | | Reference fasta, or GenBank (its sequence is used and its features annotate the report); required |
 | `-i`, `--input` | | Reads file or folder (this or `--sample-sheet`) |
-| `--sample-sheet` | | TSV/CSV with `sample` and `file` columns |
+| `--sample-sheet` | | TSV/CSV with `sample` and `file` columns; other columns are metadata |
 | `-o`, `--output` | | Output folder (required) |
 | `--annotation` | the reference, if GenBank | GenBank or GFF3 annotation of the reference, for the report only (genes, regions, SNP effects); never reruns a step |
+| `--metadata` | | TSV/CSV with a `sample` column and any other columns, for the report only (samples table, colours of the tree and heatmap); never reruns a step |
+| `--color-by` | first usable column | The metadata column that colours the tree and the heatmap (at most 8 distinct values, not free text), or `none` |
 | `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
 | `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |

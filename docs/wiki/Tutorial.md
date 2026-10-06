@@ -101,6 +101,13 @@ position 2,669 (C>T, carried by the 16 cultivars of lineage B) changes codon 333
 The T-type group shares the reference's plastome but for one SNP. Lineages A and B are not T-type (next
 section); which of the other cytoplasm types they are is not determined here.
 
+Sample metadata colours the report by whatever is known about the samples ([Usage](Usage#inputs)). For example,
+a TSV with the three groups above (`sample`, `group`), given with `--metadata groups.tsv` to the same command,
+rebuilds the report without redoing anything: the tree shows the group after each cultivar's name with a
+coloured circle, the heatmap gets a second band, and a table under the identical genomes counts the cultivars of
+each group in each set of identical plastomes (lineage A is one set of 2; lineage B three sets of 11, 4 and 1;
+the T-type cultivars one set of 10). Real metadata (origin, breeding programme, year) would be used the same way.
+
 ## 5. The 241 bp marker
 
 The `N` bases of lineages A and B sit in the *ndhC*–*trnV-UAC* spacer (reference positions 51,834 to

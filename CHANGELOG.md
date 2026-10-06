@@ -12,6 +12,13 @@
   says otherwise). The annotation is for the report only: it is not part of any checkpoint, so adding it to a
   finished run reruns nothing; it is copied to `OUTPUT/annotation.gb` or `.gff3` and recorded in
   `run_info.json`. `snps.vcf` is unchanged.
+- Sample metadata: `--metadata FILE` (TSV or CSV with a `sample` column and any other columns), and the columns
+  of a sample sheet other than `sample` and `file` (`--metadata` wins column by column). The report shows the
+  columns in the samples table (sortable, numbers as numbers), and one column, `--color-by` or the first with at
+  most 8 distinct values that is not free text (`none` for no colours), colours the tree (a circle and the
+  value after each name) and the heatmap (a second band on both axes, with a legend), with a table of the groups
+  of identical genomes against its values. The metadata columns are also in the MultiQC samples table. For the
+  report only: not part of any checkpoint, copied to `OUTPUT/metadata.tsv` and recorded in `run_info.json`.
 
 ### Changed
 - `report.html` has a new look (light and dark themes, numbered figures) and new figures: bar charts of the

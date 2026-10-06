@@ -66,5 +66,25 @@ records the command, the reference's MD5 and every program used.
 
 ![Methods and run](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_methods.png)
 
+## Adding sample metadata
+
+A metadata file adds columns to the samples table and colours the tree and the heatmap by one of them
+([Usage](Usage#inputs)). Save this as `metadata.csv` (a TSV works too):
+
+```
+sample,group,year,comment
+alpha,A,2021,Identical to the reference by design
+beta,A,2021,Carries six planted SNPs
+gamma,B,2022,"Shares beta's six SNPs, plus four of its own"
+delta,NA,2023,Ten SNPs of its own; group unknown
+```
+
+and run the same command again with `--metadata metadata.csv`: nothing is redone, and the report is rebuilt.
+`group` colours the figures (the first column that can be: `year` could too, with `--color-by year`; `comment` is
+free text). In the tree, each leaf gets a circle in the colour of its group and the group after its name; delta,
+without a value, gets a hollow circle. In the heatmap, a second band gives the group of each genome, and under
+the list of identical genomes a table counts, for each group of identical genomes, the genomes of each value.
+The groups of identical genomes are then drawn in grey, so that colour always means the metadata.
+
 For real data, see the [Tutorial](Tutorial) (28 potato cultivars) and
 [its report](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).

@@ -596,3 +596,159 @@ def test_snp_summary_says_when_overlapping_genes_count_a_snp_twice():
     assert "2 in coding sequences" in text and "counted for each" in text
     info[("c", 5)].context = "CDS"
     assert "counted for each" not in snp_summary(snps, info, SimpleNamespace(sequences={}))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Sample metadata in the report
+# ---------------------------------------------------------------------------------------------------------------
+
+def _colouring(values: dict[str, str], column="group"):
+    from bacon.metadata import Metadata
+    from bacon.report import colouring
+    return colouring(Metadata([column], {k: {column: v} for k, v in values.items()}), column)
+
+
+def test_colouring_orders_values_and_colours_them():
+    c = _colouring({"a": "10", "b": "9", "c": "", "d": "9"})
+    assert c.values == ["9", "10"] and c.slot("b") == 0 and c.slot("a") == 1 and c.slot("c") is None
+    assert c.colour("b") == "var(--s1)" and c.colour("c") == "var(--axis)" and c.colour("zz") == "var(--axis)"
+    assert c.title("a") == "a: group 10" and c.title("c") == "c: no group"
+
+
+def test_heatmap_second_band_and_legend():
+    names = ["a", "b", "c", "<d>"]
+    m = {x: {y: 0 if x == y else 12 for y in names} for x in names}
+    m["a"]["b"] = m["b"]["a"] = 0
+    groups = identical_groups(names, m)
+    colours = _colouring({"a": "x<1", "b": "y", "c": "x<1", "<d>": ""}, column="Site<s>")
+    out = heatmap(names, m, groups, colours)
+    assert out.count("<title>a: Site&lt;s&gt; x&lt;1</title>") == 2 and out.count("<title>a: group 1</title>") == 2
+    assert out.count("<title>&lt;d&gt;: no Site&lt;s&gt;</title>") == 2 and 'fill="var(--axis)"' in out
+    assert "Site&lt;s&gt;:</text>" in out and "x&lt;1 (2)</text>" in out and "y (1)</text>" in out
+    assert "no value (1)</text>" in out and "<d>" not in out and "x<1" not in out
+    plain = heatmap(names, m, groups)
+    assert "Site" not in plain and "no value" not in plain and len(plain) < len(out)
+    # The value band is outside the group band: at the far left, the group band 14 px from the cells
+    left_band = min(int(x) for x in __import__("re").findall(r'<rect x="(\d+)" y="\d+" width="10"', out))
+    assert f'<rect x="{left_band}"' in out and f'<rect x="{left_band + 14}"' in out
+
+
+def test_tree_svg_with_values():
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,'<c>':0.005)0.80:0.03);")
+    colours = _colouring({"a": "x", "b": "y", "<c>": "<v>"})
+    out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100, colours)
+    assert out.count("<circle") == 4 and 'r="4" fill="var(--s2)"><title>a: group x</title>' in out  # <v>, x, y
+    assert 'fill="none" stroke="var(--axis)"><title>Reference: no group</title>' in out  # Hollow: no value
+    assert '>a <tspan class="t-muted" font-weight="400">x</tspan></text>' in out
+    assert '>&lt;c&gt; <tspan class="t-muted" font-weight="400">&lt;v&gt;</tspan>' in out and "<v>" not in out
+    assert "Reference <tspan" in out and "ref.fa" in out
+    plain = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100)
+    assert "<circle" not in plain and "t-muted\" font-weight=\"400\">x<" not in plain
+
+
+def test_cross_table_counts():
+    from bacon.report import cross_table
+    names = ["Reference", "a", "b", "c", "d", "<e>"]
+    groups = [["Reference", "a", "b"], ["c", "d"]]
+    colours = _colouring({"a": "x", "b": "y", "c": "x", "d": "x", "<e>": "<y>"}, column="g")
+    out = cross_table(groups, names, colours)
+    rows = out.split("<tr>")[1:]
+    assert "&lt;y&gt;</th>" in rows[0] and "no value</th>" in rows[0] and "Total</th>" in rows[0]
+    assert rows[1].count("<td") == 6 and ">1</td>" in rows[1] and ">3</td>" in rows[1]  # group 1: x 1, y 1, none 1
+    assert ">2</td>" in rows[2] and rows[2].count('class="num zero">–</td>') == 3  # group 2: x 2
+    assert "not in a group" in rows[3] and ">1</td>" in rows[3] and "<e>" not in out
+    without_missing = cross_table([["a", "b"]], ["a", "b"], colours)
+    assert "no value" not in without_missing and "not in a group" not in without_missing
+
+
+def _metadata_run(tmp_path, copy, color_by="group", record=True):
+    out = _full_run(tmp_path)
+    (out / "metadata.tsv").write_text(copy)
+    if record:
+        info = json.loads((out / "run_info.json").read_text())
+        info["metadata"] = {"file": "/x/meta <m>.tsv", "copy": "metadata.tsv", "columns": copy.split("\n")[0].split("\t")[1:],
+                            "sample_sheet_columns": [], "color_by": color_by}
+        (out / "run_info.json").write_text(json.dumps(info))
+    return out
+
+
+def test_report_with_metadata_table_figures_and_escaping(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tgroup\tn <x>\tnote\na\tG<1>\t10\tsome text\nb\t\t9.5\t\n")
+    page = build_report(out)
+    head = page.split("<table class=\"samples sortable\">")[1].split("</thead>")[0]
+    assert head.index(">Sample<") < head.index('<th class="md">group</th>') < head.index('class="num md">n &lt;x&gt;<') \
+        < head.index(">Status<")
+    assert '<td class="num md" data-v="10">10</td>' in page and '<td class="num md" data-v="9.5">9.5</td>' in page
+    assert '<td class="md" data-v="G&lt;1&gt;"><span class="swatch" style="background:var(--s1)"></span>G&lt;1&gt;' \
+        in page
+    assert '<td class="md" data-v=""></td>' in page and "G<1>" not in page and "n <x>" not in page
+    assert "Metadata from <b>meta &lt;m&gt;.tsv</b>: 3 columns (group, n &lt;x&gt;, note); 2 of 2 samples" in page
+    assert "coloured by <b>group</b>" in page and "give each genome's <b>group</b>" in page
+    assert "<title>a: group G&lt;1&gt;</title>" in page and "G&lt;1&gt; (1)</text>" in page  # Band and legend
+    assert "no value (2)</text>" in page  # b and the Reference
+    assert "Genomes of each group by <b>group</b>" in page and '<table class="cross">' in page
+    assert ">Metadata</dt><dd><code>/x/meta &lt;m&gt;.tsv (copy metadata.tsv; colours by group)</code>" in page
+
+
+def test_report_metadata_without_colours_and_fallbacks(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tgroup\na\tx\nb\ty\n", color_by=None)
+    page = build_report(out)
+    assert "No column colours the figures" in page and "<circle" not in page and "group:</text>" not in page
+    assert '<table class="cross">' not in page and '<th class="md">group</th>' in page
+    # No record in run_info (a hand-made copy): the first usable column
+    out = _metadata_run(tmp_path / "x", "sample\tgroup\na\tx\nb\ty\n", record=False)
+    assert "coloured by <b>group</b>" in build_report(out) and "Metadata from <b>metadata.tsv</b>" in build_report(out)
+    # A recorded column missing from the copy: no colours; an unreadable copy: a note
+    out = _metadata_run(tmp_path / "y", "sample\tother\na\tx\nb\ty\n", color_by="group")
+    assert "No column colours the figures" in build_report(out)
+    (out / "metadata.tsv").write_text("name\tother\na\tx\n")
+    page = build_report(out)
+    assert "No metadata: Metadata file" in page and "needs a &#x27;sample&#x27; column" in page
+    assert '<th class="md">' not in page
+
+
+def test_report_without_metadata_is_unchanged(tmp_path):
+    out = _full_run(tmp_path)
+    page = build_report(out)
+    assert "Metadata" not in page and "<circle" not in page and 'class="md' not in page
+    assert 'class="cross"' not in page and "no value" not in page
+    info = json.loads((out / "run_info.json").read_text())
+    info["metadata"] = None  # As a run without metadata records it
+    (out / "run_info.json").write_text(json.dumps(info))
+    assert build_report(out) == page
+
+
+def test_multiqc_table_with_metadata():
+    from bacon.metadata import Metadata
+    metadata = Metadata(["Group", "Site name", "Status"], {"s1": {"Group": "A", "Site name": "n", "Status": "x"}})
+    table = sample_table(ROWS, "run", metadata)
+    keys = list(table["headers"])
+    assert keys[:3] == ["meta_group", "meta_site_name", "meta_status"] and keys[3] == "Status"
+    assert list(sample_table(ROWS, "run", Metadata(["a b", "a_b"], {}))["headers"])[:2] == ["meta_a_b", "meta_a_b_2"]
+    assert table["headers"]["meta_site_name"] == {"title": "Site name", "description": "Metadata: Site name"}
+    assert table["data"]["s1"]["meta_group"] == "A" and "meta_group" not in table["data"]["s2"]
+    assert table["description"].endswith("with the sample metadata.")
+
+
+def test_with_a_colour_column_colour_means_the_metadata_only():
+    from bacon.report import Colouring, heatmap, tree_svg
+    colours = Colouring("group", ["A", "B"], {"a": "A", "b": "B", "c": "A"})
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
+    tree = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100, colours)
+    assert "<title>group 1</title>" not in tree  # No group square: the circles carry the colour
+    names = ["Reference", "a", "b", "c"]
+    matrix = {x: {y: (0 if {x, y} <= {"a", "b"} or x == y else 3) for y in names} for x in names}
+    page = heatmap(names, matrix, [["a", "b"]], colours)
+    assert 'fill="var(--ink2)"><title>a: group 1</title>' in page  # Grey group band
+    assert 'fill="var(--s1)"><title>a: group A</title>' in page  # Coloured metadata band
+    assert 'fill="var(--s1)"><title>a: group 1</title>' in heatmap(names, matrix, [["a", "b"]])  # Without metadata
+
+
+def test_grey_group_bands_alternate_along_the_axes():
+    from bacon.report import Colouring, heatmap
+    names = ["a", "b", "c", "d"]
+    matrix = {x: {y: (0 if (x in "ab") == (y in "ab") else 4) for y in names} for x in names}
+    colours = Colouring("group", ["A"], {n: "A" for n in names})
+    page = heatmap(names, matrix, [["c", "d"], ["a", "b"]], colours)  # Group 2 comes first on the axes
+    assert 'fill="var(--ink2)"><title>a: group 2</title>' in page
+    assert 'fill="var(--muted)"><title>c: group 1</title>' in page  # Adjacent groups differ

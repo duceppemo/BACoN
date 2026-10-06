@@ -1133,3 +1133,109 @@ def test_genbank_reference_with_a_definition_matches_ncbi_fasta_headers(stubs, d
     out = tmp_path / "out"
     assert run(settings(gb, reads, out, snp_method="none")) == 0
     assert (out / "reference.fasta").read_text().startswith(">NC_1.2 Some plant chloroplast, complete genome\nACGT")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Sample metadata
+# ---------------------------------------------------------------------------------------------------------------
+
+def _metadata_file(tmp_path, text="sample\tgroup\tyear\ts1\tA\t2020\ns2\tA\t2021\ns3\tB\t2021\nzz\tB\t2022\n"):
+    path = tmp_path / "meta.tsv"
+    path.write_text(text.replace("year\ts1", "year\ns1"))
+    return path
+
+
+def test_metadata_is_not_in_the_checkpoints_and_is_copied(stubs, dataset, tmp_path, caplog):
+    import shutil
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")}
+    meta = _metadata_file(tmp_path)
+    stubs.unlink()
+    assert run(settings(ref, reads, out, metadata=meta)) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the sample that failed before is retried: nothing reran
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")} == \
+        checkpoints
+    assert "1 row(s) match no sample: zz" in caplog.text and "colours by group" in caplog.text
+    copy = out / "metadata.tsv"
+    assert copy.read_text() == "sample\tgroup\tyear\nnone\t\t\ns1\tA\t2020\ns2\tA\t2021\ns3\tB\t2021\n"
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["settings"]["metadata"] == str(meta) and info["settings"]["color_by"] is None
+    assert info["metadata"] == {"file": str(meta), "copy": "metadata.tsv", "columns": ["group", "year"],
+                                "sample_sheet_columns": [], "matched": 3, "samples_without_row": 1,
+                                "unmatched_rows": 1, "color_by": "group", "md5": info["metadata"]["md5"]}
+    page = (out / "report.html").read_text()
+    assert "<th class=\"md\">group</th>" in page and 'class="num md"' in page and "coloured by <b>group</b>" in page
+    assert "group:</text>" in page and "A (2)" in page and "no value (1)" in page  # The heatmap legend; Reference
+    mqc = json.loads((out / "bacon_samples_mqc.json").read_text())
+    assert mqc["headers"]["meta_group"]["title"] == "group" and mqc["data"]["s1"]["meta_group"] == "A"
+    assert "meta_group" not in mqc["data"]["none"]  # No value: no entry
+    # A moved folder: the report is rebuilt from the copy
+    moved = tmp_path / "moved"
+    shutil.move(out, moved)
+    from bacon.report import write_report
+    assert "coloured by <b>group</b>" in write_report(moved).read_text()
+    # A changed file changes the report, not the steps; without the file, the copy goes
+    meta.write_text("sample,group\ns1,X\ns2,Y\ns3,Y\n")
+    stubs.unlink()
+    assert run(settings(ref, reads, moved, metadata=meta, color_by="none")) == 0
+    assert calls(stubs) == ["minimap2"] and "X (1)" not in (moved / "report.html").read_text()  # No colours
+    assert (moved / "metadata.tsv").read_text() == "sample\tgroup\nnone\t\ns1\tX\ns2\tY\ns3\tY\n"
+    assert json.loads((moved / "run_info.json").read_text())["metadata"]["color_by"] is None
+    stubs.unlink()
+    assert run(settings(ref, reads, moved)) == 0
+    assert not (moved / "metadata.tsv").exists()
+    assert json.loads((moved / "run_info.json").read_text())["metadata"] is None
+    assert "Metadata" not in (moved / "report.html").read_text().split("<h2>Run</h2>")[1]
+
+
+def test_metadata_errors_and_warnings(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    with pytest.raises(BaconError, match="Metadata file not found"):
+        run(settings(ref, reads, out, metadata=tmp_path / "missing.tsv", snp_method="none"))
+    bad = tmp_path / "bad.csv"
+    bad.write_text("name,group\ns1,A\n")
+    with pytest.raises(BaconError, match="needs a 'sample' column"):
+        run(settings(ref, reads, out, metadata=bad, snp_method="none"))
+    meta = _metadata_file(tmp_path)
+    with pytest.raises(BaconError, match="--color-by 'site': no such metadata column"):
+        run(settings(ref, reads, out, metadata=meta, color_by="site", snp_method="none"))
+    with pytest.raises(BaconError, match="--color-by 'group': no metadata"):
+        run(settings(ref, reads, out, color_by="group", snp_method="none"))
+    assert not (out / "1_extracted").exists()  # Failed before any step
+    free = tmp_path / "free.tsv"
+    free.write_text("sample\tnote\ns1\ta long sentence about the first sample of this run\ns2\tanother long "
+                    "sentence about the second sample\ns3\tand a third one that is just as long as the others\n")
+    assert run(settings(ref, reads, out, metadata=free, color_by="note", snp_method="none")) == 0
+    assert "'note' cannot colour the figures" in caplog.text
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["metadata"]["color_by"] is None and info["metadata"]["columns"] == ["note"]
+    page = (out / "report.html").read_text()
+    assert "No column colours the figures" in page and 'class="md long"' in page
+
+
+def test_sample_sheet_columns_are_metadata_and_metadata_wins(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    sheet = tmp_path / "sheet.tsv"
+    sheet.write_text("sample\tfile\tsite\tgroup\ns1\treads/s1.fastq.gz\tnorth\tX\ns2\treads/s2.fastq.gz\tsouth\tY\n"
+                     "s2\treads/s2.fastq.gz\tsouth\tZ\ns3\treads/s3.fastq.gz\tnorth\tX\n")
+    out = tmp_path / "out"
+    assert run(settings(ref, None, out, input=None, sample_sheet=sheet, snp_method="none")) == 0
+    assert "rows of the same sample give different values" in caplog.text and "'Y' kept" in caplog.text
+    assert (out / "metadata.tsv").read_text() == "sample\tsite\tgroup\ns1\tnorth\tX\ns2\tsouth\tY\ns3\tnorth\tX\n"
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["metadata"]["file"] is None and info["metadata"]["sample_sheet_columns"] == ["site", "group"]
+    assert info["metadata"]["color_by"] == "site"
+    assert "Metadata from <b>the sample sheet</b>" in (out / "report.html").read_text()
+    # --metadata overrides the sheet's columns of the same name, keeps the others, and comes first
+    meta = tmp_path / "meta.csv"
+    meta.write_text("sample,group,year\ns1,A,1\ns3,B,2\n")
+    assert run(settings(ref, None, out, input=None, sample_sheet=sheet, metadata=meta, color_by="site",
+                        snp_method="none")) == 0
+    assert (out / "metadata.tsv").read_text() == ("sample\tgroup\tyear\tsite\ns1\tA\t1\tnorth\ns2\t\t\tsouth\n"
+                                                  "s3\tB\t2\tnorth\n")
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["metadata"]["color_by"] == "site" and "sheet.tsv" not in (info["metadata"]["file"] or "")
+    assert "Metadata from <b>meta.csv and the sample sheet</b>" in (out / "report.html").read_text()

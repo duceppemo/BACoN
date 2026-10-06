@@ -1,8 +1,9 @@
 """A self-contained HTML report of a BACoN output folder (standard library only).
 
 Written at the end of every run as `report.html`; `python -m bacon.report OUTPUT` rebuilds it from the files of an
-output folder (`run_info.json`, `summary.tsv`, `reference.fasta`, the assemblies and the comparison's distances,
-tree and VCF). Every figure is inline SVG drawn here; a missing or unreadable file only removes its figure.
+output folder (`run_info.json`, `summary.tsv`, `reference.fasta`, `metadata.tsv`, the assemblies and the
+comparison's distances, tree and VCF). Every figure is inline SVG drawn here; a missing or unreadable file only
+removes its figure.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from bacon import BaconError
 from bacon.annotation import (
     Annotation,
     Gene,
@@ -23,6 +25,15 @@ from bacon.annotation import (
     SnpAnnotation,
     annotate_snps,
     load_annotation,
+)
+from bacon.metadata import (
+    COPY_NAME,
+    MAX_VALUE_LENGTH,
+    Metadata,
+    choose_colour_column,
+    is_numeric,
+    read_metadata,
+    sort_key,
 )
 from bacon.newick import Node, ladderize, parse
 from bacon.seqio import read_records, split_extension
@@ -129,6 +140,65 @@ def group_slots(groups: list[list[str]]) -> dict[str, int]:
 
 def slot_colour(slot: int) -> str:
     return f"var(--s{slot + 1})" if slot < GROUP_COLOURS else "var(--muted)"
+
+
+MISSING_COLOUR = "var(--axis)"  # A genome without a value of the colour column
+
+
+def group_colour(slot: int, neutral: bool = False) -> str:
+    """The colour of a group of identical genomes. Neutral (two alternating greys) when a metadata column colours
+    the figures: colour then means the metadata only."""
+    if neutral:
+        return "var(--ink2)" if slot % 2 == 0 else "var(--muted)"
+    return slot_colour(slot)
+
+
+@dataclass
+class Colouring:
+    """The metadata column that colours the figures: its values in legend order (each with the slot colour of its
+    rank) and the value of each genome."""
+    column: str
+    values: list[str]
+    of: dict[str, str]  # Genome -> value; "" or absent: no value
+
+    def value(self, name: str) -> str:
+        return self.of.get(name, "")
+
+    def slot(self, name: str) -> int | None:
+        value = self.value(name)
+        return self.values.index(value) if value else None
+
+    def colour(self, name: str) -> str:
+        slot = self.slot(name)
+        return slot_colour(slot) if slot is not None else MISSING_COLOUR
+
+    def title(self, name: str) -> str:
+        """'name: column value' for a hover, escaped."""
+        value = self.value(name)
+        return esc(f"{name}: {self.column} {value}" if value else f"{name}: no {self.column}")
+
+
+def colouring(metadata: Metadata, column: str) -> Colouring:
+    of = {name: metadata.value(name, column) for name in metadata.rows}
+    return Colouring(column, sorted({v for v in of.values() if v}, key=sort_key), of)
+
+
+def report_metadata(output: Path, info: dict) -> tuple[Metadata | None, Colouring | None, str]:
+    """The metadata copy of the output folder and the colour column recorded by the run (a folder without the
+    record, such as a hand-made copy, gets the first usable column); the third value is a note on a bad copy."""
+    path = output / COPY_NAME
+    if not path.is_file():
+        return None, None, ""
+    try:
+        metadata = read_metadata(path)
+    except BaconError as exc:
+        return None, None, f"No metadata: {exc}"
+    recorded = info.get("metadata")
+    if isinstance(recorded, dict) and "color_by" in recorded:
+        column = recorded["color_by"] if recorded["color_by"] in metadata.columns else None
+    else:
+        column = choose_colour_column(metadata, None)[0]
+    return metadata, colouring(metadata, column) if column else None, ""
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -274,8 +344,10 @@ def n_bars(rows: list[dict[str, str]]) -> list[Bar]:
 # Figure: the tree
 # ---------------------------------------------------------------------------------------------------------------
 
-def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: int | None = None) -> str:
-    """A rectangular phylogram: leaves with a square in the colour of their group of identical genomes, the
+def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: int | None = None,
+             colours: Colouring | None = None) -> str:
+    """A rectangular phylogram: leaves with a square in the colour of their group of identical genomes, then,
+    with a colour column, a circle in the colour of their value and the value in muted text after the name; the
     Reference in bold, supports on the internal branches, a scale bar in substitutions per site."""
     leaves = root.leaves()
     row, size = (18, 12) if len(leaves) <= 80 else (14, 10.5)
@@ -300,9 +372,9 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
         return y[id(n)]
 
     assign_y(root)
-    longest = max((len(leaf.name) + (len(ref_name) + 1 if leaf.name == "Reference" else 0) for leaf in leaves),
-                  default=1)
-    width = left + plot + 30 + _text_px("x" * longest, size) + (13 if slots else 0)
+    longest = max((len(leaf.name) + (len(ref_name) + 1 if leaf.name == "Reference" else 0)
+                   + (len(colours.value(leaf.name)) + 2 if colours else 0) for leaf in leaves), default=1)
+    width = left + plot + 30 + _text_px("x" * longest, size) + (13 if slots else 0) + (13 if colours else 0)
     height = top + len(leaves) * row + (40 if max_depth > 0 else 12)
     parts = [_svg(width, height, "Tree")]
     lines, texts = [], []
@@ -320,19 +392,31 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
                              f'class="t-tiny t-muted">{esc(n.name)}</text>')
             return
         x, yy = x0 + 5, y[id(n)]
-        slot = slots.get(n.name)
+        slot = slots.get(n.name) if colours is None else None  # With a colour column, colour is the metadata's
         if slot is not None:
             texts.append(f'<rect x="{x:.1f}" y="{yy - 4.5:.1f}" width="9" height="9" rx="1.5" '
                          f'fill="{slot_colour(slot)}"><title>group {slot + 1}</title></rect>')
-        if slots:
+        if slots and colours is None:
             x += 13
+        value = ""
+        if colours is not None:
+            value = colours.value(n.name)
+            if value:
+                texts.append(f'<circle cx="{x + 4.5:.1f}" cy="{yy:.1f}" r="4" fill="{colours.colour(n.name)}">'
+                             f'<title>{colours.title(n.name)}</title></circle>')
+            else:
+                texts.append(f'<circle cx="{x + 4.5:.1f}" cy="{yy:.1f}" r="3.5" fill="none" '
+                             f'stroke="{MISSING_COLOUR}"><title>{colours.title(n.name)}</title></circle>')
+            x += 13
+        note = f' <tspan class="t-muted" font-weight="400">{esc(value)}</tspan>' if value else ""
         if n.name == "Reference":
-            note = f' <tspan class="t-muted" font-weight="400">{esc(ref_name)}</tspan>' if ref_name else ""
+            if ref_name:
+                note = f' <tspan class="t-muted" font-weight="400">{esc(ref_name)}</tspan>' + note
             texts.append(f'<text x="{x:.1f}" y="{yy + size * 0.35:.1f}" class="t-ink" font-size="{size}" '
                          f'font-weight="600">Reference{note}</text>')
         else:
             texts.append(f'<text x="{x:.1f}" y="{yy + size * 0.35:.1f}" class="t-ink" font-size="{size}">'
-                         f'{esc(n.name)}</text>')
+                         f'{esc(n.name)}{note}</text>')
 
     draw(root)
     parts.append(f'<path d="{" ".join(lines)}" class="branch"/>')
@@ -377,9 +461,11 @@ def _bin_classes(count: int) -> list[str]:
     return ["q0"] + [f"q{4 if k == 1 else round(1 + 3 * i / (k - 1))}" for i in range(k)]
 
 
-def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[list[str]] | None = None) -> str:
+def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[list[str]] | None = None,
+            colours: Colouring | None = None) -> str:
     """Distance matrix as an SVG heatmap: binned colours, groups of identical genomes as coloured bands on both
-    axes and labelled blocks on the right, the exact distance on hover."""
+    axes and labelled blocks on the right, the exact distance on hover; with a colour column, an outer band on
+    both axes in the colour of each genome's value, with its legend."""
     slots = group_slots(groups or [])
     n = len(names)
     top_value = max((matrix[a][b] for a in names for b in names), default=0)
@@ -396,22 +482,43 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
     labelled = n <= MAX_LABELLED_CELLS
     font = min(10.5, cell * 0.55)
     name_px = _text_px(max(names, key=len, default=""), 11)
-    band = 14 if slots else 0
+    band = (14 if slots else 0) + (14 if colours else 0)  # The group band inside, the value band outside
     left = 24 + name_px + band
     top = 24 + name_px * 0.87 + band
     right = 130 if slots else 20
     labels = [f"{lo}" if lo == hi else f"{lo}–{hi}" for lo, hi in bins]
     legend_px = 44 + sum(16 + _text_px(label, 11) + 18 for label in labels)
+    counts: dict[str, int] = {}
+    if colours is not None:
+        for a in names:
+            counts[colours.value(a)] = counts.get(colours.value(a), 0) + 1
+        key = [(v, f"{v} ({counts[v]})") for v in colours.values if v in counts]
+        if "" in counts:
+            key.append(("", f"no value ({counts['']})"))
+        legend_px = max(legend_px, _text_px(colours.column + ":", 11) + 8
+                        + sum(16 + _text_px(label, 11) + 18 for _, label in key))
     width = max(left + n * cell + right, left + legend_px + 12)
-    height = top + n * cell + 44
+    height = top + n * cell + 44 + (18 if colours else 0)
     parts = [_svg(width, height, "Pairwise SNP distances")]
+    # With a colour column the groups are grey, alternating in their order along the axes
+    shade = {slot: k for k, slot in enumerate(dict.fromkeys(slots[a] for a in names if a in slots))}
+
+    def group_fill(slot: int) -> str:
+        return group_colour(shade[slot], True) if colours is not None else slot_colour(slot)
+
     for i, a in enumerate(names):
         x, y = left + i * cell, top + i * cell
         if a in slots:
-            colour, title = slot_colour(slots[a]), f"{esc(a)}: group {slots[a] + 1}"
+            colour, title = group_fill(slots[a]), f"{esc(a)}: group {slots[a] + 1}"
             parts.append(f'<rect x="{left - 14:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" fill="{colour}">'
                          f'<title>{title}</title></rect>')
             parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
+                         f'<title>{title}</title></rect>')
+        if colours is not None:
+            colour, title = colours.colour(a), colours.title(a)
+            parts.append(f'<rect x="{left - band:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" fill="{colour}">'
+                         f'<title>{title}</title></rect>')
+            parts.append(f'<rect x="{x:.0f}" y="{top - band:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
                          f'<title>{title}</title></rect>')
         parts.append(f'<text x="{left - band - 6:.0f}" y="{y + cell / 2 + 4:.0f}" text-anchor="end" '
                      f'class="t-small t-ink2">{esc(a)}</text>')
@@ -440,7 +547,7 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
             size = len(groups[slot]) if groups else j - i + 1
             count = f"{j - i + 1}" if j - i + 1 == size else f"{j - i + 1} of {size}"
             parts.append(f'<rect x="{left + n * cell + 8:.0f}" y="{top + i * cell:.0f}" width="4" '
-                         f'height="{(j - i + 1) * cell - 1}" fill="{slot_colour(slot)}"/>')
+                         f'height="{(j - i + 1) * cell - 1}" fill="{group_fill(slot)}"/>')
             parts.append(f'<text x="{left + n * cell + 16:.0f}" y="{top + (i + j + 1) / 2 * cell + 4:.0f}" '
                          f'class="t-small t-ink">group {slot + 1} ({count})</text>')
         i = j + 1
@@ -451,8 +558,52 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
         parts.append(f'<g class="{c}"><rect x="{lx:.0f}" y="{ly:.0f}" width="12" height="12"/></g>')
         parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{label}</text>')
         lx += 16 + _text_px(label, 11) + 18
+    if colours is not None:
+        lx, ly = left, ly + 18
+        parts.append(f'<text x="{lx:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(colours.column)}:</text>')
+        lx += _text_px(colours.column + ":", 11) + 8
+        for value, label in key:
+            fill = slot_colour(colours.values.index(value)) if value else MISSING_COLOUR
+            parts.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="12" height="12" fill="{fill}"/>')
+            parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(label)}</text>')
+            lx += 16 + _text_px(label, 11) + 18
     parts.append("</svg>")
     return "".join(parts)
+
+
+def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -> str:
+    """Counts of the genomes of each group of identical genomes (and of those in no group) for each value of the
+    colour column."""
+    missing = any(not colours.value(n) for n in names)
+    in_group = {n for g in groups for n in g}
+    sets = [(f"group {i + 1}", g, "") for i, g in enumerate(groups)]  # Colour is the column's here
+    singles = [n for n in names if n not in in_group]
+    if singles:
+        sets.append(("not in a group", singles, ""))
+
+    def swatch(colour: str) -> str:
+        return f'<span class="swatch" style="background:{colour}"></span>' if colour else ""
+
+    head = ["<th></th>"] + [f'<th class="num">{swatch(slot_colour(i))}{esc(v)}</th>'
+                            for i, v in enumerate(colours.values)]
+    if missing:
+        head.append(f'<th class="num">{swatch(MISSING_COLOUR)}no value</th>')
+    head.append('<th class="num">Total</th>')
+    body = []
+    for label, members, colour in sets:
+        counts = {v: 0 for v in colours.values}
+        none = 0
+        for m in members:
+            value = colours.value(m)
+            if value:
+                counts[value] += 1
+            else:
+                none += 1
+        cells = [counts[v] for v in colours.values] + ([none] if missing else []) + [len(members)]
+        body.append(f"<tr><td>{swatch(colour)}{esc(label)}</td>" + "".join(
+            f'<td class="num{" zero" if not c else ""}">{c if c else "–"}</td>' for c in cells) + "</tr>")
+    return ('<div class="tablewrap"><table class="cross"><thead><tr>' + "".join(head) + "</tr></thead><tbody>"
+            + "".join(body) + "</tbody></table></div>")
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -942,6 +1093,9 @@ table.sortable th:after{{content:" \\2195";color:var(--muted);font-size:11px}}
 table.sortable th:hover{{color:var(--ink)}}
 table.sortable th.num,table.sortable td.num{{text-align:right}}
 table.samples td.note{{white-space:normal;min-width:200px}}
+table.samples td.long{{white-space:normal;min-width:200px;max-width:320px}}
+table.cross{{width:auto}}table.cross th.num,table.cross td.num{{text-align:right}}
+table.cross td.zero{{color:var(--muted)}}
 table.snps td.gene{{font-style:italic}}table.snps td.ctx{{white-space:normal;min-width:160px}}
 .tablewrap.tall{{max-height:480px;overflow-y:auto}}
 .bad{{background:var(--bad-bg);color:var(--bad-fg)}}
@@ -998,10 +1152,20 @@ class _Figures:
         return f'<p class="figcap"><b>Figure {self.count}.</b> {text}</p>'
 
 
-def _samples_table(rows: list[dict[str, str]]) -> str:
-    out = ['<div class="tablewrap"><table class="samples sortable"><thead><tr>'
-           + "".join(f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>'
-                     for key, label in TABLE_COLUMNS) + "</tr></thead><tbody>"]
+def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
+                   colours: Colouring | None = None) -> str:
+    """The summary columns, with the metadata columns after Sample (a column whose values are all numbers sorts
+    as numbers; a column with long values wraps; the colour column's values get their swatch)."""
+    extra = []
+    for c in (metadata.columns if metadata else []):
+        values = metadata.values(c)
+        cls = "num md" if is_numeric(values) else ("md long" if any(len(v) > MAX_VALUE_LENGTH for v in values)
+                                                   else "md")
+        extra.append((c, cls))
+    heads = [f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>' for key, label in TABLE_COLUMNS]
+    heads[1:1] = [f'<th class="{cls}">{esc(c)}</th>' for c, cls in extra]
+    out = ['<div class="tablewrap"><table class="samples sortable"><thead><tr>' + "".join(heads)
+           + "</tr></thead><tbody>"]
     for r in rows:
         cells = []
         for key, _ in TABLE_COLUMNS:
@@ -1010,6 +1174,14 @@ def _samples_table(rows: list[dict[str, str]]) -> str:
                                            "note" if key == "Note" else "") if c)
             sort_value = value if value not in ("NA", "") else ("-1" if key in NUMERIC else "")
             cells.append(f'<td class="{classes}" data-v="{esc(sort_value)}">{esc(_fmt(key, value))}</td>')
+        extras = []
+        for column, cls in extra:
+            value = metadata.value(r.get("Sample", ""), column) if metadata else ""
+            swatch = (f'<span class="swatch" style="background:{colours.colour(r.get("Sample", ""))}"></span>'
+                      if colours is not None and column == colours.column and value else "")
+            sort_value = value if value or not cls.startswith("num") else "-Infinity"
+            extras.append(f'<td class="{cls}" data-v="{esc(sort_value)}">{swatch}{esc(value)}</td>')
+        cells[1:1] = extras
         out.append("<tr>" + "".join(cells) + "</tr>")
     out.append("</tbody></table></div>")
     return "".join(out)
@@ -1067,6 +1239,10 @@ def build_report(output: Path) -> str:
     core_snps = comparison.get("core_snps")
     groups = identical_groups(order, matrix) if order and core_snps != 0 else []
     slots = group_slots(groups)
+    metadata, colours, metadata_note = report_metadata(output, info)
+    if metadata_note:
+        notes.append(metadata_note)
+    column = colours.column if colours else ""
     method = comparison.get("method", "")
     method_name = {"ska": "SKA2", "parsnp": "Parsnp"}.get(method, method)
     tree_tool = {"fasttree": "FastTree", "iqtree": "IQ-TREE"}.get(comparison.get("tree_method", ""), "")
@@ -1092,6 +1268,17 @@ def build_report(output: Path) -> str:
     else:
         tiles.append(tile(str(core_snps if core_snps is not None else "–"), "SNP sites"))
     out.append(f'<div class="tiles">{"".join(tiles)}</div>')
+    if metadata is not None:
+        recorded = info.get("metadata") if isinstance(info.get("metadata"), dict) else {}
+        sources = ([Path(str(recorded["file"])).name] if recorded.get("file") else []) \
+            + (["the sample sheet"] if recorded.get("sample_sheet_columns") else [])
+        with_row = sum(1 for r in rows if any(metadata.value(r.get("Sample", ""), c) for c in metadata.columns))
+        text = (f"Metadata from <b>{esc(' and '.join(sources) or COPY_NAME)}</b>: {len(metadata.columns)} "
+                f"column{'s' if len(metadata.columns) != 1 else ''} ({esc(', '.join(metadata.columns))}); "
+                f"{with_row} of {len(rows)} samples have a value. ")
+        text += (f"The tree and the heatmap are coloured by <b>{esc(column)}</b>." if colours else
+                 "No column colours the figures.")
+        out.append(f'<p class="meta">{text}</p>')
     if comparison.get("failed") and isinstance(comparison["failed"], str):
         out.append(f'<p class="bad">The comparison failed: {esc(comparison["failed"])}</p>')
     elif comparison.get("skipped"):
@@ -1103,7 +1290,7 @@ def build_report(output: Path) -> str:
                f'<span class="warn">depth below {LOW_DEPTH}x or length outside '
                f'{LENGTH_RANGE[0]}–{LENGTH_RANGE[1]}x the reference</span>'
                '<span class="info">N bases</span>Click a column to sort.</p>')
-    out.append(_samples_table(rows))
+    out.append(_samples_table(rows, metadata, colours))
     if rows:
         depth_chart = bar_chart(depth_bars(rows), "Depth after filtering, per sample", unit="x",
                                 threshold=LOW_DEPTH, threshold_text=f"{LOW_DEPTH}x flag")
@@ -1126,13 +1313,15 @@ def build_report(output: Path) -> str:
         out.append("<h2>Tree</h2>")
         if tree is not None:
             sites = core_snps if method != "parsnp" and isinstance(core_snps, int) else None
-            out.append(tree_svg(tree, slots, ref_name, sites))
+            out.append(tree_svg(tree, slots, ref_name, sites, colours))
             squares = (" Squares mark the genomes with no SNP between them (one colour per group, as in the "
-                       "heatmap below)." if groups else "")
+                       "heatmap below)." if groups and not colours else "")
+            circles = (f" Circles and the muted text after the names give each genome's <b>{esc(column)}</b> "
+                       "(a hollow circle: no value)." if colours else "")
             bar_text = (" The scale bar is in substitutions per SNP site, with the equivalent number of SNPs."
                         if sites else " The scale bar is in substitutions per site.")
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted and ladderized. Numbers "
-                                       f"on the internal branches are supports.{squares}{bar_text}"))
+                                       f"on the internal branches are supports.{squares}{circles}{bar_text}"))
         elif svg is not None and svg.exists():
             out.append(f'<div class="tree">{svg.read_text()}</div>')
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted; internal labels are "
@@ -1146,9 +1335,19 @@ def build_report(output: Path) -> str:
         out.append("<h2>SNP distances</h2>")
         order_text = "in tree order" if in_tree_order else "in the order of the distance table"
         if len(order) <= MAX_HEATMAP_GENOMES:
-            out.append(heatmap(order, matrix, groups))
-            bands = (" Coloured bands on both axes and the blocks on the right mark the groups of identical "
-                     "genomes." if groups else "")
+            out.append(heatmap(order, matrix, groups, colours))
+            if groups and colours:
+                bands = (" The inner grey bands on both axes and the blocks on the right mark the groups of "
+                         f"identical genomes; the outer coloured bands give each genome's <b>{esc(column)}</b> "
+                         "(legend; light grey: no value).")
+            elif groups:
+                bands = (" Coloured bands on both axes and the blocks on the right mark the groups of identical "
+                         "genomes.")
+            elif colours:
+                bands = (f" The bands on both axes give each genome's <b>{esc(column)}</b> (legend; grey: no "
+                         "value).")
+            else:
+                bands = ""
             out.append(figures.caption(f"Pairwise SNP distances, {order_text}. Colour classes are spread on a "
                                        "log scale over the range of the distances (legend); hover a cell for the "
                                        f"exact distance of its pair.{bands}"))
@@ -1162,11 +1361,15 @@ def build_report(output: Path) -> str:
             if groups:
                 out.append('<h3>Identical genomes</h3><p class="meta">No SNP between any two genomes of a group '
                            '(positions with N or a gap are not compared).</p><ul class="groups">' + "".join(
-                               f'<li><span class="swatch" style="background:{slot_colour(i)}"></span>'
-                               f"<b>group {i + 1}</b> ({len(g)}): {esc(', '.join(g))}</li>"
+                               ("<li>" if colours else  # With a colour column, colour is the column's
+                                f'<li><span class="swatch" style="background:{slot_colour(i)}"></span>')
+                               + f"<b>group {i + 1}</b> ({len(g)}): {esc(', '.join(g))}</li>"
                                for i, g in enumerate(groups)) + "</ul>")
                 if len(groups) > GROUP_COLOURS:
                     out.append(f'<p class="meta">Groups beyond the {GROUP_COLOURS}th share the grey colour.</p>')
+                if colours:
+                    out.append(f'<p class="meta">Genomes of each group by <b>{esc(column)}</b> (the reference and '
+                               "added genomes have no value):</p>" + cross_table(groups, order, colours))
             out.append(f"<p>{len(order)} genomes, {distinct_count(order, matrix)} distinct at the SNP sites "
                        "compared.</p>")
 
@@ -1187,6 +1390,12 @@ def build_report(output: Path) -> str:
             ("Reference", f"{ref.get('file', '')} ({ref.get('sequences', '?')} sequence(s), "
                           f"MD5 {ref.get('md5', '?')})"),
             ("Output", str(output)), ("Python", f"{info.get('python', '')} on {info.get('platform', '')}")]
+    if isinstance(info.get("metadata"), dict):
+        recorded = info["metadata"]
+        sources = ([str(recorded["file"])] if recorded.get("file") else []) \
+            + (["the sample sheet"] if recorded.get("sample_sheet_columns") else [])
+        prov.append(("Metadata", f"{' and '.join(sources) or '?'} (copy {recorded.get('copy', COPY_NAME)}; "
+                                 f"colours by {recorded.get('color_by') or 'none'})"))
     prov += [(name, f"{(t or {}).get('version') or '?'} — {(t or {}).get('path', '')}")
              for name, t in (info.get("tools") or {}).items()]
     out.append("".join(f"<dt>{esc(k)}</dt><dd><code>{esc(v)}</code></dd>" for k, v in prov))

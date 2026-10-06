@@ -10,6 +10,7 @@ OUTPUT/
 ├── .bacon.lock                 held by the run using this folder (see Usage)
 ├── reference.fasta             the reference used: upper case, ambiguity codes as N
 ├── annotation.gb / .gff3       the annotation of the reference (--annotation, or the GenBank reference), as given
+├── metadata.tsv                the sample metadata (--metadata, and the sample sheet's extra columns), one row per sample
 ├── 1_extracted/<sample>.fastq.gz          baited reads (.fasta.gz for fasta input; <sample>.bam and .bam.bai
 │                                          with --keep-bam)
 ├── 2_filtered/<sample>.fastq.gz           filtered reads (.fasta.gz for fasta input)
@@ -34,22 +35,30 @@ OUTPUT/
 A self-contained web page (no internet connection needed) that opens in any browser and prints to PDF (the
 colours of the heatmap and of the highlighted cells are kept when printing):
 
-- **Overview**: samples assembled, samples with a note, reference length, SNP sites and distinct genomes.
+- **Overview**: samples assembled, samples with a note, reference length, SNP sites and distinct genomes; with
+  metadata, a line naming its source, its columns and the column that colours the figures.
 - **Samples**: the main columns of `summary.tsv` (all but the base counts, largest contig, assembly N50 and
   Flye's depth), sortable by clicking a header; failed samples, depth below 20x, length outside 0.8–1.2 times
-  the reference, and `N` bases are highlighted. Two bar charts follow, sorted: the depth of each sample after
+  the reference, and `N` bases are highlighted. The metadata columns, when there are any, come right after
+  `Sample`: a column whose values are all numbers sorts as numbers, long values wrap, and the values of the
+  colour column carry their colour swatch. Two bar charts follow, sorted: the depth of each sample after
   filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly. Failed
   samples are listed without a bar.
 - **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches,
   a scale bar (with its equivalent number of SNPs for SKA2), and a coloured square for each group of identical
-  genomes; or why there is none.
+  genomes; or why there is none. With a colour column, colour is given to the column only: each leaf gets a
+  circle in the colour of its value (hollow when the genome has none, as the reference and added genomes) and the
+  value in muted text after the name, instead of the group square.
 - **SNP distances**: a heatmap in the order of the tree, with colour classes spread over the range of the
   distances (so that 1–5 SNP differences stay visible next to larger ones) and the exact distance on hover.
   The groups of identical genomes, with no SNP between any two members, are coloured bands along both axes and
   labelled on the right, and are listed below with the number of distinct genomes (positions with `N` or a gap
   are not compared, so a genome with missing data could match two genomes that differ: it is put in one group
-  only). Without any SNP site, no identity is claimed. Above 150 genomes the heatmap is left out (the
-  distances are in `snp_distances.tsv`).
+  only). With a colour column, a second band outside the first gives each genome's value (grey when it has
+  none), with its own legend and counts, and the list of identical genomes is followed by a table counting the
+  genomes of each group (and those in no group) for each value. The groups of identical genomes are then drawn
+  in two alternating greys, so that colour means the column's values only. Without any SNP site, no identity
+  is claimed. Above 150 genomes the heatmap is left out (the distances are in `snp_distances.tsv`).
 - **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf`, coloured by whether
   every genome has a call there; for templated assemblies (whose coordinates follow the reference), the `N`
   bases per kb summed over all assemblies. With an annotation (`--annotation`, or a GenBank reference), the
@@ -72,8 +81,8 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   in [Methods](Methods#snp-effects).
 - **Methods**: a paragraph describing what was run, with program versions (and the annotation and translation
   table, when used), ready to adapt for a paper.
-- **Run**: command, reference (with the MD5 of the file as given), output folder, and the version and path of
-  every program.
+- **Run**: command, reference (with the MD5 of the file as given), output folder, the metadata file and the
+  colour column when there are any, and the version and path of every program.
 
 It is written at the end of every run, from the files of the output folder; `python -m bacon.report OUTPUT`
 rebuilds it, also after the folder was moved. Examples: the
@@ -95,7 +104,7 @@ Three [MultiQC custom-content](https://docs.seqera.io/multiqc/custom_content) fi
 
 | File | MultiQC section |
 |---|---|
-| `bacon_samples_mqc.json` | table: status, baited reads and share, read N50, depth, contigs, circular contigs, length, length vs reference, `N` bases, note |
+| `bacon_samples_mqc.json` | table: the metadata columns (as text), status, baited reads and share, read N50, depth, contigs, circular contigs, length, length vs reference, `N` bases, note |
 | `bacon_reads_mqc.json` | bar graph: the bases of each sample kept for the assembly, baited but filtered out, and off-target |
 | `bacon_distances_mqc.json` | heatmap of the SNP distances in tree order (recent MultiQC versions also offer a clustered view); absent when the samples were not compared |
 
@@ -185,4 +194,6 @@ The provenance of the last run: BACoN version, command line, start time and dura
 and version of every program used, the reference as given (path, number of sequences, length and the MD5 of the
 file itself, fasta or GenBank), the annotation when there is one (file, format, the name of its copy in the
 output folder, numbers of genes and of annotated sequences, whether regions were derived, the translation
-tables, MD5), each sample's files and status, and the comparison's result files.
+tables, MD5), the sample metadata when there is some (the `--metadata` file and its MD5, the sample sheet's
+metadata columns, the name of the copy, the columns, how many samples have a row, how many rows match no sample,
+and the colour column, `null` when none), each sample's files and status, and the comparison's result files.
