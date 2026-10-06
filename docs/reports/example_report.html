@@ -2,107 +2,112 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>BACoN report</title><style>
-:root {
-  --bg: #fff; --fg: #1d2433; --muted: #5d6678; --line: #e3e6ec; --card: #f6f7f9; --accent: #b63a2f;
-  --bad: #fde2e1; --bad-fg: #9b1c1c; --warn: #fdf0d5; --warn-fg: #7a4b00; --info: #e3eefc; --info-fg: #1e4f91;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15181e; --fg: #e6e8ec; --muted: #9aa3b2; --line: #2c313b; --card: #1d2129; --accent: #f0806f;
-    --bad: #4a1f1f; --bad-fg: #ffb4ab; --warn: #45371a; --warn-fg: #f5cf82; --info: #1c3050; --info-fg: #a9c8f5;
-  }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 26px; margin: 0 0 4px; }
-h1 b { color: var(--accent); }
-h2 { font-size: 19px; margin: 36px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-.sub { color: var(--muted); margin: 0 0 20px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.card { background: var(--card); border-radius: 8px; padding: 10px 14px; }
-.card b { display: block; font-size: 22px; }
-.card span { color: var(--muted); font-size: 13px; }
-.scroll { overflow-x: auto; max-width: 100%; }
-table { border-collapse: collapse; font-size: 13px; }
-th, td { padding: 4px 8px; text-align: left; white-space: nowrap; }
-table.samples th {
-  position: sticky; top: 0; background: var(--bg); cursor: pointer; user-select: none;
-  border-bottom: 2px solid var(--line);
-}
-table.samples th:hover { color: var(--accent); }
-table.samples td { border-bottom: 1px solid var(--line); }
-table.samples td.num { text-align: right; font-variant-numeric: tabular-nums; }
-table.samples td.note { white-space: normal; min-width: 220px; }
-.bad { background: var(--bad); color: var(--bad-fg); }
-.warn { background: var(--warn); color: var(--warn-fg); }
-.info { background: var(--info); color: var(--info-fg); }
-.key span { display: inline-block; padding: 1px 8px; border-radius: 4px; margin-right: 8px; font-size: 13px; }
-.tree { background: #fff; border-radius: 8px; padding: 8px; overflow-x: auto; }
-.tree svg { max-width: 100%; height: auto; }
-table.heat td {
-  width: 26px; min-width: 26px; text-align: center; padding: 2px; font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-table.heat th.row { text-align: right; font-weight: normal; font-size: 12px; }
-table.heat th.col { height: 120px; vertical-align: bottom; padding: 0; }
-table.heat th.col span {
-  display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); font-weight: normal;
-  font-size: 12px; padding: 4px 0;
-}
-.legend { margin-top: 8px; color: var(--muted); font-size: 13px; }
-.legend .tick { margin-right: 10px; }
-.legend i {
-  display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px;
-  border: 1px solid var(--line);
-}
-ul.groups li { margin-bottom: 4px; }
-.methods { background: var(--card); border-radius: 8px; padding: 12px 16px; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
-dt { color: var(--muted); }
-dd { margin: 0; word-break: break-all; }
-code { font-size: 12px; }
-table.heat td, .bad, .warn, .info, .legend i { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-@media print {
-  .tree { border: 1px solid #ccc; }
-  table.samples th { position: static; }
+:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
+--grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;
+--good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
+--q0:#e1e0d9;--q1:#86b6ef;--q2:#3987e5;--q3:#1c5cab;--q4:#0d366b;
+--qt0:#52514e;--qt1:#0b0b0b;--qt2:#fff;--qt3:#fff;--qt4:#fff;
+--bad-bg:#fbe3e3;--bad-fg:#8f1d1d;--warn-bg:#fdf1cf;--warn-fg:#6b4a00;--info-bg:#e1ecfa;--info-fg:#1c4f8f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+--grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
+--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
+--good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
+--q0:#2c2c2a;--q1:#184f95;--q2:#2a78d6;--q3:#6da7ec;--q4:#b7d3f6;
+--qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
+--bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+--grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
+--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
+--good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
+--q0:#2c2c2a;--q1:#184f95;--q2:#2a78d6;--q3:#6da7ec;--q4:#b7d3f6;
+--qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
+--bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5}
+*{box-sizing:border-box}
+:root{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:26px;line-height:1.2;margin:0 0 6px}
+h1 b{color:var(--s1)}
+h2{font-size:21px;margin:44px 0 10px;padding-top:12px;border-top:1px solid var(--grid)}
+h3{font-size:17px;margin:26px 0 8px}
+p,li{max-width:900px}
+a{color:var(--s1)}
+code{font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:0 3px}
+.meta{color:var(--ink2);font-size:14px;margin:0 0 16px}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;
+min-width:150px;flex:1 1 150px}
+.tile-v{font-size:26px;font-weight:600;line-height:1.1}
+.tile-l{font-size:13px;color:var(--ink2);margin-top:4px}
+.tile-s{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin:14px 0}
+.fig{display:block;height:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+margin:8px 0;break-inside:avoid}
+.figcap{font-size:13px;color:var(--ink2);max-width:900px;margin:4px 0 16px}
+.figcap b{color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media(max-width:900px){.two{grid-template-columns:1fr}}
+.t-small{font-size:11px;fill:var(--ink2)}.t-tiny{font-size:9.5px;fill:var(--ink2)}
+.t-ink{fill:var(--ink)}.t-ink2{fill:var(--ink2)}.t-muted{fill:var(--muted)}
+.fig text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.grid{stroke:var(--grid);stroke-width:1}.axis{stroke:var(--axis);stroke-width:1}
+.thresh{stroke:var(--ink2);stroke-width:1}
+.branch{stroke:var(--ink2);stroke-width:1.5;fill:none;stroke-linecap:square}
+.bar{fill:var(--s1)}.bar0{fill:var(--axis)}.nbar{fill:var(--muted)}
+.snp-all{stroke:var(--s1);stroke-width:1.5}.snp-miss{stroke:var(--s2);stroke-width:1.5}
+g.q0 rect{fill:var(--q0)}g.q1 rect{fill:var(--q1)}g.q2 rect{fill:var(--q2)}g.q3 rect{fill:var(--q3)}
+g.q4 rect{fill:var(--q4)}
+g.q0 text{fill:var(--qt0)}g.q1 text{fill:var(--qt1)}g.q2 text{fill:var(--qt2)}g.q3 text{fill:var(--qt3)}
+g.q4 text{fill:var(--qt4)}
+.fig text{font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto;margin:8px 0 16px;border:1px solid var(--border);border-radius:8px;
+background:var(--surface)}
+table{border-collapse:collapse;font-size:13px;width:100%}
+th,td{padding:5px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{position:sticky;top:0;background:var(--surface);color:var(--ink2);font-weight:600}
+td{font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--bg)}
+table.samples{font-size:12px}table.samples th,table.samples td{padding:4px 6px}
+table.samples th{cursor:pointer;user-select:none}
+table.samples th:after{content:" \2195";color:var(--muted);font-size:11px}
+table.samples th:hover{color:var(--ink)}
+table.samples th.num,table.samples td.num{text-align:right}
+table.samples td.note{white-space:normal;min-width:200px}
+.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.info{background:var(--info-bg);color:var(--info-fg)}
+.key span{display:inline-block;padding:1px 8px;border-radius:4px;margin-right:8px;font-size:13px}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.tree{background:#fff;border-radius:8px;padding:8px;overflow-x:auto;border:1px solid var(--border)}
+.tree svg{max-width:100%;height:auto}
+ul.groups li{margin-bottom:4px}
+.methods{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:13px}
+dt{color:var(--muted)}
+dd{margin:0;word-break:break-all}
+@media print{
+  body{background:#fff} main{max-width:none;padding:0}
+  table.samples th{position:static} .tablewrap{overflow:visible}
+  h2{break-after:avoid} .figcap{break-before:avoid}
 }
 </style></head><body><main>
 <h1><b>BACoN</b> report</h1>
-<p class="sub">bacon · 2026-10-02T09:27:13 · BACoN 0.3.5 · last run 2.5 s</p>
-<div class="cards"><div class="card"><b>4/4</b><span>samples assembled</span></div><div class="card"><b>0</b><span>assembled with a note</span></div><div class="card"><b>30,000 bp</b><span>reference</span></div><div class="card"><b>20</b><span>SNP sites</span></div></div>
+<p class="meta">bacon · 2026-10-02T09:27:13 · BACoN 0.3.5 · last run 2.5 s</p>
+<div class="tiles"><div class="tile"><div class="tile-v">4/4</div><div class="tile-l">samples assembled</div></div><div class="tile"><div class="tile-v">0</div><div class="tile-l">assembled with a note</div></div><div class="tile"><div class="tile-v">30,000 bp</div><div class="tile-l">reference</div><div class="tile-s">reference.fasta, 1 sequence(s)</div></div><div class="tile"><div class="tile-v">20</div><div class="tile-l">SNP sites</div><div class="tile-s">5 genomes, 4 distinct</div></div></div>
 <h2>Samples</h2>
 <p class="key"><span class="bad">failed</span><span class="warn">depth below 20x or length outside 0.8–1.2x the reference</span><span class="info">N bases</span>Click a column to sort.</p>
-<div class="scroll"><table class="samples"><thead><tr><th class="">Sample</th><th class="">Status</th><th class="num">Raw reads</th><th class="num">Baited reads</th><th class="num">Baited %</th><th class="num">Filtered reads</th><th class="num">Read N50</th><th class="num">Depth</th><th class="num">Contigs</th><th class="num">Circular</th><th class="num">Length</th><th class="num">× ref</th><th class="num">N bases</th><th class="">Note</th></tr></thead><tbody>
-<tr><td class="" data-v="alpha">alpha</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="253">253</td><td class="num" data-v="83.566">83.566</td><td class="num" data-v="230">230</td><td class="num" data-v="6785">6,785</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
-<tr><td class="" data-v="beta">beta</td><td class="" data-v="ok">ok</td><td class="num" data-v="325">325</td><td class="num" data-v="253">253</td><td class="num" data-v="75.275">75.275</td><td class="num" data-v="231">231</td><td class="num" data-v="6815">6,815</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
-<tr><td class="" data-v="delta">delta</td><td class="" data-v="ok">ok</td><td class="num" data-v="306">306</td><td class="num" data-v="250">250</td><td class="num" data-v="82.071">82.071</td><td class="num" data-v="232">232</td><td class="num" data-v="7031">7,031</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
-<tr><td class="" data-v="gamma">gamma</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="248">248</td><td class="num" data-v="81.328">81.328</td><td class="num" data-v="224">224</td><td class="num" data-v="6707">6,707</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr>
-</tbody></table></div>
+<div class="tablewrap"><table class="samples"><thead><tr><th class="">Sample</th><th class="">Status</th><th class="num">Raw reads</th><th class="num">Baited reads</th><th class="num">Baited %</th><th class="num">Filtered reads</th><th class="num">Read N50</th><th class="num">Depth</th><th class="num">Contigs</th><th class="num">Circular</th><th class="num">Length</th><th class="num">× ref</th><th class="num">N bases</th><th class="">Note</th></tr></thead><tbody><tr><td class="" data-v="alpha">alpha</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="253">253</td><td class="num" data-v="83.566">83.566</td><td class="num" data-v="230">230</td><td class="num" data-v="6785">6,785</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr><tr><td class="" data-v="beta">beta</td><td class="" data-v="ok">ok</td><td class="num" data-v="325">325</td><td class="num" data-v="253">253</td><td class="num" data-v="75.275">75.275</td><td class="num" data-v="231">231</td><td class="num" data-v="6815">6,815</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr><tr><td class="" data-v="delta">delta</td><td class="" data-v="ok">ok</td><td class="num" data-v="306">306</td><td class="num" data-v="250">250</td><td class="num" data-v="82.071">82.071</td><td class="num" data-v="232">232</td><td class="num" data-v="7031">7,031</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr><tr><td class="" data-v="gamma">gamma</td><td class="" data-v="ok">ok</td><td class="num" data-v="303">303</td><td class="num" data-v="248">248</td><td class="num" data-v="81.328">81.328</td><td class="num" data-v="224">224</td><td class="num" data-v="6707">6,707</td><td class="num" data-v="47.6">47.6</td><td class="num" data-v="1">1</td><td class="num" data-v="-1">NA</td><td class="num" data-v="30000">30,000</td><td class="num" data-v="1.000">1.000</td><td class="num" data-v="0">0</td><td class="note" data-v=""></td></tr></tbody></table></div>
+<div class="two"><div><svg class="fig" viewBox="0 0 560 124" width="100%" style="max-width:560px" role="img"><title>Depth after filtering, per sample</title><line x1="47.9" y1="22" x2="47.9" y2="90" class="grid"/><text x="47.9" y="18" text-anchor="middle" class="t-tiny t-muted">0x</text><line x1="134.4" y1="22" x2="134.4" y2="90" class="grid"/><text x="134.4" y="18" text-anchor="middle" class="t-tiny t-muted">10x</text><line x1="220.8" y1="22" x2="220.8" y2="90" class="grid"/><text x="220.8" y="18" text-anchor="middle" class="t-tiny t-muted">20x</text><line x1="307.3" y1="22" x2="307.3" y2="90" class="grid"/><text x="307.3" y="18" text-anchor="middle" class="t-tiny t-muted">30x</text><line x1="393.7" y1="22" x2="393.7" y2="90" class="grid"/><text x="393.7" y="18" text-anchor="middle" class="t-tiny t-muted">40x</text><line x1="220.8" y1="22" x2="220.8" y2="90" class="thresh"/><text x="224.8" y="104" class="t-tiny t-ink2">20x flag</text><text x="41.9" y="38" text-anchor="end" class="t-small t-ink2">alpha</text><rect x="47.9" y="29" width="411.5" height="10" rx="2" class="bar"><title>alpha: 47.6x depth after filtering; 230 reads, N50 6,785</title></rect><text x="41.9" y="54" text-anchor="end" class="t-small t-ink2">beta</text><rect x="47.9" y="45" width="411.5" height="10" rx="2" class="bar"><title>beta: 47.6x depth after filtering; 231 reads, N50 6,815</title></rect><text x="41.9" y="70" text-anchor="end" class="t-small t-ink2">delta</text><rect x="47.9" y="61" width="411.5" height="10" rx="2" class="bar"><title>delta: 47.6x depth after filtering; 232 reads, N50 7,031</title></rect><text x="41.9" y="86" text-anchor="end" class="t-small t-ink2">gamma</text><rect x="47.9" y="77" width="411.5" height="10" rx="2" class="bar"><title>gamma: 47.6x depth after filtering; 224 reads, N50 6,707</title></rect></svg><p class="figcap"><b>Figure 1.</b> Estimated depth of the filtered reads over the reference, per sample. The line is the 20x threshold of the table's depth flag; samples below it are labelled. Failed samples are listed without a bar. Hover a bar for the read counts and the note.</p></div><div><svg class="fig" viewBox="0 0 560 106" width="100%" style="max-width:560px" role="img"><title>N bases per assembly</title><line x1="47.9" y1="22" x2="47.9" y2="90" class="grid"/><text x="47.9" y="18" text-anchor="middle" class="t-tiny t-muted">0</text><line x1="480.0" y1="22" x2="480.0" y2="90" class="grid"/><text x="480.0" y="18" text-anchor="middle" class="t-tiny t-muted">1</text><text x="41.9" y="38" text-anchor="end" class="t-small t-ink2">alpha</text><rect x="47.9" y="29" width="1.0" height="10" rx="2" class="bar0"><title>alpha: 0 N bases of 30,000 bp (0.00%)</title></rect><text x="41.9" y="54" text-anchor="end" class="t-small t-ink2">beta</text><rect x="47.9" y="45" width="1.0" height="10" rx="2" class="bar0"><title>beta: 0 N bases of 30,000 bp (0.00%)</title></rect><text x="41.9" y="70" text-anchor="end" class="t-small t-ink2">delta</text><rect x="47.9" y="61" width="1.0" height="10" rx="2" class="bar0"><title>delta: 0 N bases of 30,000 bp (0.00%)</title></rect><text x="41.9" y="86" text-anchor="end" class="t-small t-ink2">gamma</text><rect x="47.9" y="77" width="1.0" height="10" rx="2" class="bar0"><title>gamma: 0 N bases of 30,000 bp (0.00%)</title></rect></svg><p class="figcap"><b>Figure 2.</b> N bases in each assembly, largest first (the table flags every assembly with N bases; the 5 largest counts are labelled). Hover a bar for the fraction of the assembly.</p></div></div>
 <h2>Tree</h2>
-<p class="sub">SKA2 SNPs; FastTree, midpoint-rooted; internal labels are supports.</p>
-<div class="tree"><svg xmlns="http://www.w3.org/2000/svg" width="772" height="190" viewBox="0 0 772 190" font-family="Helvetica, Arial, sans-serif" font-size="13">
-<rect width="100%" height="100%" fill="white"/>
-<text x="36" y="22" font-size="15" font-weight="bold">ska.snps.fasta — midpoint-rooted, SH-like support (FastTree)</text>
-<path d="M36.0,40.0V95.0 M36.0,40.0H676.0 M36.0,95.0H139.5 M139.5,73.0V117.0 M139.5,73.0H139.5 M139.5,62.0V84.0 M139.5,62.0H139.5 M139.5,84.0H139.5 M139.5,117.0H487.7 M487.7,106.0V128.0 M487.7,106.0H487.7 M487.7,128.0H676.0" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="square"/>
-<text x="681.0" y="44.5">delta</text>
-<text x="144.5" y="66.5">Reference</text>
-<text x="144.5" y="88.5">alpha</text>
-<text x="492.7" y="110.5">beta</text>
-<text x="681.0" y="132.5">gamma</text>
-<text x="484.7" y="113.0" text-anchor="end" font-size="10" fill="#666">1.000</text>
-<path d="M36,162H193.6" stroke="black" stroke-width="1.5"/>
-<text x="114.8" y="178" text-anchor="middle" font-size="11">0.2 substitutions/site</text>
-</svg>
-</div>
+<svg class="fig" viewBox="0 0 793 144" width="100%" style="max-width:793px" role="img"><title>Tree</title><path d="M16.0,23.0V68.0 M16.0,23.0H576.0 M16.0,68.0H106.6 M106.6,50.0V86.0 M106.6,50.0H106.6 M106.6,41.0V59.0 M106.6,41.0H106.6 M106.6,59.0H106.6 M106.6,86.0H411.2 M411.2,77.0V95.0 M411.2,77.0H411.2 M411.2,95.0H576.0" class="branch"/><text x="594.0" y="27.2" class="t-ink" font-size="12">delta</text><rect x="111.6" y="36.5" width="9" height="9" rx="1.5" fill="var(--s1)"><title>group 1</title></rect><text x="124.6" y="45.2" class="t-ink" font-size="12" font-weight="600">Reference <tspan class="t-muted" font-weight="400">reference.fasta</tspan></text><rect x="111.6" y="54.5" width="9" height="9" rx="1.5" fill="var(--s1)"><title>group 1</title></rect><text x="124.6" y="63.2" class="t-ink" font-size="12">alpha</text><text x="429.2" y="81.2" class="t-ink" font-size="12">beta</text><text x="594.0" y="99.2" class="t-ink" font-size="12">gamma</text><text x="408.2" y="83.0" text-anchor="end" class="t-tiny t-muted">1.000</text><line x1="16.0" y1="120.0" x2="153.9" y2="120.0" class="branch"/><text x="16.0" y="133.0" class="t-tiny t-muted">0.2 substitutions per site (about 4 SNPs)</text></svg>
+<p class="figcap"><b>Figure 3.</b> SKA2 SNPs; FastTree, midpoint-rooted and ladderized. Numbers on the internal branches are supports. Squares mark the genomes with no SNP between them (one colour per group, as in the heatmap below). The scale bar is in substitutions per SNP site, with the equivalent number of SNPs.</p>
 <h2>SNP distances</h2>
-<p class="sub">Pairwise SNP distances, in tree order. Hover a cell for its pair.</p>
-<div class="scroll"><table class="heat"><thead><tr><th></th><th class="col"><span>delta</span></th><th class="col"><span>Reference</span></th><th class="col"><span>alpha</span></th><th class="col"><span>beta</span></th><th class="col"><span>gamma</span></th></tr></thead><tbody><tr><th class="row">delta</th><td style="background:rgb(255,255,217);color:#111" title="delta – delta: 0 SNPs">0</td><td style="background:rgb(30,84,156);color:#fff" title="delta – Reference: 10 SNPs">10</td><td style="background:rgb(30,84,156);color:#fff" title="delta – alpha: 10 SNPs">10</td><td style="background:rgb(15,47,110);color:#fff" title="delta – beta: 16 SNPs">16</td><td style="background:rgb(8,29,88);color:#fff" title="delta – gamma: 20 SNPs">20</td></tr><tr><th class="row">Reference</th><td style="background:rgb(30,84,156);color:#fff" title="Reference – delta: 10 SNPs">10</td><td style="background:rgb(255,255,217);color:#111" title="Reference – Reference: 0 SNPs">0</td><td style="background:rgb(255,255,217);color:#111" title="Reference – alpha: 0 SNPs">0</td><td style="background:rgb(48,133,180);color:#fff" title="Reference – beta: 6 SNPs">6</td><td style="background:rgb(30,84,156);color:#fff" title="Reference – gamma: 10 SNPs">10</td></tr><tr><th class="row">alpha</th><td style="background:rgb(30,84,156);color:#fff" title="alpha – delta: 10 SNPs">10</td><td style="background:rgb(255,255,217);color:#111" title="alpha – Reference: 0 SNPs">0</td><td style="background:rgb(255,255,217);color:#111" title="alpha – alpha: 0 SNPs">0</td><td style="background:rgb(48,133,180);color:#fff" title="alpha – beta: 6 SNPs">6</td><td style="background:rgb(30,84,156);color:#fff" title="alpha – gamma: 10 SNPs">10</td></tr><tr><th class="row">beta</th><td style="background:rgb(15,47,110);color:#fff" title="beta – delta: 16 SNPs">16</td><td style="background:rgb(48,133,180);color:#fff" title="beta – Reference: 6 SNPs">6</td><td style="background:rgb(48,133,180);color:#fff" title="beta – alpha: 6 SNPs">6</td><td style="background:rgb(255,255,217);color:#111" title="beta – beta: 0 SNPs">0</td><td style="background:rgb(61,172,193);color:#111" title="beta – gamma: 4 SNPs">4</td></tr><tr><th class="row">gamma</th><td style="background:rgb(8,29,88);color:#fff" title="gamma – delta: 20 SNPs">20</td><td style="background:rgb(30,84,156);color:#fff" title="gamma – Reference: 10 SNPs">10</td><td style="background:rgb(30,84,156);color:#fff" title="gamma – alpha: 10 SNPs">10</td><td style="background:rgb(61,172,193);color:#111" title="gamma – beta: 4 SNPs">4</td><td style="background:rgb(255,255,217);color:#111" title="gamma – gamma: 0 SNPs">0</td></tr></tbody></table></div><div class="legend">SNPs: <span class="tick"><i style="background:rgb(255,255,217)"></i>0</span><span class="tick"><i style="background:rgb(169,221,183)"></i>1</span><span class="tick"><i style="background:rgb(54,151,186)"></i>5</span><span class="tick"><i style="background:rgb(30,84,156)"></i>10</span><span class="tick"><i style="background:rgb(8,29,88)"></i>20</span></div>
-<h3>Identical genomes</h3><p class="sub">No SNP between any two genomes of a group (positions with N or a gap are not compared).</p><ul class="groups"><li><b>2</b>: Reference, alpha</li></ul>
+<svg class="fig" viewBox="0 0 398 252" width="100%" style="max-width:398px" role="img"><title>Pairwise SNP distances</title><text x="75" y="104" text-anchor="end" class="t-small t-ink2">delta</text><text transform="translate(110,68) rotate(-60)" class="t-small t-ink2">delta</text><rect x="81" y="112" width="10" height="23" fill="var(--s1)"><title>Reference: group 1</title></rect><rect x="119" y="74" width="23" height="10" fill="var(--s1)"><title>Reference: group 1</title></rect><text x="75" y="128" text-anchor="end" class="t-small t-ink2">Reference</text><text transform="translate(134,68) rotate(-60)" class="t-small t-ink2">Reference</text><rect x="81" y="136" width="10" height="23" fill="var(--s1)"><title>alpha: group 1</title></rect><rect x="143" y="74" width="23" height="10" fill="var(--s1)"><title>alpha: group 1</title></rect><text x="75" y="152" text-anchor="end" class="t-small t-ink2">alpha</text><text transform="translate(158,68) rotate(-60)" class="t-small t-ink2">alpha</text><text x="75" y="176" text-anchor="end" class="t-small t-ink2">beta</text><text transform="translate(182,68) rotate(-60)" class="t-small t-ink2">beta</text><text x="75" y="200" text-anchor="end" class="t-small t-ink2">gamma</text><text transform="translate(206,68) rotate(-60)" class="t-small t-ink2">gamma</text><g class="q0" text-anchor="middle" font-size="10.5"><rect x="95" y="88" width="23" height="23"><title>delta – delta: 0 SNPs</title></rect><text x="106.9" y="103.6">0</text><rect x="119" y="112" width="23" height="23"><title>Reference – Reference: 0 SNPs</title></rect><text x="130.9" y="127.6">0</text><rect x="143" y="112" width="23" height="23"><title>Reference – alpha: 0 SNPs</title></rect><text x="154.9" y="127.6">0</text><rect x="119" y="136" width="23" height="23"><title>alpha – Reference: 0 SNPs</title></rect><text x="130.9" y="151.6">0</text><rect x="143" y="136" width="23" height="23"><title>alpha – alpha: 0 SNPs</title></rect><text x="154.9" y="151.6">0</text><rect x="167" y="160" width="23" height="23"><title>beta – beta: 0 SNPs</title></rect><text x="178.9" y="175.6">0</text><rect x="191" y="184" width="23" height="23"><title>gamma – gamma: 0 SNPs</title></rect><text x="202.9" y="199.6">0</text></g><g class="q1" text-anchor="middle" font-size="10.5"></g><g class="q2" text-anchor="middle" font-size="10.5"></g><g class="q3" text-anchor="middle" font-size="10.5"><rect x="191" y="160" width="23" height="23"><title>beta – gamma: 4 SNPs</title></rect><text x="202.9" y="175.6">4</text><rect x="167" y="184" width="23" height="23"><title>gamma – beta: 4 SNPs</title></rect><text x="178.9" y="199.6">4</text></g><g class="q4" text-anchor="middle" font-size="10.5"><rect x="119" y="88" width="23" height="23"><title>delta – Reference: 10 SNPs</title></rect><text x="130.9" y="103.6">10</text><rect x="143" y="88" width="23" height="23"><title>delta – alpha: 10 SNPs</title></rect><text x="154.9" y="103.6">10</text><rect x="167" y="88" width="23" height="23"><title>delta – beta: 16 SNPs</title></rect><text x="178.9" y="103.6">16</text><rect x="191" y="88" width="23" height="23"><title>delta – gamma: 20 SNPs</title></rect><text x="202.9" y="103.6">20</text><rect x="95" y="112" width="23" height="23"><title>Reference – delta: 10 SNPs</title></rect><text x="106.9" y="127.6">10</text><rect x="167" y="112" width="23" height="23"><title>Reference – beta: 6 SNPs</title></rect><text x="178.9" y="127.6">6</text><rect x="191" y="112" width="23" height="23"><title>Reference – gamma: 10 SNPs</title></rect><text x="202.9" y="127.6">10</text><rect x="95" y="136" width="23" height="23"><title>alpha – delta: 10 SNPs</title></rect><text x="106.9" y="151.6">10</text><rect x="167" y="136" width="23" height="23"><title>alpha – beta: 6 SNPs</title></rect><text x="178.9" y="151.6">6</text><rect x="191" y="136" width="23" height="23"><title>alpha – gamma: 10 SNPs</title></rect><text x="202.9" y="151.6">10</text><rect x="95" y="160" width="23" height="23"><title>beta – delta: 16 SNPs</title></rect><text x="106.9" y="175.6">16</text><rect x="119" y="160" width="23" height="23"><title>beta – Reference: 6 SNPs</title></rect><text x="130.9" y="175.6">6</text><rect x="143" y="160" width="23" height="23"><title>beta – alpha: 6 SNPs</title></rect><text x="154.9" y="175.6">6</text><rect x="95" y="184" width="23" height="23"><title>gamma – delta: 20 SNPs</title></rect><text x="106.9" y="199.6">20</text><rect x="119" y="184" width="23" height="23"><title>gamma – Reference: 10 SNPs</title></rect><text x="130.9" y="199.6">10</text><rect x="143" y="184" width="23" height="23"><title>gamma – alpha: 10 SNPs</title></rect><text x="154.9" y="199.6">10</text></g><rect x="223" y="112" width="4" height="47" fill="var(--s1)"/><text x="231" y="140" class="t-small t-ink">group 1 (2)</text><text x="95" y="232" class="t-small t-ink2">SNPs:</text><g class="q0"><rect x="139" y="222" width="12" height="12"/></g><text x="155" y="232" class="t-small t-ink2">0</text><g class="q1"><rect x="180" y="222" width="12" height="12"/></g><text x="196" y="232" class="t-small t-ink2">1–2</text><g class="q2"><rect x="233" y="222" width="12" height="12"/></g><text x="249" y="232" class="t-small t-ink2">3</text><g class="q3"><rect x="273" y="222" width="12" height="12"/></g><text x="289" y="232" class="t-small t-ink2">4–5</text><g class="q4"><rect x="326" y="222" width="12" height="12"/></g><text x="342" y="232" class="t-small t-ink2">6–20</text></svg>
+<p class="figcap"><b>Figure 4.</b> Pairwise SNP distances, in tree order. Colour classes are spread on a log scale over the range of the distances (legend); hover a cell for the exact distance of its pair. Coloured bands on both axes and the blocks on the right mark the groups of identical genomes.</p>
+<h3>Identical genomes</h3><p class="meta">No SNP between any two genomes of a group (positions with N or a gap are not compared).</p><ul class="groups"><li><span class="swatch" style="background:var(--s1)"></span><b>group 1</b> (2): Reference, alpha</li></ul>
 <p>5 genomes, 4 distinct at the SNP sites compared.</p>
+<h2>Genome map</h2><svg class="fig" viewBox="0 0 1120 112" width="100%" style="max-width:1120px" role="img"><title>SNP positions along the reference</title><text x="118" y="20" class="t-small t-ink" font-weight="600">organelle <tspan class="t-muted" font-weight="400">30,000 bp</tspan></text><line x1="118" y1="30" x2="1100.0" y2="30" class="axis"/><line x1="118.0" y1="30" x2="118.0" y2="34" class="axis"/><text x="118.0" y="45" text-anchor="middle" class="t-tiny t-muted">0 kb</text><line x1="281.7" y1="30" x2="281.7" y2="34" class="axis"/><text x="281.7" y="45" text-anchor="middle" class="t-tiny t-muted">5 kb</text><line x1="445.3" y1="30" x2="445.3" y2="34" class="axis"/><text x="445.3" y="45" text-anchor="middle" class="t-tiny t-muted">10 kb</text><line x1="609.0" y1="30" x2="609.0" y2="34" class="axis"/><text x="609.0" y="45" text-anchor="middle" class="t-tiny t-muted">15 kb</text><line x1="772.7" y1="30" x2="772.7" y2="34" class="axis"/><text x="772.7" y="45" text-anchor="middle" class="t-tiny t-muted">20 kb</text><line x1="936.3" y1="30" x2="936.3" y2="34" class="axis"/><text x="936.3" y="45" text-anchor="middle" class="t-tiny t-muted">25 kb</text><line x1="1100.0" y1="30" x2="1100.0" y2="34" class="axis"/><text x="1100.0" y="45" text-anchor="middle" class="t-tiny t-muted">30 kb</text><text x="112" y="66" text-anchor="end" class="t-small t-muted">SNPs</text><line x1="118" y1="72" x2="1100.0" y2="72" class="grid"/><line x1="156.1" y1="54" x2="156.1" y2="72" class="snp-all"><title>organelle:1,164 C&gt;A: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="163.3" y1="54" x2="163.3" y2="72" class="snp-all"><title>organelle:1,384 G&gt;C: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="193.1" y1="54" x2="193.1" y2="72" class="snp-all"><title>organelle:2,295 T&gt;A: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="207.2" y1="54" x2="207.2" y2="72" class="snp-all"><title>organelle:2,724 T&gt;A: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="211.7" y1="54" x2="211.7" y2="72" class="snp-all"><title>organelle:2,864 A&gt;T: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="276.5" y1="54" x2="276.5" y2="72" class="snp-all"><title>organelle:4,843 G&gt;T: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="446.5" y1="54" x2="446.5" y2="72" class="snp-all"><title>organelle:10,037 T&gt;A: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="486.9" y1="54" x2="486.9" y2="72" class="snp-all"><title>organelle:11,270 T&gt;C: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="491.2" y1="54" x2="491.2" y2="72" class="snp-all"><title>organelle:11,402 G&gt;T: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="531.9" y1="54" x2="531.9" y2="72" class="snp-all"><title>organelle:12,644 A&gt;C: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="548.0" y1="54" x2="548.0" y2="72" class="snp-all"><title>organelle:13,135 T&gt;A: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="573.9" y1="54" x2="573.9" y2="72" class="snp-all"><title>organelle:13,928 T&gt;A: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="618.7" y1="54" x2="618.7" y2="72" class="snp-all"><title>organelle:15,295 G&gt;T: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="645.6" y1="54" x2="645.6" y2="72" class="snp-all"><title>organelle:16,119 G&gt;A: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="726.9" y1="54" x2="726.9" y2="72" class="snp-all"><title>organelle:18,603 A&gt;C: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="791.8" y1="54" x2="791.8" y2="72" class="snp-all"><title>organelle:20,583 G&gt;T: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="837.7" y1="54" x2="837.7" y2="72" class="snp-all"><title>organelle:21,988 A&gt;T: alternate allele in 2 of 4 genomes; called in every genome</title></line><line x1="872.3" y1="54" x2="872.3" y2="72" class="snp-all"><title>organelle:23,044 C&gt;G: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="945.1" y1="54" x2="945.1" y2="72" class="snp-all"><title>organelle:25,267 T&gt;C: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="1012.0" y1="54" x2="1012.0" y2="72" class="snp-all"><title>organelle:27,311 A&gt;G: alternate allele in 1 of 4 genomes; called in every genome</title></line><line x1="122" y1="88" x2="122" y2="100" class="snp-all"/><text x="130" y="98" class="t-small t-ink2">SNP called in every genome</text><line x1="323.88" y1="88" x2="323.88" y2="100" class="snp-miss"/><text x="331.88" y="98" class="t-small t-ink2">SNP with a missing call in some genomes</text></svg><p class="figcap"><b>Figure 5.</b> SNP positions along the reference (20 records of the VCF, 0 with a missing call in at least one of the 4 genomes). Hover a tick for the position, the alleles and the number of genomes with the alternate allele. Ticks closer than 31 bp are merged; hover shows the SNPs of a tick. No N track: none of the 4 templated assemblies has an N base.</p>
 <h2>Methods</h2><p class="methods">Reads aligning to the reference (reference.fasta, 30,000 bp) were extracted with minimap2 2.31-r1302 (-x map-ont). Reads shorter than 500 bp were discarded and the best 95% were kept, up to 100x of the reference length, with Filtlong 0.3.1. Each sample was assembled by reference-guided consensus: reads were aligned to the reference with minimap2 and the consensus called with samtools consensus 1.24 (-X r10.4_sup, minimum depth 3; positions with less support, or where the reads disagree, are N). SNPs were identified with SKA2 0.5.1 from split 31-mers present in all genomes (core SNPs). Pairwise SNP distances count the positions where both genomes have a nucleotide and they differ. The SNPs of each genome relative to the reference were written to a VCF file by mapping the split k-mers to the reference with ska map 0.5.1. A tree was built on the SNP alignment with FastTree 2.2.0 (GTR, SH-like supports from 100 resamples) and rooted at its midpoint. The analysis was run with BACoN 0.3.5 (https://github.com/duceppemo/BACoN).</p>
 <h2>Run</h2><dl>
 <dt>Command</dt><dd><code>$CONDA_PREFIX/bin/bacon -r example_output/data/reference.fasta -i example_output/data/reads -o example_output/bacon -t 8 -p 2</code></dd><dt>Reference</dt><dd><code>example_output/data/reference.fasta (1 sequence(s), MD5 3c261199bcb6055f7e441fe047486cc6)</code></dd><dt>Output</dt><dd><code>example_output/bacon</code></dd><dt>Python</dt><dd><code>3.12.14 on Linux</code></dd><dt>minimap2</dt><dd><code>2.31-r1302 — $CONDA_PREFIX/bin/minimap2</code></dd><dt>filtlong</dt><dd><code>Filtlong v0.3.1 — $CONDA_PREFIX/bin/filtlong</code></dd><dt>samtools</dt><dd><code>samtools 1.24 — $CONDA_PREFIX/bin/samtools</code></dd><dt>ska</dt><dd><code>ska 0.5.1 — $CONDA_PREFIX/bin/ska</code></dd><dt>FastTree</dt><dd><code>FastTree 2.2.0 — $CONDA_PREFIX/bin/FastTree</code></dd>

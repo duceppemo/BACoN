@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- `report.html` has a new look (light and dark themes, numbered figures) and new figures: bar charts of the
+  depth and of the `N` bases of each sample; the tree drawn with a coloured square for each group of identical
+  genomes, the supports and a scale bar in SNPs; a heatmap of the distances with colour classes fitted to their
+  range and the groups of identical genomes as coloured bands; and a genome map with the positions of the VCF's
+  SNPs and, for templated assemblies, the `N` bases along the reference.
+
 ## 0.3.5 (2026-10-02)
 
 ### Changed

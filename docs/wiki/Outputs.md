@@ -33,15 +33,25 @@ OUTPUT/
 A self-contained web page (no internet connection needed) that opens in any browser and prints to PDF (the
 colours of the heatmap and of the highlighted cells are kept when printing):
 
-- **Overview**: samples assembled, samples with a note, reference length, SNP sites.
+- **Overview**: samples assembled, samples with a note, reference length, SNP sites and distinct genomes.
 - **Samples**: the main columns of `summary.tsv` (all but the base counts, largest contig, assembly N50 and
   Flye's depth), sortable by clicking a header; failed samples, depth below 20x, length outside 0.8–1.2 times
-  the reference, and `N` bases are highlighted.
-- **Tree**: `tree.svg`, or why there is none.
-- **SNP distances**: a heatmap in tree order (log colour scale, so that 1–5 SNP differences stay visible next
-  to larger ones); the groups of identical genomes, with no SNP between any two members (positions with `N`
-  or a gap are not compared, so a genome with missing data could match two genomes that differ: it is put in
-  one group only); and the number of distinct genomes. Without any SNP site, no identity is claimed.
+  the reference, and `N` bases are highlighted. Two bar charts follow, sorted: the depth of each sample after
+  filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly. Failed
+  samples are listed without a bar.
+- **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches,
+  a scale bar (with its equivalent number of SNPs for SKA2), and a coloured square for each group of identical
+  genomes; or why there is none.
+- **SNP distances**: a heatmap in the order of the tree, with colour classes spread over the range of the
+  distances (so that 1–5 SNP differences stay visible next to larger ones) and the exact distance on hover.
+  The groups of identical genomes, with no SNP between any two members, are coloured bands along both axes and
+  labelled on the right, and are listed below with the number of distinct genomes (positions with `N` or a gap
+  are not compared, so a genome with missing data could match two genomes that differ: it is put in one group
+  only). Without any SNP site, no identity is claimed. Above 150 genomes the heatmap is left out (the
+  distances are in `snp_distances.tsv`).
+- **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf`, coloured by whether
+  every genome has a call there; for templated assemblies (whose coordinates follow the reference), the `N`
+  bases per kb summed over all assemblies.
 - **Methods**: a paragraph describing what was run, with program versions, ready to adapt for a paper.
 - **Run**: command, reference (with the MD5 of the file as given), output folder, and the version and path of
   every program.
@@ -53,7 +63,11 @@ rebuilds it, also after the folder was moved. Examples: the
 
 ![The samples section of the report of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_samples.png)
 
+![The depth and N bases of the samples of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_bars.png)
+
 ![The SNP distances of the tutorial in the report](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_distances.png)
+
+![The genome map of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_map.png)
 
 ## MultiQC
 

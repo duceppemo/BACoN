@@ -40,8 +40,8 @@ or [download it](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/rep
 (Local paths were removed from it before publication: the program paths start with `$CONDA_PREFIX`.)
 
 **Overview and samples.** All four samples assembled: about 250 of the 300 reads of each sample matched the
-reference (the others are the off-target reads), and after filtering the depth is about 48x. The templated
-assembly is 30,000 bp for each sample, as long as the reference, with no `N` base.
+reference (the others are the off-target reads), and after filtering the depth is about 48x (Figure 1). The
+templated assembly is 30,000 bp for each sample, as long as the reference, with no `N` base (Figure 2).
 
 ![Overview and samples](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_overview.png)
 
@@ -50,13 +50,16 @@ own branch.
 
 ![Tree](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_tree.png)
 
-**SNP distances.** The heatmap, in tree order, shows the distances of the table above; the reference and
-alpha are listed as identical genomes.
+**SNP distances.** The heatmap, in tree order, shows the pairwise distances; the reference and alpha form a
+group of identical genomes (the coloured band).
 
 ![SNP distances](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_distances.png)
 
-**VCF.** `example_output/bacon/4_compared/ska/snps.vcf` lists the 20 planted SNPs at their positions in the
-reference, with the genotype of each sample.
+**Genome map and VCF.** `example_output/bacon/4_compared/ska/snps.vcf` lists the 20 planted SNPs at their
+positions in the reference, with the genotype of each sample; the genome map shows where they are. Every
+genome has a call at each of them, and no assembly has an `N` base, so there is no `N` track.
+
+![Genome map](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_map.png)
 
 **Methods and run.** The methods paragraph describes what was run, with the program versions; the run section
 records the command, the reference's MD5 and every program used.

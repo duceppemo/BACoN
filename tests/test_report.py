@@ -1,14 +1,25 @@
 import json
 
 from bacon.multiqc import distance_heatmap, reads_bargraph, sample_table
+from bacon.newick import parse
 from bacon.report import (
+    MAX_LABELLED_CELLS,
+    Bar,
     _fasta_samples,
     _tool,
+    bar_chart,
     build_report,
+    depth_bars,
+    distance_bins,
     distinct_count,
+    genome_map,
     heatmap,
     identical_groups,
     methods_text,
+    n_bars,
+    n_per_bin,
+    read_vcf,
+    tree_svg,
 )
 
 
@@ -33,7 +44,134 @@ def test_heatmap_cells_and_escaping():
     names = ["<a>", "b"]
     out = heatmap(names, {"<a>": {"<a>": 0, "b": 3}, "b": {"<a>": 3, "b": 0}})
     assert "&lt;a&gt;" in out and "<a>" not in out
-    assert out.count("<td") == 4 and ">3</td>" in out and "3 SNPs" in out
+    assert out.count("<title>&lt;a&gt; – b: 3 SNPs</title>") == 1 and out.count("</title></rect>") == 4
+    assert ">3</text>" in out and "1 SNP</title>" not in out
+
+
+def test_distance_bins_adapt_to_the_range():
+    assert distance_bins(0) == [(0, 0)]
+    assert distance_bins(1) == [(0, 0), (1, 1)]
+    assert distance_bins(2) == [(0, 0), (1, 1), (2, 2)]
+    bins = distance_bins(118)
+    assert bins[0] == (0, 0) and bins[-1][1] == 118 and len(bins) == 5
+    assert all(b[0] == a[1] + 1 for a, b in zip(bins, bins[1:]))  # Contiguous
+    assert [hi for _, hi in bins] == sorted(hi for _, hi in bins)
+
+
+def test_heatmap_groups_bins_and_legend():
+    names = ["a", "b", "c", "d"]
+    m = {x: {y: 0 if x == y else 12 for y in names} for x in names}
+    m["a"]["b"] = m["b"]["a"] = 0
+    groups = identical_groups(names, m)
+    out = heatmap(names, m, groups)
+    assert "group 1 (2)" in out and 'fill="var(--s1)"' in out  # The block on the right and the bands
+    assert out.count("<title>a: group 1</title>") == 2 and "c: group" not in out  # Bands on both axes; c alone
+    assert "SNPs:" in out and ">0</text>" in out and ">12</text>" in out  # Legend labels
+    assert 'class="q0"' in out and 'class="q4"' in out  # Zero and the largest class
+    assert "<title>a – c: 12 SNPs</title>" in out
+    without = heatmap(names, m)
+    assert "group" not in without and "var(--s" not in without
+
+
+def test_heatmap_values_on_hover_only_for_many_genomes():
+    names = [f"g{i}" for i in range(MAX_LABELLED_CELLS + 1)]
+    m = {x: {y: 0 if x == y else 1 for y in names} for x in names}
+    out = heatmap(names, m)
+    assert "<title>g0 – g1: 1 SNP</title>" in out
+    assert out.count("</text>") == 2 * len(names) + 1 + 2  # Row and column labels, "SNPs:" and two legend classes
+    assert '">1</text>' in heatmap(names[:3], {x: m[x] for x in names[:3]})
+
+
+def test_tree_svg_marks_groups_supports_and_scale():
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
+    out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100)
+    assert out.count('fill="var(--s1)"') == 2 and "<title>group 1</title>" in out
+    assert 'font-weight="600">Reference <tspan' in out and "ref.fa" in out
+    assert ">0.95</text>" in out and ">0.80</text>" in out
+    assert "substitutions per site (about 1 SNP)" in out  # 0.01 per site x 100 sites
+    assert "(about" not in tree_svg(root, {}, "", None)
+    flat = tree_svg(parse("(a:0,b:0);"), {}, "", 10)
+    assert "substitutions" not in flat  # No scale bar when every branch is 0
+
+
+def test_tree_svg_escapes_names():
+    out = tree_svg(parse("('<x>':0.1,Reference:0.2)'<s>':0.1;"), {"<x>": 0}, "<r>", 10)
+    assert "&lt;x&gt;" in out and "&lt;r&gt;" in out and "<x>" not in out and "<r>" not in out
+    assert "(about 0.5 SNPs)" in out  # 0.05 per site x 10 sites
+
+
+def test_bar_chart_sorts_flags_and_lists_failed_samples():
+    rows = [
+        {"Sample": "low", "Status": "ok", "Est_depth": "12.5", "Filtered_reads": "10", "Filtered_N50": "500",
+         "Note": "low depth (12x)", "N_bases": "7", "Assembly_length": "1000"},
+        {"Sample": "high", "Status": "ok", "Est_depth": "80", "N_bases": "0", "Assembly_length": "1000"},
+        {"Sample": "gone", "Status": "failed (bait)", "Est_depth": "NA", "N_bases": "NA",
+         "Note": "no reads matched"},
+        {"Sample": "<odd>", "Status": "ok", "Est_depth": "NA", "N_bases": "NA"},
+    ]
+    out = bar_chart(depth_bars(rows), "Depth", unit="x", threshold=20, threshold_text="20x flag")
+    assert out.index(">high<") < out.index(">low<") < out.index(">&lt;odd&gt;<") < out.index(">gone<")
+    assert out.count('class="bar"') == 2 and 't-ink">12.5x</text>' in out and 't-ink">80x</text>' not in out
+    assert 'class="thresh"' in out and "20x flag" in out
+    assert "failed (bait)" in out and "no reads matched" in out and ">NA<" in out
+    assert "low depth (12x)" in out and "10 reads, N50 500" in out and "<odd>" not in out
+    out = bar_chart(n_bars(rows), "N bases", integers=True)
+    assert ">7</text>" in out and "7 N bases of 1,000 bp (0.70%)" in out and 'class="bar0"' in out
+    assert ">0.2<" not in out  # Integer ticks
+    assert bar_chart([], "Empty").count("<svg") == 1
+
+
+def test_bar_chart_empty_and_threshold_only():
+    out = bar_chart([Bar("a", None, "a: nothing")], "x", threshold=20, threshold_text="20x")
+    assert ">NA<" in out and 'class="thresh"' in out
+
+
+def _write_vcf(path, chroms=("chr1",), genomes=("a", "b", "c")):
+    header = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(genomes)
+    records = [f"{chroms[0]}\t100\t.\tA\tG\t.\t.\t.\tGT\t1\t0\t0",
+               f"{chroms[0]}\t2500\t.\tC\tT\t.\t.\t.\tGT\t1\t.\t1"]
+    if len(chroms) > 1:
+        records.append(f"{chroms[1]}\t50\t.\tG\tA,T\t.\t.\t.\tGT\t2\t1\t0")
+    path.write_text("##fileformat=VCFv4.2\n" + header + "\n" + "\n".join(records) + "\n")
+
+
+def test_read_vcf_counts_alt_and_missing_calls(tmp_path):
+    _write_vcf(tmp_path / "s.vcf", ("c1", "c2"))
+    snps, genomes = read_vcf(tmp_path / "s.vcf")
+    assert genomes == 3 and [(s.chrom, s.pos, s.alt_count, s.missing) for s in snps] == \
+        [("c1", 100, 1, 0), ("c1", 2500, 2, 1), ("c2", 50, 2, 0)]
+    assert snps[2].ref == "G" and snps[2].alt == "A,T"
+
+
+def test_genome_map_tracks_and_several_sequences(tmp_path):
+    _write_vcf(tmp_path / "s.vcf", ("c1", "c<2>"))
+    snps, genomes = read_vcf(tmp_path / "s.vcf")
+    sequences = [("c1", 5000), ("c<2>", 1000)]
+    out = genome_map(sequences, snps, genomes)
+    assert out.count('class="snp-all"') == 3 and out.count('class="snp-miss"') == 2  # 2 + legend each
+    assert "c1:100 A&gt;G: alternate allele in 1 of 3 genomes; called in every genome" in out
+    assert "c1:2,500 C&gt;T: alternate allele in 2 of 3 genomes; 1 missing call" in out
+    assert "c&lt;2&gt;" in out and "c<2>" not in out and "5,000 bp" in out and "1,000 bp" in out
+    assert "nbar" not in out and "N bases" not in out
+    tracks = {"c1": [0, 3, 0, 0, 0, 0], "c<2>": [12, 0]}
+    out = genome_map(sequences, snps, genomes, tracks, 1000)
+    assert out.count('class="nbar"') == 2 and "max 12 N per 1 kb" in out and "per 1 kb, all assemblies" in out
+    assert "c1:1,001–2,000: 3 N bases" in out and "c&lt;2&gt;:1–1,000: 12 N bases" in out
+
+
+def test_genome_map_bins_dense_snps():
+    from bacon.report import Snp
+    snps = [Snp("c", p, "A", "G", 1, 1 if p % 2 else 0) for p in range(1, 2001)]
+    out = genome_map([("c", 2_000_000)], snps, 4)
+    assert out.count("<line") < 100 and " SNPs at c:1–" in out and " with a missing call. 1 A&gt;G (1 alt, 1 missing)" in out
+    assert out.count('class="snp-miss"') >= 2
+
+
+def test_n_per_bin_matches_records_to_reference_sequences(tmp_path):
+    (tmp_path / "s1.fasta").write_text(">s1_c1\nACGTNNNNAC\n>s1_c2 circular=true\nNNAC\n>s1_other\nNNNN\n")
+    (tmp_path / "s2.fasta").write_text(">s2_c1\n" + "A" * 4 + "N" * 6 + "\n")
+    counts = n_per_bin([tmp_path / "s1.fasta", tmp_path / "s2.fasta"], [("c1", 10), ("c2", 4)], 4)
+    assert counts == {"c1": [0, 8, 2], "c2": [2, 0]}  # s1_other is not a reference sequence
 
 
 def test_tool_version_number_only():
@@ -221,3 +359,98 @@ def test_report_command_on_a_folder_that_is_not_bacon(tmp_path):
     import sys
     done = subprocess.run([sys.executable, "-m", "bacon.report", str(tmp_path)], capture_output=True, text=True)
     assert done.returncode == 1 and "not a BACoN output folder" in done.stderr and "Traceback" not in done.stderr
+
+
+TREE = "((a:0.001,Reference:0.0005)0.9:0.002,b:0.003);\n"
+
+
+def _full_run(tmp_path, assembler="samtools", tree=TREE, vcf=True, reference=True, assemblies=True):
+    comparison = {"method": "ska", "tree_method": "fasttree", "core_snps": 3, "tree": "4_compared/ska/tree.nwk",
+                  "tree_svg": "4_compared/ska/tree.svg", "distances": "4_compared/ska/snp_distances.tsv",
+                  "vcf": "4_compared/ska/snps.vcf"}
+    summary = ("Sample\tStatus\tEst_depth\tN_bases\tAssembly_length\tNote\na\tok\t15.0\t2\t1000\tlow depth (15x)\n"
+               "b\tok\t80.0\t0\t1000\t\n")
+    matrix = "snp-dists\tReference\ta\tb\nReference\t0\t0\t3\na\t0\t0\t3\nb\t3\t3\t0\n"
+    out = _folder(tmp_path, comparison, summary=summary, matrix=matrix,
+                  reference={"file": "/x/ref.fa", "length": 1000, "sequences": 1})
+    info = json.loads((out / "run_info.json").read_text())
+    info["settings"] = {**SETTINGS, "assembler": assembler}
+    (out / "run_info.json").write_text(json.dumps(info))
+    compared = out / "4_compared" / "ska"
+    if tree is not None:
+        (compared / "tree.nwk").write_text(tree)
+    (compared / "tree.svg").write_text("<svg><text>fallback tree</text></svg>")
+    if vcf:
+        _write_vcf(compared / "snps.vcf", ("c1",), ("a", "b"))
+    if reference:
+        (out / "reference.fasta").write_text(">c1 some description\n" + "ACGT" * 1000 + "\n")
+    if assemblies:
+        folder = out / "3_assembled" / "all_assemblies"
+        folder.mkdir(parents=True)
+        (folder / "a.fasta").write_text(">a_c1\n" + "N" * 10 + "ACGT" * 997 + "\n")
+        (folder / "b.fasta").write_text(">b_c1\n" + "ACGT" * 1000 + "\n")
+    return out
+
+
+def test_report_draws_every_figure_for_a_templated_run(tmp_path):
+    page = build_report(_full_run(tmp_path))
+    for n in range(1, 6):
+        assert f"<b>Figure {n}.</b>" in page
+    assert "fallback tree" not in page and ">0.9</text>" in page and "ladderized" in page
+    assert 'class="nbar"' in page and "templated assemblies per 1 kb" in page and "c1:1–1,000: 10 N bases" in page
+    assert "c1:100 A&gt;G" in page and 'class="snp-miss"' in page
+    assert ">15x</text>" in page and "20x flag" in page
+    assert "group 1 (2)" in page and "a, Reference" in page  # a and Reference identical: the heatmap block
+    assert '<meta name="color-scheme" content="light dark">' in page and "prefers-color-scheme:dark" in page
+    assert "<script src" not in page and "http" not in page.split("</style>")[0]  # Self-contained
+
+
+def test_report_omits_the_n_track_for_de_novo_assemblies(tmp_path):
+    page = build_report(_full_run(tmp_path, assembler="flye"))
+    assert 'class="nbar"' not in page and "No N track: flye assemblies are de novo" in page
+    assert "<b>Figure 5.</b>" in page  # The SNP track is still drawn
+
+
+def test_report_falls_back_to_the_drawn_tree_and_survives_missing_files(tmp_path):
+    page = build_report(_full_run(tmp_path, tree="not a tree at all"))
+    assert "fallback tree" in page and "midpoint-rooted; internal labels are supports" in page
+    assert "in the order of the distance table" in page
+    page = build_report(_full_run(tmp_path / "x", tree=None, vcf=False, reference=False, assemblies=False))
+    assert "fallback tree" in page and "Genome map" not in page and "snps.vcf was not found" in page
+    assert "<b>Figure 3.</b>" in page and "<b>Figure 5.</b>" not in page
+    out = _full_run(tmp_path / "y", assemblies=False)
+    page = build_report(out)
+    assert "No N track: the assemblies were not found" in page and "<b>Figure 5.</b>" in page
+    (out / "4_compared" / "ska" / "snps.vcf").write_text("garbage\n")
+    assert "Genome map" in build_report(out)  # No records: an empty track, not an error
+    (out / "reference.fasta").write_text("")
+    assert "Genome map" not in build_report(out)
+
+
+def test_report_escapes_names_in_every_figure(tmp_path):
+    out = _full_run(tmp_path, tree="(('<x1>':0.001,Reference:0.0005)0.9:0.002,'<x2>':0.003);\n")
+    (out / "summary.tsv").write_text("Sample\tStatus\tEst_depth\tN_bases\tAssembly_length\tNote\n<x1>\tok\t15.0\t2"
+                                     "\t1000\tnote <n>\n<x2>\tok\t80.0\t0\t1000\t\n")
+    matrix = "snp-dists\tReference\t<x1>\t<x2>\nReference\t0\t0\t3\n<x1>\t0\t0\t3\n<x2>\t3\t3\t0\n"
+    (out / "4_compared" / "ska" / "snp_distances.tsv").write_text(matrix)
+    _write_vcf(out / "4_compared" / "ska" / "snps.vcf", ("c<1>",), ("<x1>", "<x2>"))
+    (out / "reference.fasta").write_text(">c<1>\n" + "ACGT" * 1000 + "\n")
+    (out / "3_assembled" / "all_assemblies" / "<x1>.fasta").write_text("><x1>_c<1>\n" + "N" * 10 + "ACGT" * 997 + "\n")
+    page = build_report(out)
+    assert "<x1>" not in page and "<x2>" not in page and "<n>" not in page and "c<1>" not in page
+    assert page.count("&lt;x1&gt;") > 8 and "note &lt;n&gt;" in page and "c&lt;1&gt;:1–1,000: 10 N bases" in page
+    assert "<title>&lt;x1&gt; – &lt;x2&gt;: 3 SNPs</title>" in page and "group 1 (2)" in page
+
+
+def test_genome_map_without_any_n_base(tmp_path):
+    from bacon.report import _Figures, _genome_map_section
+    out = tmp_path / "out"
+    (out / "3_assembled" / "all_assemblies").mkdir(parents=True)
+    (out / "3_assembled" / "all_assemblies" / "a.fasta").write_text(">a_chr\nACGTACGTAC\n")
+    reference = out / "reference.fasta"
+    reference.write_text(">chr\nACGTACGTAC\n")
+    vcf = out / "snps.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\n"
+                   "chr\t3\t.\tG\tT\t.\t.\t.\tGT\t1\n")
+    html_text = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1)
+    assert "none of the 1 templated assemblies has an N base" in html_text and "N per" not in html_text
