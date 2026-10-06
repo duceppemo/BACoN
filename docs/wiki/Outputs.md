@@ -9,6 +9,7 @@ OUTPUT/
 ├── bacon.log                   the log of every run in this folder
 ├── .bacon.lock                 held by the run using this folder (see Usage)
 ├── reference.fasta             the reference used: upper case, ambiguity codes as N
+├── annotation.gb / .gff3       the annotation of the reference (--annotation, or the GenBank reference), as given
 ├── 1_extracted/<sample>.fastq.gz          baited reads (.fasta.gz for fasta input; <sample>.bam and .bam.bai
 │                                          with --keep-bam)
 ├── 2_filtered/<sample>.fastq.gz           filtered reads (.fasta.gz for fasta input)
@@ -51,8 +52,26 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   distances are in `snp_distances.tsv`).
 - **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf`, coloured by whether
   every genome has a call there; for templated assemblies (whose coordinates follow the reference), the `N`
-  bases per kb summed over all assemblies.
-- **Methods**: a paragraph describing what was run, with program versions, ready to adapt for a paper.
+  bases per kb summed over all assemblies. With an annotation (`--annotation`, or a GenBank reference), the
+  map also shows: a band of the plastome regions (LSC, IRb, SSC, IRa) when the annotation has two inverted
+  repeats of at least 500 bp (named as the annotation names them, otherwise by convention: the larger
+  single-copy region is the LSC and the repeat after it IRb; the single-copy regions are the gaps between the
+  repeats, one of which may span the origin); the genes of the + strand above a centre line and those of the
+  − strand below (protein-coding genes in green, tRNA and rRNA genes in violet, pseudogenes faint), each with
+  its name, type and coordinates on hover; labels for the genes with two or more SNPs (at most 40, those with
+  the most SNPs, on two rows); and, on each SNP's hover, its gene, context and effect. Above 1,500 genes
+  (a bacterial genome), the gene rows only show where genes lie, merged per pixel, without names or labels.
+- **SNPs** (with an annotation): a sortable table with one row per SNP of the VCF: position, alleles, region,
+  gene, context (`CDS`, `intron`, `tRNA`, `rRNA`, `pseudogene`, `UTR`, or `intergenic between X and Y`, the
+  nearest genes on either side, around the origin of a circular sequence), the codon and amino-acid change and
+  the effect (`synonymous`, `missense`, `nonsense`, `stop lost`, `stop retained` (a stop codon changed into another), `start lost`, `start retained`: a changed start
+  codon that is still one in the genetic code used), and the number of genomes with the alternate allele or
+  without a call. A SNP in several alternate alleles, or in two overlapping coding sequences, has one effect per
+  allele and per gene. A summary line gives the SNPs per region and per context, the counts of each effect and
+  the genes with the most SNPs. The table shows at most 3,000 SNPs (by position). How the effects are computed is
+  in [Methods](Methods#snp-effects).
+- **Methods**: a paragraph describing what was run, with program versions (and the annotation and translation
+  table, when used), ready to adapt for a paper.
 - **Run**: command, reference (with the MD5 of the file as given), output folder, and the version and path of
   every program.
 
@@ -163,4 +182,7 @@ is built; lower `--ska-min-freq` (see [FAQ](FAQ)).
 ## run_info.json
 
 The provenance of the last run: BACoN version, command line, start time and duration, all settings, the path
-and version of every program used, each sample's files and status, and the comparison's result files.
+and version of every program used, the reference as given (path, number of sequences, length and the MD5 of the
+file itself, fasta or GenBank), the annotation when there is one (file, format, the name of its copy in the
+output folder, numbers of genes and of annotated sequences, whether regions were derived, the translation
+tables, MD5), each sample's files and status, and the comparison's result files.

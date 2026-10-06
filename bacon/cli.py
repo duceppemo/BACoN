@@ -61,8 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
                     "(for example an organelle genome).",
     )
     io = parser.add_argument_group("input/output")
-    io.add_argument("-r", "--reference", metavar="FILE.fasta", type=Path, required=True,
-                    help="Reference sequence(s) used to bait the reads and to call SNPs (fasta, gzipped or not).")
+    io.add_argument("-r", "--reference", metavar="FILE", type=Path, required=True,
+                    help="Reference sequence(s) used to bait the reads and to call SNPs: fasta, or a GenBank file "
+                         "whose sequence is used and whose features annotate the report (gzipped or not).")
     io.add_argument("-i", "--input", metavar="PATH", type=Path,
                     help="A fastq/fasta file, or a folder: each file is a sample named after the file, and each "
                          "subfolder is a sample named after the subfolder with all the files it contains (e.g. "
@@ -73,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     io.add_argument("-o", "--output", metavar="DIR", type=Path, required=True,
                     help="Output folder. Rerunning into the same folder resumes: finished steps whose "
                          "parameters did not change are skipped.")
+    io.add_argument("--annotation", metavar="FILE", type=Path,
+                    help="Annotation of the reference (GenBank .gb/.gbk or GFF3 .gff/.gff3, gzipped or not), for "
+                         "the report only: genes and regions on the genome map, and the effect of each SNP. "
+                         "Adding or changing it reruns nothing. Default: the reference itself when it is a "
+                         "GenBank file.")
 
     bait = parser.add_argument_group("baiting")
     bait.add_argument("-b", "--baiting-method", choices=["minimap2", "bbduk"], default="minimap2",
@@ -166,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings(
         reference=args.reference,
         output=args.output,
+        annotation=args.annotation,
         input=args.input,
         sample_sheet=args.sample_sheet,
         baiting=args.baiting_method,

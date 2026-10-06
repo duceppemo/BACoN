@@ -1011,3 +1011,125 @@ def test_run_restores_the_level_of_the_bacon_logger(stubs, dataset, tmp_path):
         assert logger.level == logging.WARNING
     finally:
         logger.setLevel(previous)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Reference annotations
+# ---------------------------------------------------------------------------------------------------------------
+
+def _genbank_of(ref: Path, name: str = "ref", features: str = "", definition: str = "") -> str:
+    """A GenBank record of the sequence of a one-record fasta, with a CDS over its first 30 bases."""
+    seq = "".join(ref.read_text().split("\n")[1:])
+    features = features or ("     gene            1..30\n                     /gene=\"orfA\"\n"
+                            "     CDS             1..30\n                     /gene=\"orfA\"\n"
+                            "                     /transl_table=11\n")
+    origin = "\n".join(f"{i + 1:>9} " + " ".join(seq[j:j + 10].lower() for j in range(i, min(i + 60, len(seq)), 10))
+                       for i in range(0, len(seq), 60))
+    return (f"LOCUS       {name}  {len(seq)} bp    DNA     circular PLN 01-JAN-2026\n"
+            + (f"DEFINITION  {definition}\n" if definition else "")
+            + f"FEATURES             Location/Qualifiers\n{features}ORIGIN      \n{origin}\n//\n")
+
+
+def test_genbank_reference_gives_the_same_reference_and_reruns_nothing(stubs, dataset, tmp_path):
+    import hashlib
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    before = (out / "reference.fasta").read_bytes()
+    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")}
+    gb = tmp_path / "ref.gb"
+    gb.write_text(_genbank_of(ref))
+    stubs.unlink()
+    assert run(settings(gb, reads, out)) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the sample that failed before: no step ran again
+    assert (out / "reference.fasta").read_bytes() == before
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")} == \
+        checkpoints
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["reference"]["md5"] == hashlib.md5(gb.read_bytes()).hexdigest()  # The file given
+    assert info["annotation"]["format"] == "genbank" and info["annotation"]["copy"] == "annotation.gb"
+    assert info["annotation"]["genes"] == 1 and info["settings"]["annotation"] is None
+    assert (out / "annotation.gb").read_text() == gb.read_text()
+    page = (out / "report.html").read_text()
+    # The VCF's SNP at 5 (A>C) is the middle base of codon 2 (TAC): Y2S
+    assert 'class="gene-cds"' in page and ">Y2S<" in page and ">missense<" in page and "orfA" in page
+    assert "translation table 11" in page
+    # Back to the fasta: still nothing to rerun, and the annotation copy goes
+    stubs.unlink()
+    assert run(settings(ref, reads, out)) == 0
+    assert calls(stubs) == ["minimap2"] and not (out / "annotation.gb").exists()
+    assert json.loads((out / "run_info.json").read_text())["annotation"] is None
+
+
+def test_annotation_option_is_not_in_the_checkpoints(stubs, dataset, tmp_path):
+    import gzip
+    import shutil
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    gb = tmp_path / "ann.gbk.gz"
+    with gzip.open(gb, "wt") as fh:
+        fh.write(_genbank_of(ref))
+    stubs.unlink()
+    assert run(settings(ref, reads, out, annotation=gb)) == 0
+    assert calls(stubs) == ["minimap2"]
+    copy = out / "annotation.gb"
+    assert copy.read_text().startswith("LOCUS")  # Decompressed
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["settings"]["annotation"] == str(gb) and info["annotation"]["file"] == str(gb)
+    assert ">Y2S<" in (out / "report.html").read_text()
+    # A moved folder: the report is rebuilt from the copy
+    moved = tmp_path / "moved"
+    shutil.move(out, moved)
+    from bacon.report import write_report
+    assert ">Y2S<" in write_report(moved).read_text()
+    # A GFF3 annotation replaces the GenBank copy
+    gff = tmp_path / "ann.gff3"
+    gff.write_text("##gff-version 3\nref\tt\tgene\t1\t30\t.\t+\t.\tID=g1;gene=orfB\n"
+                   "ref\tt\tCDS\t1\t30\t.\t+\t0\tID=c1;Parent=g1\n")
+    stubs.unlink()
+    assert run(settings(ref, reads, moved, annotation=gff)) == 0
+    assert calls(stubs) == ["minimap2"]
+    assert (moved / "annotation.gff3").exists() and not (moved / "annotation.gb").exists()
+    assert "orfB" in (moved / "report.html").read_text()
+
+
+def test_annotation_errors_and_warnings(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    with pytest.raises(BaconError, match="Annotation file not found"):
+        run(settings(ref, reads, out, annotation=tmp_path / "missing.gb", snp_method="none"))
+    with pytest.raises(BaconError, match="not a GenBank"):
+        run(settings(ref, reads, out, annotation=ref, snp_method="none"))
+    assert not (out / "1_extracted").exists()  # Failed before any step
+    other = tmp_path / "other.gb"
+    other.write_text(_genbank_of(ref, name="other").replace("1000 bp", "999 bp"))
+    assert run(settings(ref, reads, out, annotation=other, snp_method="none")) == 0
+    assert "match no reference sequence by name" in caplog.text
+    beyond = tmp_path / "beyond.gb"
+    beyond.write_text(_genbank_of(ref, features="     gene            900..1200\n                     /gene=\"x\"\n"))
+    caplog.clear()
+    assert run(settings(ref, reads, out, annotation=beyond, snp_method="none")) == 0
+    assert "1 feature(s) beyond the end" in caplog.text
+
+
+def test_gff3_cannot_be_the_reference(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    gff = tmp_path / "ref.gff3"
+    gff.write_text("##gff-version 3\nref\tt\tgene\t1\t30\t.\t+\t.\tID=g1\n")
+    with pytest.raises(BaconError, match="not GFF3"):
+        run(settings(gff, reads, tmp_path / "out", snp_method="none"))
+    empty = tmp_path / "noseq.gb"
+    empty.write_text(_genbank_of(ref).split("ORIGIN")[0] + "//\n")
+    with pytest.raises(BaconError, match="no sequence"):
+        run(settings(empty, reads, tmp_path / "out", snp_method="none"))
+
+
+def test_genbank_reference_with_a_definition_matches_ncbi_fasta_headers(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    gb = tmp_path / "NC_1.gb"
+    gb.write_text(_genbank_of(ref, name="NC_1", definition="Some plant chloroplast, complete genome.")
+                  .replace("LOCUS       NC_1 ", "LOCUS       NC_000001 ").replace("FEATURES", "VERSION     NC_1.2\nFEATURES"))
+    out = tmp_path / "out"
+    assert run(settings(gb, reads, out, snp_method="none")) == 0
+    assert (out / "reference.fasta").read_text().startswith(">NC_1.2 Some plant chloroplast, complete genome\nACGT")

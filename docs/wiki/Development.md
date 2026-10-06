@@ -20,6 +20,7 @@ pre-commit install
 | `bacon/compare.py` | SKA2, Parsnp, distances, trees |
 | `bacon/newick.py` | Newick parsing, midpoint rooting, SVG drawing |
 | `bacon/report.py` | the HTML report (`python -m bacon.report OUTPUT` rebuilds it) |
+| `bacon/annotation.py` | GenBank and GFF3 annotations: genes, plastome regions, the effects of SNPs on coding sequences |
 | `bacon/multiqc.py` | the MultiQC custom-content files |
 | `bacon/seqio.py` | fasta/fastq reading and writing |
 | `bacon/tools.py` | running external programs and logging their output |

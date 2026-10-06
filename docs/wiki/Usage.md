@@ -12,6 +12,22 @@ anchor of the SNP comparison. A reference of the same species works best; a clos
 baiting and de novo assembly. BACoN uses an upper-case copy (soft-masked, lower-case regions are compared like
 the rest) in which IUPAC ambiguity codes are `N`; the same applies to the assemblies and to `--add-genomes`.
 
+The reference can also be a GenBank file (`.gb`, `.gbk`, `.gbff`, `.genbank`, gzipped or not), such as NCBI's
+record of a plastome: its sequence (`ORIGIN`) is the reference and its features annotate the report. Each
+record is named after its `VERSION` (`NC_008096.2`), or its `LOCUS` name without one, followed by its
+`DEFINITION`, as in NCBI's fasta of the same record: `reference.fasta` in the output folder is then identical to
+the one made from that fasta, so switching between the two reruns nothing. `run_info.json` records the MD5 of
+the file given, fasta or GenBank.
+
+**Annotation** (`--annotation`): a GenBank or GFF3 file (`.gff`, `.gff3`; gzipped or not) describing the
+reference, used in the report only: the genome map gets the genes, the regions of a plastome and the effect of
+each SNP ([Outputs](Outputs#reporthtml)). It is not part of any checkpoint: adding, changing or removing it
+reruns nothing. The default is the reference itself when it is a GenBank file. The annotated sequences must
+have the names of the reference's sequences (a single annotated sequence of the same length as a single
+reference sequence is accepted whatever its name); features on other sequences or beyond the end of a sequence
+are ignored with a warning. BACoN copies the file, uncompressed, to `OUTPUT/annotation.gb` or
+`OUTPUT/annotation.gff3`, so that the report can be rebuilt after the folder is moved.
+
 **Reads**, as fastq or fasta, gzipped or not (`.fastq`, `.fq`, `.fasta`, `.fa`, `.fna`, `.fas`, with or
 without `.gz`). Three ways to give them:
 
@@ -28,10 +44,11 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 
 | Option | Default | Description |
 |---|---|---|
-| `-r`, `--reference` | | Reference fasta (required) |
+| `-r`, `--reference` | | Reference fasta, or GenBank (its sequence is used and its features annotate the report); required |
 | `-i`, `--input` | | Reads file or folder (this or `--sample-sheet`) |
 | `--sample-sheet` | | TSV/CSV with `sample` and `file` columns |
 | `-o`, `--output` | | Output folder (required) |
+| `--annotation` | the reference, if GenBank | GenBank or GFF3 annotation of the reference, for the report only (genes, regions, SNP effects); never reruns a step |
 | `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
 | `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |

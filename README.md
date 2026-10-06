@@ -40,7 +40,8 @@ Open `results/report.html` for an overview: samples with their read counts, dept
 heatmap of the SNP distances, and a methods paragraph. The same results are in `summary.tsv`,
 `4_compared/ska/snp_distances.tsv`, `4_compared/ska/tree.nwk` and `4_compared/ska/snps.vcf`, and MultiQC picks up BACoN's
 `*_mqc.json` files. Rerunning the same command resumes where it stopped; changing a parameter reruns only the
-steps it affects.
+steps it affects. With `--annotation chloroplast.gb` (or a GenBank file as `-r`), the report also shows the
+genes and the effect of each SNP.
 
 To check an installation, run the example (simulated reads with known SNPs; a few seconds). It is in the
 repository, not in the conda package:

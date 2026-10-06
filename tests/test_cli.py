@@ -32,6 +32,12 @@ def test_defaults():
     assert (args.baiting_method, args.assembly_method, args.snp_method, args.tree) == (
         "minimap2", "samtools", "ska", "fasttree")
     assert args.kmer_size == 31 and args.min_read_length == 500 and args.ska_min_freq == 1.0
+    assert args.annotation is None
+
+
+def test_annotation_option():
+    args = build_parser().parse_args(["-r", "ref.gb", "-i", "in", "-o", "out", "--annotation", "ref.gff3"])
+    assert args.annotation == Path("ref.gff3") and args.reference == Path("ref.gb")
 
 
 def test_legacy_snp_flag():

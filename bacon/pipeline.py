@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from bacon import BaconError, __version__, compare, steps, tools
+from bacon.annotation import annotation_format, genbank_fasta_records, load_annotation
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
 from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
@@ -26,6 +27,7 @@ from bacon.seqio import (
     Record,
     acgtn,
     check_reference,
+    open_text,
     read_records,
     sniff_format,
     split_extension,
@@ -53,6 +55,7 @@ class Settings:
     output: Path
     input: Path | None = None
     sample_sheet: Path | None = None
+    annotation: Path | None = None  # Report only: not part of any checkpoint
     baiting: str = "minimap2"
     kmer: int = 31
     hdist: int = 1
@@ -284,20 +287,74 @@ def _outputs_exist(results: dict[str, dict]) -> bool:
     return all(Path(r["output"]).exists() for r in results.values() if r.get("output"))
 
 
+def _reference_records(reference: Path) -> list[Record]:
+    """The sequences of the reference: a fasta file, or the ORIGIN of a GenBank file (named after the record's
+    VERSION, as NCBI's fasta of the same record)."""
+    if not reference.is_file():
+        raise BaconError(f"Reference file not found: {reference}")
+    fmt = annotation_format(reference)
+    if fmt == "gff3":
+        raise BaconError(f"The reference must be a fasta or GenBank file, not GFF3: {reference} (give the GFF3 "
+                         "with --annotation)")
+    if fmt == "genbank":
+        records = genbank_fasta_records(reference)
+        names = [r.name for r in records]
+        if len(set(names)) != len(names):
+            raise BaconError(f"The reference has duplicate sequence names: {reference}")
+        return records
+    check_reference(reference)
+    return list(read_records(reference))
+
+
 def _prepare_reference(s: Settings) -> tuple[Path, int]:
-    lengths = check_reference(s.reference)
-    s.output.mkdir(parents=True, exist_ok=True)
-    local = s.output / "reference.fasta"
     # An uncompressed copy with plain names, upper case and N for ambiguity codes: every tool reads it (ska map is
     # case-sensitive, and SKA2 reads IUPAC codes as fixed bases), and it records what was used.
-    records = [Record(r.header, acgtn(r.seq)) for r in read_records(s.reference)]
+    records = [Record(r.header, acgtn(r.seq)) for r in _reference_records(s.reference)]
+    s.output.mkdir(parents=True, exist_ok=True)
+    local = s.output / "reference.fasta"
     tmp = local.with_suffix(".tmp")
     write_fasta(tmp, records)
     if not local.exists() or local.read_bytes() != tmp.read_bytes():
         tmp.replace(local)
     else:
         tmp.unlink()
-    return local, sum(n for _, n in lengths)
+    return local, sum(len(r.seq) for r in records)
+
+
+ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")
+
+
+def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | None:
+    """Validate the annotation (--annotation, or the GenBank reference itself) against the reference's sequences
+    and copy it, uncompressed, to OUTPUT/annotation.gb or annotation.gff3 for the report; a copy left by an earlier
+    run is removed when this run has no annotation."""
+    source = s.annotation or (s.reference if annotation_format(s.reference) == "genbank" else None)
+    if source is None:
+        for name in ANNOTATION_COPIES:
+            (s.output / name).unlink(missing_ok=True)
+        return None
+    sequences = [(r.name, len(r.seq)) for r in read_records(reference)]
+    annotation = load_annotation(source, sequences)
+    for warning in annotation.warnings:
+        log.warning("%s", warning)
+    copy = s.output / ("annotation.gb" if annotation.format == "genbank" else "annotation.gff3")
+    for name in ANNOTATION_COPIES:
+        if name != copy.name:
+            (s.output / name).unlink(missing_ok=True)
+    tmp = copy.with_suffix(".tmp")
+    with open_text(source) as src, open(tmp, "w", encoding="ascii", errors="replace") as dst:
+        for line in src:
+            dst.write(line)
+    if copy.exists() and copy.read_bytes() == tmp.read_bytes():
+        tmp.unlink()
+    else:
+        tmp.replace(copy)
+    log.info("Annotation %s: %d gene(s) on %d of the reference's %d sequence(s)%s", source.name, annotation.genes,
+             len(annotation.sequences), len(sequences),
+             "; LSC/IR/SSC regions" if annotation.has_regions else "")
+    return {"file": str(source), "format": annotation.format, "copy": copy.name, "genes": annotation.genes,
+            "sequences": len(annotation.sequences), "regions": annotation.has_regions,
+            "transl_tables": annotation.tables, "md5": hashlib.md5(source.read_bytes()).hexdigest()}
 
 
 def _add_notes(st: SampleState, genome_size: int) -> None:
@@ -344,6 +401,7 @@ def run(s: Settings) -> int:
     started = time.time()
     # Absolute paths: some tools run in their own working folder.
     s.output, s.reference = s.output.resolve(), s.reference.resolve()
+    s.annotation = s.annotation.resolve() if s.annotation else None
     s.input = s.input.resolve() if s.input else None
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
     s.add_genomes = [p.resolve() for p in s.add_genomes]
@@ -395,6 +453,7 @@ def _run(s: Settings, started: float) -> int:
     log.info("Reference %s: %s bp in %d sequence(s)%s", s.reference.name, f"{reference_length:,}",
              sum(1 for _ in read_records(reference)),
              f"; genome size set to {genome_size:,} bp" if s.genome_size else "")
+    annotation = _prepare_annotation(s, reference)  # Fails fast on a bad annotation; not part of any checkpoint
     log.info("%d sample(s): %s", len(samples), ", ".join(x.name for x in samples))
 
     states = [SampleState(x) for x in samples]
@@ -500,7 +559,7 @@ def _run(s: Settings, started: float) -> int:
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
         _apply(states, results, step)
         if all(st.failed for st in states):
-            _finish(s, states, tools, None, started)
+            _finish(s, states, tools, None, started, annotation)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")
 
     for st in states:
@@ -512,11 +571,11 @@ def _run(s: Settings, started: float) -> int:
                               fingerprint, bool(refreshed) or redo_from <= STEPS.index("compare"))
     except Exception as exc:  # The assemblies are still worth reporting
         message = str(exc).splitlines()[0] if isinstance(exc, BaconError) else f"{type(exc).__name__}: {exc}"
-        _finish(s, states, tools, {"failed": message}, started)
+        _finish(s, states, tools, {"failed": message}, started, annotation)
         if isinstance(exc, BaconError):
             raise
         raise BaconError(f"The comparison failed unexpectedly: {message}") from exc
-    _finish(s, states, tools, comparison, started)
+    _finish(s, states, tools, comparison, started, annotation)
     return 0
 
 
@@ -660,7 +719,7 @@ def _alignment_length(path: Path) -> int:
 
 
 def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], comparison: dict | None,
-            started: float) -> None:
+            started: float, annotation: dict[str, object] | None = None) -> None:
     rows = [summary_row(st) for st in states]
     write_tsv(s.output / "summary.tsv", SUMMARY_COLUMNS, rows)
     shown = ["Sample", "Status", "Baited_reads", "Filtered_reads", "Est_depth", "Contigs", "Assembly_length",
@@ -677,6 +736,7 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
                      if k != "command_line"},
         "tools": {name: {"path": path, "version": version(name)} for name, path in tools.items()},
         "reference": _reference_info(s),
+        "annotation": annotation,
         "samples": {st.sample.name: {"files": [str(f) for f in st.sample.files], "status": st.failed or "ok"}
                     for st in states},
         "comparison": comparison,
@@ -700,8 +760,8 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
 
 
 def _reference_info(s: Settings) -> dict[str, object]:
-    """The reference as given: its path, number of sequences, total length, and the MD5 of the file itself (not
-    of BACoN's normalized copy, reference.fasta)."""
+    """The reference as given: its path, number of sequences, total length, and the MD5 of the file itself (fasta
+    or GenBank; not of BACoN's normalized copy, reference.fasta)."""
     local = s.output / "reference.fasta"
     lengths = [len(r.seq) for r in read_records(local)] if local.exists() else []
     return {"file": str(s.reference), "sequences": len(lengths), "length": sum(lengths),

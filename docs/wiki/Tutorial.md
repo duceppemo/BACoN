@@ -23,9 +23,11 @@ while IFS=$'\t' read -r run alias url md5; do
 done < runs.tsv > md5.txt
 md5sum -c md5.txt
 
-# The reference: the plastome of cultivar Désirée
+# The reference: the plastome of cultivar Désirée, as fasta and as the annotated GenBank record
 curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_008096.2&rettype=fasta" \
     > NC_008096.2.fasta
+curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_008096.2&rettype=gbwithparts&retmode=text" \
+    > NC_008096.2.gb
 ```
 
 If an MD5 check fails, run the loop again: `curl -C -` resumes interrupted downloads.
@@ -33,11 +35,15 @@ If an MD5 check fails, run the loop again: `curl -C -` resumes interrupted downl
 ## 2. Run BACoN
 
 ```bash
-bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -t 32 -p 8
+bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -t 32 -p 8 --annotation NC_008096.2.gb
 ```
 
 The defaults: baiting with minimap2, Filtlong capping each sample at 100x, templated assembly with samtools,
-core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes.
+core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes. `--annotation` gives the report the genes
+and regions of the plastome and the effect of each SNP; it changes nothing else, so it can be added to a
+finished run (nothing is redone). `-r NC_008096.2.gb` alone does the same: the sequence of the GenBank record is
+the reference and its features the annotation, and `reference.fasta` is identical to the one made from the
+fasta.
 
 Open `bacon_potato/report.html` in a browser for everything below on one page. The report of this run is
 online:
@@ -79,6 +85,16 @@ away, and 15_22_4, 12–13 SNPs from both.
 `snps.vcf` gives the genotype of each cultivar at 135 SNP positions of the reference, more than the 118 SNP sites
 of the alignment: the alignment keeps the SNPs found in every genome and counts a SNP of the inverted repeat once,
 while the VCF lists every SNP position of the reference ([Outputs](Outputs#comparison)).
+
+With the annotation, the report's genome map shows the LSC, IRb, SSC and IRa regions and the genes, and the
+SNP table under it says where each SNP falls: 91 of the 135 are in the LSC, 31 in the SSC and 13 in the
+inverted repeats; 57 are in coding sequences (30 synonymous, 26 missense, and one that changes the stop codon of
+*ndhF* into another), 14 in introns, 2 in rRNA genes, 3 in pseudogenes, 1 in *sprA* (a small plastid RNA, annotated as a
+gene only) and 59 are intergenic (one SNP, where the end of *ndhF* overlaps the *ycf1*
+pseudogene, is counted for both). *ndhA* and *ycf1* carry 7 SNPs each, *ndhF* 6. For example, the SNP at
+position 2,669 (C>T, carried by the 16 cultivars of lineage B) changes codon 333 of *matK* from GAC to AAC
+(D333N), and the one at 883 (T>C, in 15-27-1; Legenda has no call there) codon 243 of *psbA* from GAA to GGA
+(E243G).
 
 ![Tree of the 28 potato plastomes](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/tutorial_potato_tree.svg)
 

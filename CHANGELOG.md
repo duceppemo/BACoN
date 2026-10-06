@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+- Reference annotations: `--annotation FILE` (GenBank or GFF3, gzipped or not), or a GenBank file as `-r`
+  (its sequence is the reference, named as in NCBI's fasta of the record, and its features the annotation).
+  The report's genome map then shows the genes of each strand, the LSC/IRb/SSC/IRa regions of a plastome
+  derived from its inverted repeats, and labels for the genes with the most SNPs, and a new sortable table
+  gives each SNP's region, gene, context and effect on the coding sequence (codon and amino-acid change,
+  synonymous/missense/nonsense/stop lost or retained/start lost or retained; translation table 11 unless the annotation
+  says otherwise). The annotation is for the report only: it is not part of any checkpoint, so adding it to a
+  finished run reruns nothing; it is copied to `OUTPUT/annotation.gb` or `.gff3` and recorded in
+  `run_info.json`. `snps.vcf` is unchanged.
+
 ### Changed
 - `report.html` has a new look (light and dark themes, numbered figures) and new figures: bar charts of the
   depth and of the `N` bases of each sample; the tree drawn with a coloured square for each group of identical

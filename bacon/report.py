@@ -15,6 +15,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from bacon.annotation import (
+    Annotation,
+    Gene,
+    Region,
+    SequenceAnnotation,
+    SnpAnnotation,
+    annotate_snps,
+    load_annotation,
+)
 from bacon.newick import Node, ladderize, parse
 from bacon.seqio import read_records, split_extension
 
@@ -26,6 +35,11 @@ MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longes
 GROUP_COLOURS = 8  # Groups of identical genomes with a colour of their own (--s1 to --s8); the others share grey
 N_LABELS = 5  # Bars labelled in the N-bases chart (the largest values)
 FIG_WIDTH = 1120
+MAX_GENE_RECTS = 1500  # Above this many genes in the map, the gene rows are merged per pixel, without names
+MAX_GENE_LABELS = 40  # Genes labelled in the map: those with the most SNPs (at least MIN_LABEL_SNPS)
+MIN_LABEL_SNPS = 2
+MAX_SNP_ROWS = 3000  # Rows of the SNP table
+ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")  # The copy made by the run, in the output folder
 
 TABLE_COLUMNS = [
     ("Sample", "Sample"), ("Status", "Status"), ("Raw_reads", "Raw reads"), ("Baited_reads", "Baited reads"),
@@ -494,23 +508,140 @@ def n_per_bin(assemblies: list[Path], sequences: list[tuple[str, int]], bin_bp: 
     return counts
 
 
+def _gene_class(g: Gene) -> str:
+    return {"CDS": "gene-cds", "tRNA": "gene-rna", "rRNA": "gene-rna", "ncRNA": "gene-rna",
+            "pseudogene": "gene-pseudo"}.get(g.kind, "gene-other")
+
+
+def _gene_title(g: Gene) -> str:
+    text = (f"{g.name}: {g.kind_text()}, {'+' if g.strand > 0 else '−'} strand, {g.start:,}–{g.end:,} "
+            f"({g.length:,} bp)")
+    if g.product and g.product != g.name:
+        text += f", {g.product}"
+    if g.snps:
+        text += f"; {g.snps} SNP{'s' if g.snps != 1 else ''}"
+    return esc(text)
+
+
+def snp_text(info: SnpAnnotation) -> str:
+    """One line for a SNP: region, gene(s) and context, and the effects (escaped)."""
+    parts = [info.region] if info.region else []
+    if info.genes:
+        names = ", ".join(dict.fromkeys(g.name for g in info.genes))
+        parts.append(f"{names} ({info.context})")
+    else:
+        parts.append(info.context)
+    if info.effects:
+        several = len({e.gene for e in info.effects}) > 1 or len({e.alt for e in info.effects}) > 1
+        parts.append("; ".join((f"{e.gene} {e.alt}: " if several else "") + f"{e.kind} {e.change} ({e.codons})"
+                               for e in info.effects))
+    return esc(" · ".join(parts))
+
+
+def place_labels(genes: list[Gene], left: float, right: float, scale: float,
+                 size: float = 9.5) -> tuple[list[tuple[float, int, Gene]], int]:
+    """Labels for the genes with the most SNPs (MIN_LABEL_SNPS or more, MAX_GENE_LABELS at most), centred on
+    their gene, on up to two rows so that they do not overlap; (x, row, gene) and the number of rows used."""
+    chosen = sorted((g for g in genes if g.snps >= MIN_LABEL_SNPS), key=lambda g: (-g.snps, g.start))
+    chosen = sorted(chosen[:MAX_GENE_LABELS], key=lambda g: g.start)
+    ends = [-1e9, -1e9]
+    placed = []
+    for g in chosen:
+        half = _text_px(g.name, size) / 2
+        x = min(max(left + ((g.start + g.end) / 2 - 1) * scale, left + half), right - half)
+        for row, end in enumerate(ends):
+            if x - half >= end + 6:
+                ends[row] = x + half
+                placed.append((x, row, g))
+                break
+    return placed, max((row for _, row, _ in placed), default=-1) + 1
+
+
+def _band(regions: list[Region], length: int, left: float, scale: float, y: float) -> list[str]:
+    """The region band: one block per region (a region spanning the origin is drawn in two pieces, labelled on
+    the longer one), with its name and length when they fit."""
+    parts = []
+    for r in regions:
+        pieces = [(r.start, r.end)] if r.start <= r.end else [(r.start, length), (1, r.end)]
+        pieces.sort(key=lambda p: -(p[1] - p[0]))
+        cls = "band-ir" if r.name.upper().startswith("IR") else "band-sc"
+        title = esc(f"{r.name}: {r.start:,}–{r.end:,} ({r.length:,} bp)")
+        for i, (s, e) in enumerate(pieces):
+            x, w = left + (s - 1) * scale, (e - s + 1) * scale
+            parts.append(f'<rect x="{x:.1f}" y="{y}" width="{max(w - 1, 0.5):.1f}" height="12" class="{cls}">'
+                         f'<title>{title}</title></rect>')
+            if i == 0:
+                for label in (f"{r.name} {r.length:,} bp", r.name):
+                    if _text_px(label, 9.5) + 8 <= w:
+                        parts.append(f'<text x="{x + w / 2:.1f}" y="{y + 9.5}" text-anchor="middle" '
+                                     f'class="t-tiny t-ink2">{esc(label)}</text>')
+                        break
+    return parts
+
+
+def _gene_rows(seq_ann: SequenceAnnotation, left: float, right: float, scale: float, y: float,
+               dense: bool) -> list[str]:
+    """The two gene rows (+ strand above the centre line, − strand below): one rectangle per gene with its name
+    on hover, or, when the map has too many genes (dense), the pixel columns covered by genes."""
+    parts = [f'<line x1="{left}" y1="{y + 9.5}" x2="{right:.1f}" y2="{y + 9.5}" class="grid"/>']
+    rows = {1: y, -1: y + 12}
+    if not dense:
+        for g in seq_ann.genes:
+            for s, e in g.extent:
+                w = max(1.5, (e - s + 1) * scale - 0.5)
+                parts.append(f'<rect x="{left + (s - 1) * scale:.1f}" y="{rows[g.strand]}" width="{w:.1f}" '
+                             f'height="7" class="{_gene_class(g)}"><title>{_gene_title(g)}</title></rect>')
+        return parts
+    for strand, row_y in rows.items():
+        columns: dict[int, list[str]] = {}
+        for g in seq_ann.genes:
+            if g.strand != strand:
+                continue
+            for px in range(int((g.start - 1) * scale), int(g.end * scale) + 1):
+                columns.setdefault(px, []).append(g.name)
+        run: list[int] = []
+        for px in sorted(columns) + [None]:  # type: ignore[list-item]
+            if run and (px is None or px != run[-1] + 1):
+                names = sorted({n for p in run for n in columns[p]})
+                title = f"{len(names)} gene{'s' if len(names) != 1 else ''}: " + ", ".join(names[:4]) \
+                    + (" …" if len(names) > 4 else "")
+                parts.append(f'<rect x="{left + run[0]:.1f}" y="{row_y}" width="{run[-1] - run[0] + 1}" '
+                             f'height="7" class="gene-dense"><title>{esc(title)}</title></rect>')
+                run = []
+            if px is not None:
+                run.append(px)
+    return parts
+
+
 def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
-               n_tracks: dict[str, list[int]] | None = None, n_bin: int = 1000) -> str:
+               n_tracks: dict[str, list[int]] | None = None, n_bin: int = 1000,
+               annotation: Annotation | None = None,
+               snp_info: dict[tuple[str, int], SnpAnnotation] | None = None) -> str:
     """One axis per reference sequence (widths proportional to their lengths), a track of SNP positions and,
-    when given, a track of N bases per bin on a log scale."""
+    when given, a track of N bases per bin on a log scale. With an annotation: a band of the plastome regions,
+    the genes of each strand above and below a centre line, labels for the genes with the most SNPs, and the
+    gene, context and effect of each SNP on hover."""
     width = FIG_WIDTH
     left, right = 118, width - 20
     longest = max((length for _, length in sequences), default=1) or 1
     scale = (right - left) / longest
     pixel_bp = max(1, math.ceil(longest / (right - left)))
     tick_bp = _nice_ceil(longest / 12)
+    annotated = {name: annotation.sequences[name] for name, _ in sequences
+                 if annotation is not None and name in annotation.sequences}
+    dense = sum(len(a.genes) for a in annotated.values()) > MAX_GENE_RECTS
+    labels = {name: ([], 0) if dense else place_labels(a.genes, left, right, scale)
+              for name, a in annotated.items()}
+    extra = {name: (16 if a.regions else 0) + 22 + (labels[name][1] * 11 + 6 if labels[name][1] else 0)
+             for name, a in annotated.items()}
     block = 30 + 38 + (76 if n_tracks is not None else 0)
-    height = 8 + block * len(sequences) + 36
+    height = 8 + block * len(sequences) + sum(extra.values()) + 36
     parts = [_svg(width, height, "SNP positions along the reference")]
     binned: dict[str, dict[int, list[Snp]]] = {}
     for s in snps:
         binned.setdefault(s.chrom, {}).setdefault(s.pos // pixel_bp, []).append(s)
     n_max = max((v for track in (n_tracks or {}).values() for v in track), default=0)
+    info = snp_info or {}
     y = 8
     for name, length in sequences:
         end = left + length * scale
@@ -526,7 +657,23 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
             parts.append(f'<text x="{x:.1f}" y="{ya + 15}" text-anchor="middle" class="t-tiny t-muted">{label}'
                          '</text>')
             tick += tick_bp
-        ys = ya + 24
+        yb = ya + 22
+        if name in annotated:
+            seq_ann = annotated[name]
+            if seq_ann.regions:
+                parts += _band(seq_ann.regions, length, left, scale, yb)
+                yb += 16
+            parts.append(f'<text x="{left - 6}" y="{yb + 7}" text-anchor="end" class="t-tiny t-muted">+</text>')
+            parts.append(f'<text x="{left - 6}" y="{yb + 19}" text-anchor="end" class="t-tiny t-muted">−</text>')
+            parts += _gene_rows(seq_ann, left, end, scale, yb, dense)
+            yb += 22
+            placed, rows = labels[name]
+            for x, row, g in placed:
+                parts.append(f'<text x="{x:.1f}" y="{yb + 8 + row * 11:.1f}" text-anchor="middle" '
+                             f'class="t-tiny t-ink2 t-gene">{esc(g.name)}<title>{_gene_title(g)}</title></text>')
+            if rows:
+                yb += rows * 11 + 6
+        ys = yb + 2
         parts.append(f'<text x="{left - 6}" y="{ys + 12}" text-anchor="end" class="t-small t-muted">SNPs</text>')
         parts.append(f'<line x1="{left}" y1="{ys + 18}" x2="{end:.1f}" y2="{ys + 18}" class="grid"/>')
         for _px, group in sorted(binned.get(name, {}).items()):
@@ -537,12 +684,16 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
                          f"{s.alt_count} of {genomes} genomes; "
                          + (f"{s.missing} missing call{'s' if s.missing != 1 else ''}" if s.missing
                             else "called in every genome"))
+                if (s.chrom, s.pos) in info:
+                    title += ". " + snp_text(info[(s.chrom, s.pos)])
                 missing = s.missing > 0
             else:
                 incomplete = sum(1 for s in group if s.missing)
                 title = (f"{len(group)} SNPs at {esc(name)}:{group[0].pos:,}–{group[-1].pos:,}; {incomplete} with "
                          "a missing call. " + " ".join(f"{s.pos:,} {esc(s.ref)}&gt;{esc(s.alt)} ({s.alt_count} alt"
                                                        + (f", {s.missing} missing)" if s.missing else ")")
+                                                       + (f" {snp_text(info[(s.chrom, s.pos)])}"
+                                                          if (s.chrom, s.pos) in info else "")
                                                        for s in group[:8])
                          + (" …" if len(group) > 8 else ""))
                 missing = incomplete > 0
@@ -571,7 +722,7 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
             if name == sequences[0][0]:
                 parts.append(f'<text x="{left + 4}" y="{y_n + 9}" class="t-tiny t-muted">max {n_max:,} N per '
                              f'{unit} (log scale)</text>')
-        y += block
+        y += block + extra.get(name, 0)
     ly = height - 14
     legend = [("snp-all", "SNP called in every genome"), ("snp-miss", "SNP with a missing call in some genomes")]
     lx = left
@@ -579,6 +730,18 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
         parts.append(f'<line x1="{lx + 4}" y1="{ly - 10}" x2="{lx + 4}" y2="{ly + 2}" class="{c}"/>')
         parts.append(f'<text x="{lx + 12}" y="{ly}" class="t-small t-ink2">{label}</text>')
         lx += 12 + _text_px(label, 11) + 24
+    if annotated:
+        kinds = {g.kind for a in annotated.values() for g in a.genes}
+        swatches = [("gene-dense", "gene")] if dense else [
+            (cls, label) for cls, label, present in (
+                ("gene-cds", "protein-coding gene", "CDS" in kinds),
+                ("gene-rna", "tRNA, rRNA", kinds & {"tRNA", "rRNA", "ncRNA"}),
+                ("gene-pseudo", "pseudogene", "pseudogene" in kinds), ("gene-other", "other", "other" in kinds))
+            if present]
+        for cls, label in swatches:
+            parts.append(f'<rect x="{lx:.0f}" y="{ly - 9}" width="10" height="8" class="{cls}"/>')
+            parts.append(f'<text x="{lx + 14:.0f}" y="{ly}" class="t-small t-ink2">{label}</text>')
+            lx += 14 + _text_px(label, 11) + 18
     parts.append("</svg>")
     return "".join(parts)
 
@@ -689,6 +852,14 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
         else:
             parts.append(f"A tree was built on {on} with FastTree{_tool(info, 'FastTree')} (GTR, SH-like supports "
                          "from 100 resamples) and rooted at its midpoint.")
+    annotation = info.get("annotation") or {}
+    if annotation.get("file"):
+        tables = [str(t) for t in annotation.get("transl_tables") or []] or ["11"]
+        table_text = tables[0] if len(tables) == 1 else f"{', '.join(tables[:-1])} and {tables[-1]}"
+        name = html.escape(Path(annotation["file"]).name)
+        parts.append(f"Genes and regions were read from the annotation {name}; the effect of each SNP on the "
+                     "coding sequences (codon and amino-acid change) was derived by BACoN with translation table "
+                     f"{table_text}.")
     parts.append(f"The analysis was run with BACoN {html.escape(str(info.get('bacon_version', '')))} "
                  "(https://github.com/duceppemo/BACoN).")
     return " ".join(parts)
@@ -750,6 +921,9 @@ margin:8px 0;break-inside:avoid}}
 .branch{{stroke:var(--ink2);stroke-width:1.5;fill:none;stroke-linecap:square}}
 .bar{{fill:var(--s1)}}.bar0{{fill:var(--axis)}}.nbar{{fill:var(--muted)}}
 .snp-all{{stroke:var(--s1);stroke-width:1.5}}.snp-miss{{stroke:var(--s2);stroke-width:1.5}}
+.gene-cds{{fill:var(--s3)}}.gene-rna{{fill:var(--s7)}}.gene-pseudo{{fill:var(--s3);opacity:.35}}
+.gene-other{{fill:var(--muted)}}.gene-dense{{fill:var(--ink2);opacity:.55}}
+.band-ir{{fill:var(--q1);opacity:.55}}.band-sc{{fill:var(--q0)}}.t-gene{{font-style:italic}}
 g.q0 rect{{fill:var(--q0)}}g.q1 rect{{fill:var(--q1)}}g.q2 rect{{fill:var(--q2)}}g.q3 rect{{fill:var(--q3)}}
 g.q4 rect{{fill:var(--q4)}}
 g.q0 text{{fill:var(--qt0)}}g.q1 text{{fill:var(--qt1)}}g.q2 text{{fill:var(--qt2)}}g.q3 text{{fill:var(--qt3)}}
@@ -763,11 +937,13 @@ th{{position:sticky;top:0;background:var(--surface);color:var(--ink2);font-weigh
 td{{font-variant-numeric:tabular-nums}}
 tbody tr:hover{{background:var(--bg)}}
 table.samples{{font-size:12px}}table.samples th,table.samples td{{padding:4px 6px}}
-table.samples th{{cursor:pointer;user-select:none}}
-table.samples th:after{{content:" \\2195";color:var(--muted);font-size:11px}}
-table.samples th:hover{{color:var(--ink)}}
-table.samples th.num,table.samples td.num{{text-align:right}}
+table.sortable th{{cursor:pointer;user-select:none}}
+table.sortable th:after{{content:" \\2195";color:var(--muted);font-size:11px}}
+table.sortable th:hover{{color:var(--ink)}}
+table.sortable th.num,table.sortable td.num{{text-align:right}}
 table.samples td.note{{white-space:normal;min-width:200px}}
+table.snps td.gene{{font-style:italic}}table.snps td.ctx{{white-space:normal;min-width:160px}}
+.tablewrap.tall{{max-height:480px;overflow-y:auto}}
 .bad{{background:var(--bad-bg);color:var(--bad-fg)}}
 .warn{{background:var(--warn-bg);color:var(--warn-fg)}}
 .info{{background:var(--info-bg);color:var(--info-fg)}}
@@ -788,7 +964,7 @@ dd{{margin:0;word-break:break-all}}
 """
 
 SORT_JS = """
-document.querySelectorAll('table.samples th').forEach(function (th, i) {
+document.querySelectorAll('table.sortable th').forEach(function (th, i) {
   th.addEventListener('click', function () {
     var table = th.closest('table'), body = table.tBodies[0], rows = Array.from(body.rows);
     var ascending = th.dataset.asc !== '1', numeric = th.classList.contains('num');
@@ -823,7 +999,7 @@ class _Figures:
 
 
 def _samples_table(rows: list[dict[str, str]]) -> str:
-    out = ['<div class="tablewrap"><table class="samples"><thead><tr>'
+    out = ['<div class="tablewrap"><table class="samples sortable"><thead><tr>'
            + "".join(f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>'
                      for key, label in TABLE_COLUMNS) + "</tr></thead><tbody>"]
     for r in rows:
@@ -998,7 +1174,9 @@ def build_report(output: Path) -> str:
         vcf = located("vcf")
         reference = output / "reference.fasta"
         if vcf is not None and vcf.exists() and reference.exists():
-            out.append(_genome_map_section(output, vcf, reference, settings, figures, len(order)))
+            out.append(_genome_map_section(output, vcf, reference, settings, figures, len(order),
+                                           annotation_file(output, info),
+                                           (info.get("annotation") or {}).get("file")))
     for note in notes:
         out.append(f'<p class="warn">{esc(note)}.</p>')
 
@@ -1017,10 +1195,92 @@ def build_report(output: Path) -> str:
     return "\n".join(out) + "\n"
 
 
+def annotation_file(output: Path, info: dict) -> Path | None:
+    """The copy of the annotation made by the run (`annotation.gb` or `annotation.gff3` in the output folder)."""
+    annotation = info.get("annotation") or {}
+    names = [annotation["copy"]] if isinstance(annotation.get("copy"), str) else []
+    for name in [*names, *ANNOTATION_COPIES]:
+        if (output / name).is_file():
+            return output / name
+    return None
+
+
+CONTEXTS = [("CDS", "in coding sequences"), ("intron", "in introns"), ("tRNA", "in tRNA genes"),
+            ("rRNA", "in rRNA genes"), ("ncRNA", "in non-coding RNA genes"), ("pseudogene", "in pseudogenes"),
+            ("UTR", "in untranslated regions"), ("gene", "in other genes"), ("intergenic", "intergenic")]
+EFFECTS = ["synonymous", "missense", "nonsense", "stop lost", "stop retained", "start lost", "start retained"]
+
+
+def snp_summary(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], annotation: Annotation) -> str:
+    """One paragraph: SNPs per region, per context, the effects, and the genes with the most SNPs."""
+    annotated = [info[(s.chrom, s.pos)] for s in snps if (s.chrom, s.pos) in info]
+    sentences = [f"{len(annotated):,} SNP{'s' if len(annotated) != 1 else ''} on the annotated sequences"]
+    if not annotated:
+        return sentences[0] + "."
+    regions = [r.name for a in annotation.sequences.values() for r in a.regions]
+    if regions:
+        counts = {name: sum(1 for a in annotated if a.region == name) for name in dict.fromkeys(regions)}
+        sentences[0] += ": " + ", ".join(f"{n:,} in the {name}" if name in ("LSC", "SSC") else f"{n:,} in {name}"
+                                        for name, n in counts.items() if n)
+    contexts = {}
+    for a in annotated:
+        for key in a.context.split(" / "):
+            contexts[key.split(" ")[0]] = contexts.get(key.split(" ")[0], 0) + 1
+    effects = {kind: sum(1 for a in annotated for e in a.effects if e.kind == kind) for kind in EFFECTS}
+    effect_text = ", ".join(f"{n:,} {kind}" for kind, n in effects.items() if n)
+    items = []
+    for key, label in CONTEXTS:
+        if contexts.get(key):
+            detail = f" ({effect_text})" if key == "CDS" and effect_text else ""
+            items.append(f"{contexts[key]:,} {label}{detail}")
+    if items:
+        overlap = sum(contexts.values()) > len(annotated)
+        note = " (a SNP where genes overlap is counted for each)" if overlap else ""
+        sentences.append("; ".join(items) + note)
+    genes = sorted({id(g): g for a in annotated for g in a.genes}.values(), key=lambda g: (-g.snps, g.name))
+    top = [g for g in genes if g.snps >= MIN_LABEL_SNPS][:5]
+    if top:
+        sentences.append("Genes with the most SNPs: " + ", ".join(f"<i>{esc(g.name)}</i> ({g.snps})" for g in top))
+    return ". ".join(sentences) + "."
+
+
+def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genomes: int,
+              regions: bool = True) -> str:
+    """One row per SNP of the VCF: position, alleles, region (when there is a region band), gene, context, codon
+    and amino-acid change, effect, genomes with the alternate allele and genomes without a call. Sortable."""
+    columns = [("Position", "num"), ("REF>ALT", ""), *([("Region", "")] if regions else []), ("Gene", "gene"),
+               ("Context", "ctx"), ("Codon", ""), ("Amino acid", ""), ("Effect", "ctx"), ("ALT genomes", "num"),
+               ("Missing", "num")]
+    out = ['<div class="tablewrap tall"><table class="snps sortable"><thead><tr>'
+           + "".join(f'<th class="{cls}">{esc(label)}</th>' for label, cls in columns) + "</tr></thead><tbody>"]
+    for s in snps[:MAX_SNP_ROWS]:
+        a = info.get((s.chrom, s.pos))
+        if a is None:
+            cells = [""] * (len(columns) - 4)
+        else:
+            several = len({e.gene for e in a.effects}) > 1 or len({e.alt for e in a.effects}) > 1
+            prefix = (lambda e: f"{e.gene} {e.alt}: ") if several else (lambda e: "")
+            cells = [*([a.region] if regions else []), ", ".join(dict.fromkeys(g.name for g in a.genes)),
+                     a.context, "; ".join(prefix(e) + e.codons for e in a.effects),
+                     "; ".join(prefix(e) + e.change for e in a.effects),
+                     "; ".join(prefix(e) + e.kind for e in a.effects)]
+        values = [(str(s.pos), f"{s.pos:,}"), (f"{s.ref}>{s.alt}", f"{s.ref}>{s.alt}"), *((c, c) for c in cells),
+                  (str(s.alt_count), f"{s.alt_count}"), (str(s.missing), f"{s.missing}")]
+        out.append("<tr>" + "".join(f'<td class="{cls}" data-v="{esc(v)}">{esc(shown) or "–"}</td>'
+                                    for (_, cls), (v, shown) in zip(columns, values)) + "</tr>")
+    out.append("</tbody></table></div>")
+    if len(snps) > MAX_SNP_ROWS:
+        out.append(f'<p class="meta">The first {MAX_SNP_ROWS:,} of the {len(snps):,} SNPs, by position; the rest '
+                   "are in the VCF.</p>")
+    return "".join(out)
+
+
 def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict, figures: _Figures,
-                        genomes: int) -> str:
+                        genomes: int, annotation_path: Path | None = None,
+                        annotation_name: str | None = None) -> str:
     try:
-        sequences = read_sequences(reference)
+        records = list(read_records(reference))
+        sequences = [(rec.name, len(rec.seq)) for rec in records]
         snps, columns = read_vcf(vcf)
     except Exception as exc:  # noqa: BLE001 - a malformed file loses its figure, not the report
         return f'<p class="meta">No genome map: {esc(str(exc))}.</p>'
@@ -1035,6 +1295,18 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
         left_out = sum(1 for s in snps if s.chrom not in names)
         skipped = (f" The {len(sequences) - len(drawn)} shorter sequences of the reference ({left_out} SNPs) are "
                    "not drawn.")
+    annotation: Annotation | None = None
+    snp_info: dict[tuple[str, int], SnpAnnotation] = {}
+    notes: list[str] = []
+    if annotation_path is not None:
+        try:
+            annotation = load_annotation(annotation_path, sequences)
+            seqs = {rec.name: rec.seq for rec in records}
+            snp_info = annotate_snps(annotation, [(s.chrom, s.pos, s.ref, s.alt) for s in snps], seqs)
+            notes += annotation.warnings
+        except Exception as exc:  # noqa: BLE001 - a bad annotation loses the annotation, not the map
+            annotation = None
+            notes.append(f"The annotation {annotation_path.name} could not be used: {exc}")
     assembler = settings.get("assembler")
     n_tracks = None
     n_bin = 1000
@@ -1064,11 +1336,34 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
     binned = (f" Ticks closer than {pixel_bp:,} bp are merged; hover shows the SNPs of a tick."
               if pixel_bp > 1 else "")
     genomes_text = f"{columns} genomes" if columns else f"{genomes} genomes"
-    return ("<h2>Genome map</h2>" + genome_map(drawn, snps, columns or genomes, n_tracks, n_bin)
-            + figures.caption(f"SNP positions along the reference ({len(snps):,} records of the VCF, {missing:,} "
-                              f"with a missing call in at least one of the {genomes_text}). Hover a tick for the "
-                              "position, the alleles and the number of genomes with the alternate allele."
-                              f"{binned}{n_text}{skipped}"))
+    hover = "the position, the alleles and the number of genomes with the alternate allele"
+    gene_text = ""
+    if annotation is not None and annotation.sequences:
+        count = sum(len(a.genes) for a in annotation.sequences.values())
+        dense = count > MAX_GENE_RECTS
+        hover += ", with the gene, its context and the effect of the SNP"
+        shown = Path(annotation_name).name if annotation_name else annotation_path.name  # The file as given
+        gene_text = (f" Genes from <b>{esc(shown)}</b> ({count:,}): the + strand above the centre "
+                     "line, the − strand below"
+                     + (", merged per pixel (too many to name)." if dense else
+                        "; hover a gene for its name and coordinates. Genes with "
+                        f"{MIN_LABEL_SNPS} or more SNPs are labelled"
+                        + (f" (the {MAX_GENE_LABELS} with the most)." if any(
+                            sum(1 for g in a.genes if g.snps >= MIN_LABEL_SNPS) > MAX_GENE_LABELS
+                            for a in annotation.sequences.values()) else ".")))
+        if annotation.has_regions:
+            gene_text += " The band above the genes shows the regions derived from the annotated inverted repeats."
+    out = ["<h2>Genome map</h2>",
+           genome_map(drawn, snps, columns or genomes, n_tracks, n_bin, annotation, snp_info),
+           figures.caption(f"SNP positions along the reference ({len(snps):,} records of the VCF, {missing:,} "
+                           f"with a missing call in at least one of the {genomes_text}). Hover a tick for {hover}."
+                           f"{binned}{gene_text}{n_text}{skipped}")]
+    out += [f'<p class="warn">{esc(note)}.</p>' for note in notes]
+    if annotation is not None and annotation.sequences and snps:
+        out.append(f'<h3>SNPs</h3><p class="meta">{snp_summary(snps, snp_info, annotation)} Click a column to '
+                   "sort.</p>")
+        out.append(snp_table(snps, snp_info, columns or genomes, annotation.has_regions))
+    return "".join(out)
 
 
 def write_report(output: Path) -> Path:

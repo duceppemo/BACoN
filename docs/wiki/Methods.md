@@ -99,6 +99,38 @@ substitutions per variable site.
 At least three assemblies are needed for a comparison. When no SNP site is shared by all the genomes (for
 example with fragmented assemblies), the distances are written but no tree is built.
 
+## 5. SNP effects
+
+With an annotation of the reference (`--annotation`, or a GenBank reference), the report places each SNP of
+`snps.vcf` on the reference's genes. BACoN reads GenBank feature tables (`gene`, `CDS`, `tRNA`, `rRNA`, their
+locations with `join`, `complement`, `order`, partial ends and trans-splicing, `/codon_start`,
+`/transl_table`, `/pseudo`) and GFF3 (features linked by `ID` and `Parent`, the phase column, `pseudogene`
+features); a CDS or RNA feature belongs to the gene feature of the same name that overlaps it, or is a gene of
+its own. A gene is named after its `gene` qualifier, else `locus_tag`, `product` or `ID`.
+
+For a SNP inside a coding sequence, BACoN rebuilds the coding sequence from the reference (the exons in the
+order of translation, reverse-complemented on the − strand, from the base given by `codon_start`), finds the
+codon containing the SNP, substitutes the alternate allele (complemented on the − strand) and translates both
+codons with the CDS's translation table (`/transl_table`, otherwise table 11, the bacterial and plastid code;
+tables 1, 4 and 11 are known, others use the standard code with table 11's start codons). The effect is
+`synonymous`, `missense`, `nonsense` (a stop codon gained), `stop lost`, `stop retained` (a stop codon changed into another), and for the initiation codon of a
+complete CDS `start lost` or `start retained` (the new codon is another start codon of the table, such as GTG
+in table 11). No effect is given when the codon is incomplete (a partial CDS), contains `N`, or when the VCF's
+reference allele does not match the reference. RNA editing (plastid ACG start codons, for example) is not
+modelled. Pseudogenes get no effect. Each alternate allele, and each of two overlapping coding sequences, gets
+an effect of its own.
+
+Outside coding sequences, the context is the gene's type (tRNA, rRNA), `intron` when the position lies
+between two exons of a gene, or `intergenic between X and Y`, the nearest genes on either side (around the
+origin when the annotation says the sequence is circular). A trans-spliced gene (plastid *rps12*) has no
+intron between its distant parts.
+
+The LSC/IRb/SSC/IRa band of a plastome is derived from the annotated inverted repeats (`repeat_region` with
+`/rpt_type=inverted`, or any region feature whose note names an inverted repeat, IRa or IRb), when there are
+exactly two of at least 500 bp: the single-copy regions are the gaps between them, the larger one being the
+LSC, and the repeat following the LSC is IRb unless the annotation names them; one region may span the origin.
+Without annotated inverted repeats, there is no band.
+
 ## Choices that changed in 0.3
 
 | 0.2 | 0.3 | Why |

@@ -454,3 +454,145 @@ def test_genome_map_without_any_n_base(tmp_path):
                    "chr\t3\t.\tG\tT\t.\t.\t.\tGT\t1\n")
     html_text = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1)
     assert "none of the 1 templated assemblies has an N base" in html_text and "N per" not in html_text
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Annotations: gene track, region band, SNP table
+# ---------------------------------------------------------------------------------------------------------------
+
+def _genbank(name="c1", length=4000, genes=True, repeats=True, gene_name="genA"):
+    """A GenBank record of `length` bp of ACGT repeats: a + strand CDS at 1..300 (codon 2 is TAC: position 5 is
+    its middle base), a - strand tRNA at 2000..2072, and two inverted repeats making LSC/IRb/SSC/IRa."""
+    seq = ("ACGT" * (length // 4 + 1))[:length]
+    features = ""
+    if genes:
+        features += (f"     gene            1..300\n                     /gene=\"{gene_name}\"\n"
+                     f"     CDS             1..300\n                     /gene=\"{gene_name}\"\n"
+                     "                     /codon_start=1\n                     /transl_table=11\n"
+                     "                     /product=\"protein A\"\n"
+                     "     gene            complement(2000..2072)\n                     /gene=\"trnQ\"\n"
+                     "     tRNA            complement(2000..2072)\n                     /gene=\"trnQ\"\n")
+    if repeats:
+        features += ("     repeat_region   1001..1600\n                     /rpt_type=inverted\n"
+                     "     repeat_region   2401..3000\n                     /rpt_type=inverted\n")
+    origin = "\n".join(f"{i + 1:>9} " + " ".join(seq[j:j + 10].lower() for j in range(i, min(i + 60, length), 10))
+                       for i in range(0, length, 60))
+    return (f"LOCUS       {name}  {length} bp    DNA     circular PLN 01-JAN-2026\nDEFINITION  A test.\n"
+            f"VERSION     {name}\nFEATURES             Location/Qualifiers\n{features}ORIGIN      \n{origin}\n//\n")
+
+
+def _annotated_run(tmp_path, **kw):
+    out = _full_run(tmp_path)
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(  # 101 is the middle base of codon 34 (TAC) of the CDS
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        "c1\t101\t.\tA\tG\t.\t.\t.\tGT\t1\t0\nc1\t2500\t.\tT\tC\t.\t.\t.\tGT\t1\t.\n")
+    (out / "annotation.gb").write_text(_genbank(**kw))
+    info = json.loads((out / "run_info.json").read_text())
+    info["annotation"] = {"file": "/x/NC_1.gb", "format": "genbank", "copy": "annotation.gb", "transl_tables": [11]}
+    (out / "run_info.json").write_text(json.dumps(info))
+    return out
+
+
+def test_report_with_annotation_draws_genes_regions_and_the_snp_table(tmp_path):
+    page = build_report(_annotated_run(tmp_path))
+    assert 'class="gene-cds"' in page and 'class="gene-rna"' in page and 'class="band-ir"' in page
+    assert "LSC 2,000 bp" in page and "IRb 600 bp" in page and "SSC 800 bp" in page and "IRa 600 bp" in page
+    assert "<b>Figure 5.</b>" in page and "<b>Figure 6.</b>" not in page  # The map is still one figure
+    assert "Genes from <b>NC_1.gb</b> (2)" in page  # The file as given, not BACoN's copy and "regions derived from the annotated inverted" in page
+    # The SNP at 101 (A>G) is in the CDS: codon 34 is TAC (positions 100..102), so A>G gives TGC: Y34C
+    assert "<h3>SNPs</h3>" in page and 'class="snps sortable"' in page
+    assert '<td class="gene" data-v="genA">genA</td>' in page and ">TAC&gt;TGC<" in page and ">Y34C<" in page
+    assert ">missense<" in page and "2 SNPs on the annotated sequences: 1 in IRa, 1 in the LSC" in page
+    assert "1 in coding sequences (1 missense); 1 intergenic" in page
+    assert "intergenic between trnQ and genA" in page  # 2,500 is in IRa, after the tRNA, wrapping to genA
+    assert "genA (CDS) · missense Y34C (TAC&gt;TGC)" in page  # The SNP tick's hover
+    assert "read from the annotation NC_1.gb" in page and "translation table 11" in page  # Methods
+    assert 'class="t-tiny t-ink2 t-gene"' not in page  # genA has one SNP: no label
+
+
+def test_report_without_annotation_has_no_gene_track(tmp_path):
+    page = build_report(_full_run(tmp_path))
+    assert 'class="gene-' not in page and "<h3>SNPs</h3>" not in page and "Genes from" not in page
+
+
+def test_report_escapes_gene_names_everywhere(tmp_path):
+    out = _annotated_run(tmp_path, gene_name="g<1>&")
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        "c1\t5\t.\tA\tC\t.\t.\t.\tGT\t1\t0\nc1\t9\t.\tA\tC\t.\t.\t.\tGT\t1\t0\n")
+    page = build_report(out)
+    assert "g<1>&" not in page and page.count("g&lt;1&gt;&amp;") >= 5  # Gene rect, label, table, hover, summary
+    assert 'class="t-tiny t-ink2 t-gene">g&lt;1&gt;&amp;' in page  # Two SNPs: labelled
+
+
+def test_report_with_a_broken_annotation_keeps_the_map(tmp_path):
+    out = _annotated_run(tmp_path)
+    (out / "annotation.gb").write_text("garbage\n")
+    page = build_report(out)
+    assert "Genome map" in page and "could not be used" in page and 'class="gene-' not in page
+    (out / "annotation.gb").unlink()  # The copy is gone (an old folder): no annotation, no error
+    page = build_report(out)
+    assert "Genome map" in page and "could not be used" not in page
+
+
+def test_report_finds_the_annotation_copy_without_run_info(tmp_path):
+    from bacon.report import annotation_file
+    out = _annotated_run(tmp_path)
+    assert annotation_file(out, {}) == out / "annotation.gb"
+    assert annotation_file(out, {"annotation": {"copy": "annotation.gff3"}}) == out / "annotation.gb"
+    assert annotation_file(tmp_path, {}) is None
+
+
+def test_annotation_warnings_are_shown(tmp_path):
+    out = _annotated_run(tmp_path, name="other", length=4001)
+    page = build_report(out)
+    assert "match no reference sequence by name" in page and 'class="gene-' not in page
+
+
+def test_genome_map_merges_genes_when_there_are_too_many(tmp_path, monkeypatch):
+    import bacon.report as report
+    from bacon.annotation import load_annotation
+    gb = tmp_path / "a.gb"
+    gb.write_text(_genbank())
+    annotation = load_annotation(gb, [("c1", 4000)])
+    monkeypatch.setattr(report, "MAX_GENE_RECTS", 1)
+    out = genome_map([("c1", 4000)], [], 2, annotation=annotation)
+    assert 'class="gene-dense"' in out and "gene-cds" not in out and "t-gene" not in out
+    assert "1 gene: genA" in out and "1 gene: trnQ" in out
+    page = build_report(_annotated_run(tmp_path))
+    assert "merged per pixel" in page
+
+
+def test_place_labels_alternates_rows_and_caps():
+    from bacon.annotation import Gene
+    from bacon.report import MAX_GENE_LABELS, place_labels
+    genes = [Gene("c", f"gene{i:03d}", "CDS", 1, [(i * 10 + 1, i * 10 + 10)], snps=2) for i in range(100)]
+    genes[50].snps = 1  # Not labelled
+    placed, rows = place_labels(genes, 100, 1100, 1.0)  # 10 px per gene: labels overlap on one row
+    assert rows == 2 and len(placed) <= MAX_GENE_LABELS and all(g.snps >= 2 for _, _, g in placed)
+    assert [row for _, row, _ in placed][:2] == [0, 1]
+    assert place_labels(genes, 100, 1100, 0.01)[1] <= 2
+    assert place_labels([], 0, 100, 1.0) == ([], 0)
+
+
+def test_snp_table_caps_rows(tmp_path, monkeypatch):
+    import bacon.report as report
+    from bacon.report import Snp, snp_table
+    monkeypatch.setattr(report, "MAX_SNP_ROWS", 2)
+    snps = [Snp("c1", p, "A", "G", 1, 0) for p in (1, 2, 3)]
+    out = snp_table(snps, {}, 2)
+    assert out.count("<tr>") == 3 + 1 - 1 and "The first 2 of the 3 SNPs" in out  # Header row + 2 rows
+    assert out.count("<th ") == 10 and snp_table(snps, {}, 2, regions=False).count("<th ") == 9  # No Region column
+
+
+def test_snp_summary_says_when_overlapping_genes_count_a_snp_twice():
+    from types import SimpleNamespace
+
+    from bacon.report import Snp, snp_summary
+    snps = [Snp("c", 5, "A", "G", 1, 0), Snp("c", 9, "A", "G", 1, 0)]
+    info = {("c", 5): SimpleNamespace(region="", context="pseudogene / CDS", effects=[], genes=[]),
+            ("c", 9): SimpleNamespace(region="", context="CDS", effects=[], genes=[])}
+    text = snp_summary(snps, info, SimpleNamespace(sequences={}))
+    assert "2 in coding sequences" in text and "counted for each" in text
+    info[("c", 5)].context = "CDS"
+    assert "counted for each" not in snp_summary(snps, info, SimpleNamespace(sequences={}))
