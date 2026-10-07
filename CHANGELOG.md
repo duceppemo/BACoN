@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.6 (2026-10-07)
 
 ### Added
 - Reference annotations: `--annotation FILE` (GenBank or GFF3, gzipped or not), or a GenBank file as `-r`

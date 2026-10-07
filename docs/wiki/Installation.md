@@ -54,7 +54,7 @@ The example is in the repository (`example/`), not in the conda package. From a 
 example folder of the release:
 
 ```bash
-curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.5.tar.gz | tar -xz --strip-components=1 BACoN-0.3.5/example
+curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.6.tar.gz | tar -xz --strip-components=1 BACoN-0.3.6/example
 bash example/run_example.sh
 ```
 
@@ -65,7 +65,7 @@ seconds.
 ## pip only
 
 If the programs are already installed (for example in an HPC module system), BACoN itself installs with
-`pip install https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.5.tar.gz` (or
+`pip install https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.6.tar.gz` (or
 `pip install git+https://github.com/duceppemo/BACoN` for the latest code).
 
 ## Troubleshooting
