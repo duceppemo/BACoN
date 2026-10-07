@@ -44,6 +44,9 @@ def test_inverted_repeat_is_real(example, reference):
     _, ref = reference
     (b_start, b_end), (a_start, a_end) = example.REGIONS["IRb"], example.REGIONS["IRa"]
     assert ref.seq[a_start - 1:a_end] == example.revcomp(ref.seq[b_start - 1:b_end])
+    # At 3 kb it is below the 5 kb minimum of the detection: the example's band comes from its annotation
+    from bacon.annotation import MIN_DETECTED_REPEAT, detect_inverted_repeat
+    assert b_end - b_start + 1 < MIN_DETECTED_REPEAT and detect_inverted_repeat(ref.seq) is None
 
 
 def test_genbank_gives_the_genes_and_regions(example, reference):
@@ -53,6 +56,8 @@ def test_genbank_gives_the_genes_and_regions(example, reference):
     seq_ann = annotation.sequences["organelle"]
     assert seq_ann.circular
     assert [(r.name, r.start, r.end) for r in seq_ann.regions] == [(n, s, e) for n, (s, e) in example.REGIONS.items()]
+    with_seq = load_annotation(out / "reference.gb", [("organelle", example.GENOME_LENGTH)], seqs={"organelle": ref.seq})
+    assert with_seq.sequences["organelle"].band.source == "annotation" and with_seq.warnings == []
     genes = {(g.name, g.kind, g.strand, tuple(g.exons or g.extent)) for g in seq_ann.genes}
     assert genes == {(f.name, f.kind, f.strand, tuple(f.parts)) for f in ref.features}
     kinds = [g.kind for g in seq_ann.genes]

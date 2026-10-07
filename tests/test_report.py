@@ -459,7 +459,7 @@ def test_genome_map_without_any_n_base(tmp_path):
     vcf = out / "snps.vcf"
     vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\n"
                    "chr\t3\t.\tG\tT\t.\t.\t.\tGT\t1\n")
-    html_text = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1)
+    html_text, _ = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1)
     assert "none of the 1 templated assemblies has an N base" in html_text and "N per" not in html_text
 
 
@@ -505,7 +505,9 @@ def test_report_with_annotation_draws_genes_regions_and_the_snp_table(tmp_path):
     assert 'class="gene-cds"' in page and 'class="gene-rna"' in page and 'class="band-ir"' in page
     assert "LSC 2,000 bp" in page and "IRb 600 bp" in page and "SSC 800 bp" in page and "IRa 600 bp" in page
     assert "<b>Figure 5.</b>" in page and "<b>Figure 6.</b>" not in page  # The map is still one figure
-    assert "Genes from <b>NC_1.gb</b> (2)" in page  # The file as given, not BACoN's copy and "regions derived from the annotated inverted" in page
+    assert "Genes from <b>NC_1.gb</b> (2)" in page  # The file as given, not BACoN's copy
+    assert "The band above the genes shows the LSC/IRb/SSC/IRa regions from the annotated inverted repeats." in page
+    assert "The LSC/IRb/SSC/IRa regions were derived from the annotated inverted repeats." in page  # Methods
     # The SNP at 101 (A>G) is in the CDS: codon 34 is TAC (positions 100..102), so A>G gives TGC: Y34C
     assert "<h3>SNPs</h3>" in page and 'class="snps sortable"' in page
     assert '<td class="gene" data-v="genA">genA</td>' in page and ">TAC&gt;TGC<" in page and ">Y34C<" in page
@@ -1005,3 +1007,114 @@ def test_read_vcf_classes_each_genotype_once_whatever_the_other_fields(tmp_path,
     snps, genomes = read_vcf(tmp_path / "s.vcf")
     assert genomes == 3 and [(s.alt_count, s.missing) for s in snps] == [(1, 1)] * 3
     assert sorted(classed) == [".", "0", "1"]  # Not once per distinct sample column (nine here)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Regions detected in the sequence, and gene labels
+# ---------------------------------------------------------------------------------------------------------------
+
+def _plastid_genbank(seq: str, features: str, name: str = "c1") -> str:
+    origin = "\n".join(f"{i + 1:>9} " + " ".join(seq[j:j + 10].lower() for j in range(i, min(i + 60, len(seq)), 10))
+                       for i in range(0, len(seq), 60))
+    return (f"LOCUS       {name}  {len(seq)} bp    DNA     circular PLN 01-JAN-2026\nDEFINITION  A plastid.\n"
+            f"VERSION     {name}\nFEATURES             Location/Qualifiers\n{features}ORIGIN      \n{origin}\n//\n")
+
+
+def _plastid_run(tmp_path, features: str | None = None, positions=(100, 12000), **kw):
+    """A run on a 25 kb plastome-like reference (LSC 1-9,000, IRb 9,001-15,000, SSC, IRa 19,001-25,000) with SNPs
+    at `positions`, and a GenBank annotation with `features` when given (None: no annotation)."""
+    from tests.test_annotation import make_plastome
+    out = _full_run(tmp_path)
+    seq = make_plastome(**kw)
+    (out / "reference.fasta").write_text(f">c1 a plastid\n{seq}\n")
+    rows = "".join(f"c1\t{pos}\t.\t{seq[pos - 1]}\t{'A' if seq[pos - 1] != 'A' else 'C'}\t.\t.\t.\tGT\t1\t0\n"
+                   for pos in positions)
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n" + rows)
+    if features is not None:
+        (out / "annotation.gb").write_text(_plastid_genbank(seq, features))
+        info = json.loads((out / "run_info.json").read_text())
+        info["annotation"] = {"file": "/x/NC_1.gb", "format": "genbank", "copy": "annotation.gb",
+                              "transl_tables": [11]}
+        (out / "run_info.json").write_text(json.dumps(info))
+    return out, seq
+
+
+DETECTED = "the inverted repeat detected in the reference sequence (two copies of 6,000 bp, 100% identical)"
+
+
+def test_report_without_annotation_draws_the_regions_detected_in_the_sequence(tmp_path):
+    out, _ = _plastid_run(tmp_path)
+    page = build_report(out)
+    assert 'class="band-ir"' in page and "LSC 9,000 bp" in page and "IRb 6,000 bp" in page
+    assert "SSC 4,000 bp" in page and "IRa 6,000 bp" in page
+    assert f"The band under the axis shows the LSC/IRb/SSC/IRa regions from {DETECTED}." in page
+    assert "Hover a tick for the position, the alleles and the number of genomes with the alternate allele and " \
+           "the region." in page
+    assert "called in every genome. IRb</title>" in page and "called in every genome. LSC</title>" in page
+    assert 'class="gene-' not in page and "<h3>SNPs</h3>" not in page and "Genes from" not in page  # No annotation
+    assert f"The LSC/IRb/SSC/IRa regions were derived from {DETECTED}. The inverted repeat is found by matching " \
+           "the k-mers" in page  # Methods
+    # A reference without a repeat: no band, nothing said
+    (out / "reference.fasta").write_text(">c1 a plastid\n" + "ACGT" * 6250 + "\n")
+    page = build_report(out)
+    assert 'class="band-ir"' not in page and "LSC/IRb/SSC/IRa" not in page
+
+
+def test_report_with_an_annotation_without_repeat_features_detects_them(tmp_path):
+    out, _ = _plastid_run(tmp_path, features=(
+        "     gene            101..400\n                     /gene=\"psbA\"\n"
+        "     CDS             101..400\n                     /gene=\"psbA\"\n"))
+    page = build_report(out)
+    assert 'class="band-ir"' in page and 'class="gene-cds"' in page
+    assert f"The band above the genes shows the LSC/IRb/SSC/IRa regions from {DETECTED}." in page
+    assert "2 SNPs on the annotated sequences: 1 in the LSC, 1 in IRb" in page  # The SNP table has the regions
+    assert '<td class="" data-v="IRb">IRb</td>' in page
+    assert "Genes were read from the annotation NC_1.gb" in page
+    assert f"The LSC/IRb/SSC/IRa regions were derived from {DETECTED}." in page
+    # With the repeats annotated (even a little off), the annotation's coordinates are kept and said to be used
+    (out / "annotation.gb").write_text(_plastid_genbank(_plastid_run(tmp_path / "again")[1], (
+        "     repeat_region   9001..15000\n                     /rpt_type=inverted\n"
+        "     repeat_region   19001..24990\n                     /rpt_type=inverted\n")))
+    page = build_report(out)
+    assert "IRa 5,990 bp" in page and "regions from the annotated inverted repeats." in page
+    assert "The LSC/IRb/SSC/IRa regions were derived from the annotated inverted repeats." in page
+    assert "detected" not in page
+
+
+def test_report_labels_genes_without_a_symbol_by_locus_tag_and_product(tmp_path):
+    out, _ = _plastid_run(tmp_path, positions=(150, 250, 500, 12000), features=(
+        "     gene            101..400\n                     /locus_tag=\"LK299_pgp087\"\n"
+        "     CDS             101..400\n                     /locus_tag=\"LK299_pgp087\"\n"
+        "                     /product=\"maturase K\"\n"
+        "     gene            601..900\n                     /locus_tag=\"SIM_p010\"\n"
+        "     CDS             601..900\n                     /locus_tag=\"SIM_p010\"\n"
+        "                     /product=\"ribosomal <protein> & S12\"\n"))
+    page = build_report(out)
+    assert '<td class="gene" data-v="LK299_pgp087 (maturase K)">LK299_pgp087 (maturase K)</td>' in page  # Table
+    assert "Genes with the most SNPs: <i>LK299_pgp087</i> (maturase K; 2)." in page  # Summary
+    assert 'class="t-tiny t-ink2 t-gene">maturase K<title>LK299_pgp087 (maturase K): protein-coding gene' in page
+    assert "intergenic between LK299_pgp087 (maturase K) and SIM_p010 (ribosomal &lt;protein&gt; &amp; S12)" \
+        in page  # The context of the SNP at 500, escaped
+    assert "ribosomal <protein>" not in page
+    assert "LK299_pgp087 (maturase K) (CDS)" in page  # The tick's hover
+    assert "SIM_p010 (ribosomal &lt;protein&gt; &amp; S12): protein-coding gene, + strand, 601–900 (300 bp)" \
+        in page and "(300 bp), ribosomal" not in page  # The product is not repeated after the label
+
+
+def test_methods_text_describes_the_regions_from_the_run_info_record():
+    from bacon.report import methods_text
+    base = {"settings": {}, "reference": {"file": "/x/ref.fa"}}
+    assert "LSC/IRb/SSC/IRa" not in methods_text(base)
+    detected = {"source": "sequence", "regions": [{"name": "LSC", "start": 1, "end": 9000, "length": 9000}],
+                "repeat": {"copies": [[9001, 15000], [19001, 25000]], "lengths": [6000, 6000], "differences": 0,
+                           "identity": 1.0}}
+    info = {**base, "reference": {"file": "/x/ref.fa", "regions": {"c1": detected, "c2": "none"}}}
+    assert f"The LSC/IRb/SSC/IRa regions were derived from {DETECTED}." in methods_text(info)
+    annotated = {"source": "annotation", "regions": [{"name": "LSC", "start": 1, "end": 9000, "length": 9000}]}
+    info = {**base, "reference": {"file": "/x/ref.fa", "regions": {"c1": detected, "c2": annotated}}}
+    assert f"derived from c1: {DETECTED}; c2: the annotated inverted repeats." in methods_text(info)
+    # The report's own regions win over the record
+    from bacon.annotation import RegionBand
+    assert "derived from the annotated inverted repeats." in methods_text(info, None, {"c1": RegionBand(
+        [__import__("bacon.annotation").annotation.Region("LSC", 1, 9000, 9000)], "annotation")})

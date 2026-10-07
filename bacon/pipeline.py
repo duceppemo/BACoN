@@ -21,7 +21,7 @@ from pathlib import Path
 
 from bacon import BaconError, __version__, compare, steps, tools
 from bacon import metadata as md
-from bacon.annotation import annotation_format, genbank_fasta_records, load_annotation
+from bacon.annotation import Annotation, annotation_format, find_regions, genbank_fasta_records, load_annotation
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
 from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
@@ -385,19 +385,36 @@ def _remove_copy(s: Settings, path: Path, recorded: str | None, what: str) -> No
         log.info("%s %s was not written by BACoN: kept (the report uses it; delete it if it is stale)", what, path)
 
 
-def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | None:
+def _reference_regions(records: list[Record], annotation: Annotation | None) -> dict[str, object]:
+    """For run_info.json, the LSC/IRb/SSC/IRa regions of each reference sequence (RegionBand.record: from the
+    annotation, or from the inverted repeat detected in the sequence), or "none"."""
+    regions: dict[str, object] = {}
+    for rec in records:
+        if annotation is not None and rec.name in annotation.sequences:
+            band = annotation.sequences[rec.name].band
+        else:
+            band = find_regions([], len(rec.seq), rec.seq)
+        regions[rec.name] = band.record() if band is not None and band.regions else "none"
+        if band is not None and band.regions:
+            log.info("Regions of %s: %s, from %s", rec.name, "/".join(r.name for r in band.regions), band.text())
+    return regions
+
+
+def _prepare_annotation(s: Settings, reference: Path) -> tuple[dict[str, object] | None, dict[str, object]]:
     """Validate the annotation (--annotation, or the GenBank reference itself) against the reference's sequences
     and copy it, uncompressed, to OUTPUT/annotation.gb or annotation.gff3 for the report; the copy left by an
-    earlier run is removed when this run has no annotation (a file BACoN did not write is kept)."""
+    earlier run is removed when this run has no annotation (a file BACoN did not write is kept). Also the
+    regions of each reference sequence (_reference_regions), annotation or not."""
     source = s.annotation or (s.reference if annotation_format(s.reference) == "genbank" else None)
     recorded = _recorded_copy(s, "annotation")
+    records = list(read_records(reference))
     if source is None:
         for name in ANNOTATION_COPIES:
             _remove_copy(s, s.output / name, recorded, "Annotation")
         _record_copy(s, "annotation", None)
-        return None
-    sequences = [(r.name, len(r.seq)) for r in read_records(reference)]
-    annotation = load_annotation(source, sequences)
+        return None, _reference_regions(records, None)
+    sequences = [(r.name, len(r.seq)) for r in records]
+    annotation = load_annotation(source, sequences, seqs={r.name: r.seq for r in records})
     for warning in annotation.warnings:
         log.warning("%s", warning)
     copy = s.output / ("annotation.gb" if annotation.format == "genbank" else "annotation.gff3")
@@ -413,12 +430,12 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
     else:
         tmp.replace(copy)
     _record_copy(s, "annotation", copy.name)
-    log.info("Annotation %s: %d gene(s) on %d of the reference's %d sequence(s)%s", source.name, annotation.genes,
-             len(annotation.sequences), len(sequences),
-             "; LSC/IR/SSC regions" if annotation.has_regions else "")
-    return {"file": str(source), "format": annotation.format, "copy": copy.name, "genes": annotation.genes,
-            "sequences": len(annotation.sequences), "regions": annotation.has_regions,
-            "transl_tables": annotation.tables, "md5": hashlib.md5(source.read_bytes()).hexdigest()}
+    log.info("Annotation %s: %d gene(s) on %d of the reference's %d sequence(s)", source.name, annotation.genes,
+             len(annotation.sequences), len(sequences))
+    return ({"file": str(source), "format": annotation.format, "copy": copy.name, "genes": annotation.genes,
+             "sequences": len(annotation.sequences), "regions": annotation.has_regions,
+             "transl_tables": annotation.tables, "md5": hashlib.md5(source.read_bytes()).hexdigest()},
+            _reference_regions(records, annotation))
 
 
 def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] | None:
@@ -561,7 +578,7 @@ def _run(s: Settings, started: float) -> int:
     log.info("Reference %s: %s bp in %d sequence(s)%s", s.reference.name, f"{reference_length:,}",
              sum(1 for _ in read_records(reference)),
              f"; genome size set to {genome_size:,} bp" if s.genome_size else "")
-    annotation = _prepare_annotation(s, reference)  # Fails fast on a bad annotation; not part of any checkpoint
+    annotation, regions = _prepare_annotation(s, reference)  # Fails fast on a bad annotation; not in a checkpoint
     log.info("%d sample(s): %s", len(samples), ", ".join(x.name for x in samples))
 
     states = [SampleState(x) for x in samples]
@@ -668,7 +685,7 @@ def _run(s: Settings, started: float) -> int:
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
         _apply(states, results, step)
         if all(st.failed for st in states):
-            _finish(s, states, tools, None, started, annotation, metadata)
+            _finish(s, states, tools, None, started, annotation, metadata, regions)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")
 
     for st in states:
@@ -680,11 +697,11 @@ def _run(s: Settings, started: float) -> int:
                               fingerprint, bool(refreshed) or redo_from <= STEPS.index("compare"))
     except Exception as exc:  # The assemblies are still worth reporting
         message = str(exc).splitlines()[0] if isinstance(exc, BaconError) else f"{type(exc).__name__}: {exc}"
-        _finish(s, states, tools, {"failed": message}, started, annotation, metadata)
+        _finish(s, states, tools, {"failed": message}, started, annotation, metadata, regions)
         if isinstance(exc, BaconError):
             raise
         raise BaconError(f"The comparison failed unexpectedly: {message}") from exc
-    _finish(s, states, tools, comparison, started, annotation, metadata)
+    _finish(s, states, tools, comparison, started, annotation, metadata, regions)
     return 0
 
 
@@ -831,7 +848,7 @@ def _alignment_length(path: Path) -> int:
 
 def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], comparison: dict | None,
             started: float, annotation: dict[str, object] | None = None,
-            metadata: dict[str, object] | None = None) -> None:
+            metadata: dict[str, object] | None = None, regions: dict[str, object] | None = None) -> None:
     rows = [summary_row(st) for st in states]
     write_tsv(s.output / "summary.tsv", SUMMARY_COLUMNS, rows)
     shown = ["Sample", "Status", "Baited_reads", "Filtered_reads", "Est_depth", "Contigs", "Assembly_length",
@@ -847,7 +864,7 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
         "settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in asdict(s).items()
                      if k != "command_line"},
         "tools": {name: {"path": path, "version": version(name)} for name, path in tools.items()},
-        "reference": _reference_info(s),
+        "reference": _reference_info(s, regions),
         "annotation": annotation,
         "metadata": metadata,
         "samples": {st.sample.name: {"files": [str(f) for f in st.sample.files], "status": st.failed or "ok"}
@@ -873,13 +890,14 @@ def _finish(s: Settings, states: list[SampleState], tools: dict[str, str], compa
     log.info("Done: %d sample(s) assembled, %d failed. Results in %s", len(states) - failed, failed, s.output)
 
 
-def _reference_info(s: Settings) -> dict[str, object]:
-    """The reference as given: its path, number of sequences, total length, and the MD5 of the file itself (fasta
-    or GenBank; not of BACoN's normalized copy, reference.fasta)."""
+def _reference_info(s: Settings, regions: dict[str, object] | None = None) -> dict[str, object]:
+    """The reference as given: its path, number of sequences, total length, the MD5 of the file itself (fasta or
+    GenBank; not of BACoN's normalized copy, reference.fasta), and the regions of each sequence (or "none")."""
     local = s.output / "reference.fasta"
     lengths = [len(r.seq) for r in read_records(local)] if local.exists() else []
     return {"file": str(s.reference), "sequences": len(lengths), "length": sum(lengths),
-            "md5": hashlib.md5(s.reference.read_bytes()).hexdigest() if s.reference.is_file() else None}
+            "md5": hashlib.md5(s.reference.read_bytes()).hexdigest() if s.reference.is_file() else None,
+            "regions": regions or {}}
 
 
 CGROUP_MEMORY_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")  # v2, v1

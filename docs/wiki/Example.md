@@ -124,7 +124,8 @@ the genomes of each value of `group`.
 **Genome map and SNPs.** `example_output/bacon/4_compared/ska/snps.vcf` lists the 20 planted SNPs at their
 positions in the reference, with the genotype of each sample. The genome map shows them over the 23 genes of
 `reference.gb` (the + strand above the centre line, the − strand below; `orf01` and `orf04`, with 2 SNPs each,
-are labelled) and the LSC/IRb/SSC/IRa band derived from the annotated inverted repeats; hovering a tick gives the
+are labelled) and the LSC/IRb/SSC/IRa band derived from the annotated inverted repeats (the example's 3 kb repeat
+is below the 5 kb minimum of the detection in the sequence, so the band needs the annotation); hovering a tick gives the
 alleles, the gene, the context and the effect. Every genome has a call at each SNP, and no assembly has an `N`
 base, so there is no `N` track. The paragraph under the map sums it up:
 

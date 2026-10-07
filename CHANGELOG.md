@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- The LSC/IRb/SSC/IRa band of the genome map no longer needs annotated inverted repeats: BACoN detects the
+  large inverted repeat in each reference sequence (two copies of at least 5 kb, at least 99% identical, exact
+  coordinates, in a sequence of 2 Mb or less; about 0.1 s for a plastome) and uses it when the annotation has
+  no inverted repeats, most RefSeq plastomes, or when there is no annotation at all (the gene track still needs
+  one). Annotated repeats keep priority unless the sequence contradicts them (NC_001879.2 annotates its LSC as
+  an inverted repeat): then the sequence wins, with a warning. The caption, the Methods paragraph and the log
+  say where the regions come from, with the detected copies' size and identity; `run_info.json` records the
+  regions of each reference sequence (`reference.regions`), their source and the detected copies, or `"none"`.
+  On NC_008096.2 (potato) the detected copies are exactly the annotated ones.
+
+### Changed
+- A gene without a symbol (no `/gene`, as in many RefSeq records: only `/locus_tag` and `/product`) is shown as
+  `locus_tag (product)`, `LK299_pgp087 (maturase K)`, in the SNP table, the hovers, the intergenic contexts and
+  the summary of the genes with the most SNPs (`LK299_pgp087 (maturase K; 4)`); on the map by its product when
+  that is at most 12 characters, else by its locus tag. Its identifier (the locus tag) is unchanged, and no
+  symbol is made up from a product. In GFF3, a `Name` that is the locus tag, the ID or the product is not a
+  symbol.
+
 ## 0.3.6 (2026-10-07)
 
 ### Added

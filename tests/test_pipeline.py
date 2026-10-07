@@ -1054,6 +1054,7 @@ def test_genbank_reference_gives_the_same_reference_and_reruns_nothing(stubs, da
     assert info["reference"]["md5"] == hashlib.md5(gb.read_bytes()).hexdigest()  # The file given
     assert info["annotation"]["format"] == "genbank" and info["annotation"]["copy"] == "annotation.gb"
     assert info["annotation"]["genes"] == 1 and info["settings"]["annotation"] is None
+    assert info["reference"]["regions"] == {"ref": "none"}  # No inverted repeat in a 1 kb ACGT repeat
     assert (out / "annotation.gb").read_text() == gb.read_text()
     page = (out / "report.html").read_text()
     # The VCF's SNP at 5 (A>C) is the middle base of codon 2 (TAC): Y2S
@@ -1343,3 +1344,23 @@ def test_annotation_copy_keeps_its_bytes(stubs, dataset, tmp_path):
         fh.write(gb.read_bytes())
     run(settings(ref, reads, tmp_path / "out2", annotation=gz, snp_method="none"))
     assert (tmp_path / "out2" / "annotation.gb").read_bytes() == gb.read_bytes()
+
+
+def test_run_info_records_the_regions_detected_in_the_reference(stubs, dataset, tmp_path):
+    from tests.test_annotation import make_plastome
+    _, reads = dataset
+    ref = tmp_path / "plastid.fasta"
+    ref.write_text(">plastid\n" + make_plastome() + "\n")
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    info = json.loads((out / "run_info.json").read_text())
+    regions = info["reference"]["regions"]["plastid"]
+    assert regions["source"] == "sequence" and [r["name"] for r in regions["regions"]] == ["LSC", "IRb", "SSC", "IRa"]
+    assert regions["regions"][1] == {"name": "IRb", "start": 9001, "end": 15000, "length": 6000}
+    assert regions["repeat"] == {"copies": [[9001, 15000], [19001, 25000]], "lengths": [6000, 6000],
+                                 "differences": 0, "identity": 1.0}
+    assert "Regions of plastid: LSC/IRb/SSC/IRa, from the inverted repeat detected in the reference sequence " \
+           "(two copies of 6,000 bp, 100% identical)" in (out / "bacon.log").read_text()
+    # Without a comparison there is no genome map: the Methods still say where the regions come from
+    assert "regions were derived from the inverted repeat detected in the reference sequence (two copies of " \
+           "6,000 bp, 100% identical)" in (out / "report.html").read_text()

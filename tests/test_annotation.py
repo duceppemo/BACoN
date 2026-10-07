@@ -830,3 +830,259 @@ def test_gff3_single_line_feature_across_the_origin(tmp_path):
     gff.write_text("##gff-version 3\n##sequence-region chr 1 120\nchr\tx\tCDS\t91\t150\t.\t+\t0\tID=c1;gene=wrap\n")
     ann = load_annotation(gff, [("chr", 120)])
     assert not ann.sequences and any("beyond the end" in w for w in ann.warnings)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Gene labels: a gene without a symbol is shown as "locus_tag (product)"
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_gene_without_symbol_is_labelled_by_locus_tag_and_product():
+    rec = read_genbank_text(_gb("""
+    gene            1..30
+                    /locus_tag="LK299_pgp087"
+    CDS             1..30
+                    /locus_tag="LK299_pgp087"
+                    /product="maturase K"
+    gene            complement(41..60)
+                    /gene="trnX"
+                    /locus_tag="SIM_t001"
+    tRNA            complement(41..60)
+                    /gene="trnX"
+                    /product="tRNA-Xaa"
+    gene            70..84
+                    /locus_tag="SIM_p010"
+    CDS             70..84
+                    /locus_tag="SIM_p010"
+                    /product="ribosomal protein S12"
+    CDS             90..110
+                    /product="hypothetical protein"
+    gene            111..120
+                    /locus_tag="SIM_p011"
+    CDS             111..120
+                    /gene="ycf1"
+                    /locus_tag="SIM_p011"
+                    /product="Ycf1"
+    """))
+    genes = {g.name: g for g in genes_from_genbank(rec.features)}
+    unnamed = genes["LK299_pgp087"]  # The identifier is still the locus tag (nothing keyed on it changes)
+    assert unnamed.symbol == "" and unnamed.product == "maturase K"
+    assert unnamed.label == "LK299_pgp087 (maturase K)" and unnamed.map_label == "maturase K"  # 10 characters
+    named = genes["trnX"]
+    assert named.symbol == "trnX" and named.label == "trnX" and named.map_label == "trnX"
+    long_product = genes["SIM_p010"]
+    assert long_product.label == "SIM_p010 (ribosomal protein S12)" and long_product.map_label == "SIM_p010"
+    only_product = genes["hypothetical protein"]  # Named after its product: not repeated
+    assert only_product.label == "hypothetical protein" and only_product.map_label == "hypothetical protein"
+    cds_symbol = genes["SIM_p011"]  # The gene feature has no /gene but its CDS has: the symbol is shown
+    assert cds_symbol.symbol == "ycf1" and cds_symbol.label == "SIM_p011 (ycf1)"
+    assert cds_symbol.map_label == "SIM_p011"
+    # The intergenic context names the neighbours by their labels
+    from bacon.annotation import SequenceAnnotation, annotate_snp
+    seq_ann = SequenceAnnotation("ref", 120, list(genes.values()), [], True)
+    assert annotate_snp(seq_ann, 35, "A", ["C"], SEQ).context == \
+        "intergenic between LK299_pgp087 (maturase K) and trnX"
+
+
+def test_gff3_symbols_are_gene_attributes_or_names_that_are_not_identifiers(tmp_path):
+    gff = tmp_path / "symbols.gff3"
+    gff.write_text(
+        "##gff-version 3\n##sequence-region chr 1 1000\n"
+        # NCBI, no symbol: Name is the locus tag; the CDS's Name is its protein accession
+        "chr\t.\tgene\t1\t30\t.\t+\t.\tID=gene-LK299_pgp087;Name=LK299_pgp087;locus_tag=LK299_pgp087\n"
+        "chr\t.\tCDS\t1\t30\t.\t+\t0\tID=cds-YP_1;Parent=gene-LK299_pgp087;Name=YP_1;locus_tag=LK299_pgp087;"
+        "product=maturase K\n"
+        # NCBI, a symbol
+        "chr\t.\tgene\t41\t60\t.\t+\t.\tID=gene-SIM_p010;Name=matK;gene=matK;locus_tag=SIM_p010\n"
+        "chr\t.\tCDS\t41\t60\t.\t+\t0\tID=cds-YP_2;Parent=gene-SIM_p010;gene=matK;product=maturase K\n"
+        # A Name that is a symbol (no gene=, no locus tag), as Ensembl writes one
+        "chr\t.\tgene\t101\t130\t.\t+\t.\tID=gene:AT1G01010;Name=NAC001;biotype=protein_coding\n"
+        "chr\t.\tCDS\t101\t130\t.\t+\t0\tID=CDS:AT1G01010.1;Parent=gene:AT1G01010;product=NAC domain protein\n"
+        # A Name that is the ID (with a type prefix), or the product: not a symbol
+        "chr\t.\tgene\t201\t230\t.\t+\t.\tID=gene-G3;Name=G3\n"
+        "chr\t.\tCDS\t201\t230\t.\t+\t0\tID=cds-G3;Parent=gene-G3;product=hypothetical protein\n"
+        "chr\t.\tgene\t301\t330\t.\t+\t.\tID=g4;Name=hypothetical protein;product=hypothetical protein\n"
+        # A CDS without a gene feature: its Name is not a symbol either
+        "chr\t.\tCDS\t401\t430\t.\t+\t0\tID=cds-YP_5;Name=YP_5;locus_tag=L5;product=photosystem I protein\n")
+    genes = {g.name: g for g in genes_from_gff3(read_gff3(gff)[0])}
+    assert genes["LK299_pgp087"].symbol == "" and genes["LK299_pgp087"].label == "LK299_pgp087 (maturase K)"
+    assert genes["matK"].symbol == "matK" and genes["matK"].label == "matK"
+    assert genes["NAC001"].symbol == "NAC001" and genes["NAC001"].label == "NAC001"
+    assert genes["G3"].symbol == "" and genes["G3"].label == "G3 (hypothetical protein)"
+    assert genes["hypothetical protein"].symbol == "" and genes["hypothetical protein"].label == "hypothetical protein"
+    assert genes["L5"].symbol == "" and genes["L5"].label == "L5 (photosystem I protein)"
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The inverted repeat detected in the sequence
+# ---------------------------------------------------------------------------------------------------------------
+
+def make_plastome(seed: int = 1, lsc: int = 9000, ir: int = 6000, ssc: int = 4000, start: int = 0,
+                  mismatches: int = 0, deletion: int = 0, duplication: bool = False) -> str:
+    """A circular plastome-like random sequence LSC + IRb + SSC + IRa (IRa the reverse complement of IRb), whose
+    junction bases do not match across (so the repeat ends exactly where it is planted), rotated to start at
+    `start` (0-based). `mismatches` bases of IRa are changed, and `deletion` bases removed from its middle; with
+    `duplication`, the repeat contains a 40 bp stretch duplicated 50 bp further (in both copies)."""
+    import random
+
+    from bacon.annotation import reverse_complement
+    rng = random.Random(seed)
+    parts = ["".join(rng.choices("ACGT", k=n)) for n in (lsc, ir, ssc)]
+    lsc_seq, irb, ssc_seq = parts
+    lsc_seq = "A" + lsc_seq[1:-1] + "A"  # Across the origin: A pairs with T, not A
+    ssc_seq = "A" + ssc_seq[1:-1] + "A"
+    if duplication:
+        irb = irb[:1050] + irb[1000:1040] + irb[1090:]
+    ira = list(reverse_complement(irb))
+    for p in range(100, 100 + 7 * mismatches, 7):
+        ira[p] = {"A": "C", "C": "G", "G": "T", "T": "A"}[ira[p]]
+    if deletion:
+        del ira[ir // 2:ir // 2 + deletion]
+    seq = lsc_seq + irb + ssc_seq + "".join(ira)
+    return seq[start:] + seq[:start]
+
+
+def test_detects_the_inverted_repeat_and_derives_the_regions():
+    from bacon.annotation import detect_inverted_repeat, regions_from_repeat
+    seq = make_plastome()
+    repeat = detect_inverted_repeat(seq)
+    assert repeat is not None
+    assert repeat.first == (9001, 15000) and repeat.second == (19001, 25000)
+    assert repeat.lengths == (6000, 6000) and repeat.differences == 0 and repeat.identity == 1.0
+    assert repeat.text() == "two copies of 6,000 bp, 100% identical"
+    assert [(r.name, r.start, r.end, r.length) for r in regions_from_repeat(repeat, len(seq))] == [
+        ("LSC", 1, 9000, 9000), ("IRb", 9001, 15000, 6000), ("SSC", 15001, 19000, 4000), ("IRa", 19001, 25000, 6000)]
+    assert detect_inverted_repeat(seq.lower()) == repeat  # Case does not matter
+
+
+def test_detection_tolerates_mismatches_and_a_small_deletion():
+    from bacon.annotation import detect_inverted_repeat
+    repeat = detect_inverted_repeat(make_plastome(mismatches=5))
+    assert repeat is not None and repeat.first == (9001, 15000) and repeat.second == (19001, 25000)
+    assert repeat.differences == 5 and 0.999 < repeat.identity < 1
+    assert repeat.text() == "two copies of 6,000 bp, 99.92% identical"
+    repeat = detect_inverted_repeat(make_plastome(deletion=3, mismatches=1))
+    assert repeat is not None and repeat.first == (9001, 15000) and repeat.second == (19001, 24997)
+    assert repeat.lengths == (6000, 5997) and repeat.differences == 4
+    assert repeat.text() == "copies of 6,000 and 5,997 bp, 99.93% identical"
+    # Too many differences: not the near-identical repeat of a plastome
+    assert detect_inverted_repeat(make_plastome(mismatches=70)) is None  # 70 / 6000 > 1%
+    # A short duplication inside the repeat seeds a parallel antidiagonal (a k-mer matching 50 bp further in the
+    # other copy); it is not read as two 50 bp indels (the rice NC_001320.1 repeat has one)
+    repeat = detect_inverted_repeat(make_plastome(duplication=True))
+    assert repeat is not None and repeat.lengths == (6000, 6000) and repeat.differences == 0
+
+
+def test_detection_across_the_origin_and_regions_naming():
+    from bacon.annotation import detect_inverted_repeat, regions_from_repeat
+    n = 25000
+    for start in (22000, 9000 + 5999, 12000):  # IRa across the origin; IRb's last base first; starting in IRb
+        seq = make_plastome(start=start)
+
+        def at(pos: int, start: int = start) -> int:
+            return (pos - 1 - start) % n + 1
+
+        repeat = detect_inverted_repeat(seq)
+        assert repeat is not None, start
+        copies = sorted((repeat.first, repeat.second))
+        assert copies == sorted(((at(9001), at(15000)), (at(19001), at(25000)))), start
+        assert repeat.lengths == (6000, 6000) and repeat.differences == 0
+        regions = {r.name: (r.start, r.end, r.length) for r in regions_from_repeat(repeat, n)}
+        assert regions == {"LSC": (at(1), at(9000), 9000), "IRb": (at(9001), at(15000), 6000),
+                           "SSC": (at(15001), at(19000), 4000), "IRa": (at(19001), at(25000), 6000)}, start
+    # A deletion and a mismatch in the part of IRa across the origin: the extension through the origin stops at
+    # the deletion, and the search again from between the copies gets the whole repeat
+    repeat = detect_inverted_repeat(make_plastome(start=22000, deletion=3, mismatches=1))
+    assert repeat is not None and repeat.lengths == (6000, 5997) and repeat.differences == 4
+    assert (repeat.first, repeat.second) == ((11998, 17997), (21998, 2997))  # IRb, then IRa across the origin
+    # Starting in the SSC: the gap between the copies is the LSC, so the first copy is IRa
+    seq = make_plastome(start=17000)
+    names = [r.name for r in regions_from_repeat(detect_inverted_repeat(seq), n)]
+    assert names == ["IRa", "LSC", "IRb", "SSC"]
+
+
+def test_no_repeat_detected_without_one():
+    import random
+    import time
+
+    from bacon.annotation import MAX_DETECTION_LENGTH, detect_inverted_repeat
+    rng = random.Random(7)
+    assert detect_inverted_repeat("".join(rng.choices("ACGT", k=25000))) is None  # No repeat
+    assert detect_inverted_repeat(make_plastome(ir=3000)) is None  # Below the minimum (the bundled example's size)
+    assert detect_inverted_repeat(make_plastome(ir=3000, lsc=2000, ssc=1000)) is None  # Too short to search
+    assert detect_inverted_repeat("ACGT" * 10000) is None  # Low complexity: its own reverse complement everywhere
+    half = "".join(rng.choices("ACGT", k=6000))
+    from bacon.annotation import reverse_complement
+    palindrome = "".join(rng.choices("ACGT", k=8000)) + half + reverse_complement(half) \
+        + "".join(rng.choices("ACGT", k=8000))
+    assert detect_inverted_repeat(palindrome) is None  # The copy overlaps its own reverse complement
+    assert detect_inverted_repeat("A" * (MAX_DETECTION_LENGTH + 1)) is None  # Not searched
+    bacterial = "".join(rng.choices("ACGT", k=1_000_000))
+    started = time.perf_counter()
+    assert detect_inverted_repeat(bacterial) is None
+    assert time.perf_counter() - started < 5  # About 0.4 s; a plastome takes a tenth of a second
+    # N bases are not matched: a repeat of N is not a repeat
+    assert detect_inverted_repeat("".join(rng.choices("ACGT", k=8000)) + "N" * 6000
+                                  + "".join(rng.choices("ACGT", k=4000)) + "N" * 6000) is None
+
+
+def test_find_regions_prefers_the_annotation_unless_it_contradicts_the_sequence():
+    from bacon.annotation import find_regions
+    seq = make_plastome()
+    n = len(seq)
+    annotated = _features("""
+    repeat_region   9001..15000
+                    /rpt_type=inverted
+    repeat_region   19001..25000
+                    /rpt_type=inverted
+    """)
+    warnings: list[str] = []
+    band = find_regions(annotated, n, seq, "ref", warnings)
+    assert band.source == "annotation" and band.repeat is None and not warnings
+    assert band.text() == "the annotated inverted repeats"
+    # Annotated a little differently (within 20%): still the annotation's coordinates
+    shifted = _features("""
+    repeat_region   9201..15000
+                    /note="IRb"
+    repeat_region   19001..24800
+                    /note="IRa"
+    """)
+    band = find_regions(shifted, n, seq, "ref", warnings)
+    assert band.source == "annotation" and [r.start for r in band.regions] == [9201, 15001, 19001, 24801]
+    # Other features named as the repeats (NC_001879.2 annotates its LSC as "inverted repeat B"): the sequence wins
+    wrong = _features("""
+    repeat_region   1..9000
+                    /note="inverted repeat B"
+    repeat_region   15001..19000
+                    /note="inverted repeat A"
+    """)
+    band = find_regions(wrong, n, seq, "ref", warnings)
+    assert band.source == "sequence" and [r.start for r in band.regions] == [1, 9001, 15001, 19001]
+    assert warnings == ["ref: the annotated inverted repeats (1–9,000, 15,001–19,000) are not the inverted repeat "
+                        "found in the sequence (9,001–15,000 and 19,001–25,000); the regions follow the sequence"]
+    # No annotated repeats: the sequence; no sequence: the annotation only; neither: nothing
+    assert find_regions([], n, seq).source == "sequence"
+    assert find_regions(wrong, n, None).source == "annotation"
+    assert find_regions([], n, None) is None and find_regions([], 25000, "ACGT" * 6250) is None
+    record = find_regions([], n, seq).record()
+    assert record["source"] == "sequence" and record["regions"][1] == {"name": "IRb", "start": 9001, "end": 15000,
+                                                                       "length": 6000}
+    assert record["repeat"] == {"copies": [[9001, 15000], [19001, 25000]], "lengths": [6000, 6000],
+                                "differences": 0, "identity": 1.0}
+
+
+def test_load_annotation_detects_the_regions_when_given_the_sequences(tmp_path):
+    seq = make_plastome()
+    gb = tmp_path / "plastid.gb"
+    gb.write_text(_gb("""
+    gene            101..400
+                    /gene="psbA"
+    CDS             101..400
+                    /gene="psbA"
+    """, seq=seq, name="plastid", version="plastid.1"))
+    without = load_annotation(gb, [("plastid.1", len(seq))])
+    assert without.sequences["plastid.1"].regions == [] and not without.has_regions
+    with_seq = load_annotation(gb, [("plastid.1", len(seq))], seqs={"plastid.1": seq})
+    band = with_seq.sequences["plastid.1"].band
+    assert with_seq.has_regions and band.source == "sequence" and band.repeat.lengths == (6000, 6000)
+    assert [r.name for r in with_seq.sequences["plastid.1"].regions] == ["LSC", "IRb", "SSC", "IRa"]
+    assert with_seq.sequences["plastid.1"].region_at(12000) == "IRb"

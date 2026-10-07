@@ -19,12 +19,16 @@ from pathlib import Path
 
 from bacon import BaconError
 from bacon.annotation import (
+    MAX_DETECTION_LENGTH,
     Annotation,
     Gene,
+    InvertedRepeat,
     Region,
+    RegionBand,
     SequenceAnnotation,
     SnpAnnotation,
     annotate_snps,
+    find_regions,
     load_annotation,
 )
 from bacon.metadata import (
@@ -754,8 +758,8 @@ def _gene_class(g: Gene) -> str:
 
 def _gene_title(g: Gene) -> str:
     ranges = " + ".join(f"{s:,}–{e:,}" for s, e in g.extent)  # Several across the origin or trans-spliced
-    text = f"{g.name}: {g.kind_text()}, {'+' if g.strand > 0 else '−'} strand, {ranges} ({g.length:,} bp)"
-    if g.product and g.product != g.name:
+    text = f"{g.label}: {g.kind_text()}, {'+' if g.strand > 0 else '−'} strand, {ranges} ({g.length:,} bp)"
+    if g.product and g.product != g.name and f"({g.product})" not in g.label:
         text += f", {g.product}"
     if g.snps:
         text += f"; {g.snps} SNP{'s' if g.snps != 1 else ''}"
@@ -766,7 +770,7 @@ def snp_text(info: SnpAnnotation) -> str:
     """One line for a SNP: region, gene(s) and context, and the effects (escaped)."""
     parts = [info.region] if info.region else []
     if info.genes:
-        names = ", ".join(dict.fromkeys(g.name for g in info.genes))
+        names = ", ".join(dict.fromkeys(g.label for g in info.genes))
         parts.append(f"{names} ({info.context})")
     else:
         parts.append(info.context)
@@ -786,7 +790,7 @@ def place_labels(genes: list[Gene], left: float, right: float, scale: float,
     ends = [-1e9, -1e9]
     placed = []
     for g in chosen:
-        half = _text_px(g.name, size) / 2
+        half = _text_px(g.map_label, size) / 2
         s, e = max(g.extent, key=lambda r: r[1] - r[0])  # Centred on the largest range of a gene in pieces
         x = min(max(left + ((s + e) / 2 - 1) * scale, left + half), right - half)
         for row, end in enumerate(ends):
@@ -819,6 +823,10 @@ def _band(regions: list[Region], length: int, left: float, scale: float, y: floa
     return parts
 
 
+def _region_name(band: RegionBand, pos: int) -> str:
+    return next((r.name for r in band.regions if r.contains(pos)), "")
+
+
 def _gene_rows(seq_ann: SequenceAnnotation, left: float, right: float, scale: float, y: float,
                dense: bool) -> list[str]:
     """The two gene rows (+ strand above the centre line, − strand below): one rectangle per gene with its name
@@ -839,7 +847,7 @@ def _gene_rows(seq_ann: SequenceAnnotation, left: float, right: float, scale: fl
                 continue
             for s, e in g.extent:  # The ranges, not the hull: a gene across the origin spans the whole row
                 for px in range(int((s - 1) * scale), int(e * scale) + 1):
-                    columns.setdefault(px, []).append(g.name)
+                    columns.setdefault(px, []).append(g.label)
         run: list[int] = []
         for px in sorted(columns) + [None]:  # type: ignore[list-item]
             if run and (px is None or px != run[-1] + 1):
@@ -857,11 +865,13 @@ def _gene_rows(seq_ann: SequenceAnnotation, left: float, right: float, scale: fl
 def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
                n_tracks: dict[str, list[int]] | None = None, n_bin: int = 1000,
                annotation: Annotation | None = None,
-               snp_info: dict[tuple[str, int], SnpAnnotation] | None = None) -> str:
+               snp_info: dict[tuple[str, int], SnpAnnotation] | None = None,
+               bands: dict[str, RegionBand] | None = None) -> str:
     """One axis per reference sequence (widths proportional to their lengths), a track of SNP positions and,
-    when given, a track of N bases per bin on a log scale. With an annotation: a band of the plastome regions,
-    the genes of each strand above and below a centre line, labels for the genes with the most SNPs, and the
-    gene, context and effect of each SNP on hover."""
+    when given, a track of N bases per bin on a log scale. With regions (`bands`, by sequence: from the
+    annotation or detected in the sequence): a band of the plastome regions. With an annotation: the genes of
+    each strand above and below a centre line, labels for the genes with the most SNPs, and the gene, context and
+    effect of each SNP on hover."""
     width = FIG_WIDTH
     left, right = 118, width - 20
     longest = max((length for _, length in sequences), default=1) or 1
@@ -870,11 +880,13 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
     tick_bp = _nice_ceil(longest / 12)
     annotated = {name: annotation.sequences[name] for name, _ in sequences
                  if annotation is not None and name in annotation.sequences}
+    bands = {name: band for name, band in (bands or {}).items() if band and band.regions}
     dense = sum(len(a.genes) for a in annotated.values()) > MAX_GENE_RECTS
     labels = {name: ([], 0) if dense else place_labels(a.genes, left, right, scale)
               for name, a in annotated.items()}
-    extra = {name: (16 if a.regions else 0) + 22 + (labels[name][1] * 11 + 6 if labels[name][1] else 0)
-             for name, a in annotated.items()}
+    extra = {name: (16 if name in bands else 0)
+             + ((22 + (labels[name][1] * 11 + 6 if labels[name][1] else 0)) if name in annotated else 0)
+             for name, _ in sequences if name in bands or name in annotated}
     block = 30 + 38 + (76 if n_tracks is not None else 0)
     height = 8 + block * len(sequences) + sum(extra.values()) + 36
     parts = [_svg(width, height, "SNP positions along the reference")]
@@ -899,11 +911,11 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
                          '</text>')
             tick += tick_bp
         yb = ya + 22
+        if name in bands:
+            parts += _band(bands[name].regions, length, left, scale, yb)
+            yb += 16
         if name in annotated:
             seq_ann = annotated[name]
-            if seq_ann.regions:
-                parts += _band(seq_ann.regions, length, left, scale, yb)
-                yb += 16
             parts.append(f'<text x="{left - 6}" y="{yb + 7}" text-anchor="end" class="t-tiny t-muted">+</text>')
             parts.append(f'<text x="{left - 6}" y="{yb + 19}" text-anchor="end" class="t-tiny t-muted">−</text>')
             parts += _gene_rows(seq_ann, left, end, scale, yb, dense)
@@ -911,7 +923,8 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
             placed, rows = labels[name]
             for x, row, g in placed:
                 parts.append(f'<text x="{x:.1f}" y="{yb + 8 + row * 11:.1f}" text-anchor="middle" '
-                             f'class="t-tiny t-ink2 t-gene">{esc(g.name)}<title>{_gene_title(g)}</title></text>')
+                             f'class="t-tiny t-ink2 t-gene">{esc(g.map_label)}<title>{_gene_title(g)}</title>'
+                             '</text>')
             if rows:
                 yb += rows * 11 + 6
         ys = yb + 2
@@ -927,6 +940,8 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
                             else "called in every genome"))
                 if (s.chrom, s.pos) in info:
                     title += ". " + snp_text(info[(s.chrom, s.pos)])
+                elif name in bands:
+                    title += ". " + esc(_region_name(bands[name], s.pos))
                 missing = s.missing > 0
             else:
                 incomplete = sum(1 for s in group if s.missing)
@@ -934,7 +949,9 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
                          "a missing call. " + " ".join(f"{s.pos:,} {esc(s.ref)}&gt;{esc(s.alt)} ({s.alt_count} alt"
                                                        + (f", {s.missing} missing)" if s.missing else ")")
                                                        + (f" {snp_text(info[(s.chrom, s.pos)])}"
-                                                          if (s.chrom, s.pos) in info else "")
+                                                          if (s.chrom, s.pos) in info else
+                                                          f" {esc(_region_name(bands[name], s.pos))}"
+                                                          if name in bands else "")
                                                        for s in group[:8])
                          + (" …" if len(group) > 8 else ""))
                 missing = incomplete > 0
@@ -1014,8 +1031,37 @@ def _num(value: object, default: float) -> float:
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
 
 
-def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
-    """A methods paragraph built from the settings and program versions of the run."""
+def _regions_methods(info: dict, bands: dict[str, RegionBand] | None) -> str:
+    """How the LSC/IRb/SSC/IRa regions were obtained: from the regions of this report's genome map when it was
+    drawn, else from the record in run_info.json (a run of BACoN 0.3.6 or earlier has none)."""
+    texts: dict[str, str] = {}
+    if bands is not None:
+        texts = {name: band.text() for name, band in bands.items() if band and band.regions}
+    else:
+        for name, item in ((info.get("reference") or {}).get("regions") or {}).items():
+            if not isinstance(item, dict) or not item.get("regions"):
+                continue
+            if item.get("source") == "annotation":
+                texts[name] = RegionBand([], "annotation").text()
+            elif item.get("source") == "sequence":
+                found = item.get("repeat") or {}
+                repeat = None
+                if len(found.get("copies") or []) == 2 and len(found.get("lengths") or []) == 2:
+                    repeat = InvertedRepeat(tuple(found["copies"][0]), tuple(found["copies"][1]),
+                                            tuple(found["lengths"]), int(found.get("differences") or 0))
+                texts[name] = RegionBand([], "sequence", repeat).text()
+    if not texts:
+        return ""
+    if len(set(texts.values())) == 1:
+        return f"The LSC/IRb/SSC/IRa regions were derived from {next(iter(texts.values()))}."
+    return "The LSC/IRb/SSC/IRa regions were derived from " + "; ".join(
+        f"{html.escape(name)}: {text}" for name, text in texts.items()) + "."
+
+
+def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
+                 bands: dict[str, RegionBand] | None = None) -> str:
+    """A methods paragraph built from the settings and program versions of the run (and the regions of the
+    genome map, `bands`, when the report drew one)."""
     s = info.get("settings") or {}
     ref = info.get("reference") or {}
     comparison = info.get("comparison") or {}
@@ -1098,9 +1144,14 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
         tables = [str(t) for t in annotation.get("transl_tables") or []] or ["11"]
         table_text = tables[0] if len(tables) == 1 else f"{', '.join(tables[:-1])} and {tables[-1]}"
         name = html.escape(Path(annotation["file"]).name)
-        parts.append(f"Genes and regions were read from the annotation {name}; the effect of each SNP on the "
-                     "coding sequences (codon and amino-acid change) was derived by BACoN with translation table "
-                     f"{table_text}.")
+        parts.append(f"Genes were read from the annotation {name}; the effect of each SNP on the coding sequences "
+                     f"(codon and amino-acid change) was derived by BACoN with translation table {table_text}.")
+    regions = _regions_methods(info, bands)
+    if regions:
+        parts.append(regions + (" The inverted repeat is found by matching the k-mers of the sequence with those "
+                                "of its reverse complement, chaining the matches and extending them base by base "
+                                "(each copy at least 5 kb, at least 99% identical)."
+                                if "detected" in regions else ""))
     parts.append(f"The analysis was run with BACoN {html.escape(str(info.get('bacon_version', '')))} "
                  "(https://github.com/duceppemo/BACoN).")
     return " ".join(parts)
@@ -1293,6 +1344,7 @@ def build_report(output: Path) -> str:
     flagged = sum(1 for r in rows if r.get("Status") == "ok" and r.get("Note"))
     figures = _Figures()
     notes: list[str] = []
+    map_bands: dict[str, RegionBand] | None = None  # The regions of the genome map, when it is drawn
 
     def located(key: str) -> Path | None:
         """A file of the comparison, in this folder: a relative path starts from it, and an absolute one (the
@@ -1481,14 +1533,15 @@ def build_report(output: Path) -> str:
         vcf = located("vcf")
         reference = output / "reference.fasta"
         if vcf is not None and vcf.exists() and reference.exists():
-            out.append(_genome_map_section(output, vcf, reference, settings, figures, len(order),
-                                           annotation_file(output, info),
-                                           (info.get("annotation") or {}).get("file")))
+            section, map_bands = _genome_map_section(output, vcf, reference, settings, figures, len(order),
+                                                     annotation_file(output, info),
+                                                     (info.get("annotation") or {}).get("file"))
+            out.append(section)
     for note in notes:
         out.append(f'<p class="warn">{esc(note)}.</p>')
 
     # Methods and provenance
-    out.append(f'<h2>Methods</h2><p class="methods">{methods_text(info, rows)}</p>')
+    out.append(f'<h2>Methods</h2><p class="methods">{methods_text(info, rows, map_bands)}</p>')
     out.append("<h2>Run</h2><dl>")
     prov = [("Command", " ".join(info.get("command_line") or [])),
             ("Reference", f"{ref.get('file', '')} ({ref.get('sequences', '?')} sequence(s), "
@@ -1557,8 +1610,14 @@ def snp_summary(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], ann
     genes = sorted({id(g): g for a in annotated for g in a.genes}.values(), key=lambda g: (-g.snps, g.name))
     top = [g for g in genes if g.snps >= MIN_LABEL_SNPS][:5]
     if top:
-        sentences.append("Genes with the most SNPs: " + ", ".join(f"<i>{esc(g.name)}</i> ({g.snps})" for g in top))
+        sentences.append("Genes with the most SNPs: " + ", ".join(_gene_count(g) for g in top))
     return ". ".join(sentences) + "."
+
+
+def _gene_count(g: Gene) -> str:
+    """`<i>matK</i> (19)`, or for a gene without a symbol `<i>LK299_pgp087</i> (maturase K; 19)`."""
+    detail = g.label[len(g.name) + 2:-1] if g.label != g.name else ""  # What the label adds in parentheses
+    return f"<i>{esc(g.name)}</i> ({esc(detail) + '; ' if detail else ''}{g.snps})"
 
 
 def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genomes: int,
@@ -1578,7 +1637,7 @@ def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genom
         else:
             several = len({e.gene for e in a.effects}) > 1 or len({e.alt for e in a.effects}) > 1
             prefix = (lambda e: f"{e.gene} {e.alt}: ") if several else (lambda e: "")
-            cells = [*([a.region] if regions else []), ", ".join(dict.fromkeys(g.name for g in a.genes)),
+            cells = [*([a.region] if regions else []), ", ".join(dict.fromkeys(g.label for g in a.genes)),
                      a.context, "; ".join(prefix(e) + e.codons for e in a.effects),
                      "; ".join(prefix(e) + e.change for e in a.effects),
                      "; ".join(prefix(e) + e.kind for e in a.effects)]
@@ -1596,15 +1655,18 @@ def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genom
 
 def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict, figures: _Figures,
                         genomes: int, annotation_path: Path | None = None,
-                        annotation_name: str | None = None) -> str:
+                        annotation_name: str | None = None) -> tuple[str, dict[str, RegionBand]]:
+    """The genome map section and the regions of the drawn sequences (by name; from the annotation when it has
+    inverted repeats, else detected in the reference sequence itself: so a plastid reference gets its
+    LSC/IRb/SSC/IRa band with or without an annotation)."""
     try:
         records = list(read_records(reference))
         sequences = [(rec.name, len(rec.seq)) for rec in records]
         snps, columns = read_vcf(vcf)
     except Exception as exc:  # noqa: BLE001 - a malformed file loses its figure, not the report
-        return f'<p class="meta">No genome map: {esc(str(exc))}.</p>'
+        return f'<p class="meta">No genome map: {esc(str(exc))}.</p>', {}
     if not sequences:
-        return ""
+        return "", {}
     drawn = sequences
     skipped = ""
     if len(sequences) > MAX_MAP_SEQUENCES:
@@ -1617,15 +1679,23 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
     annotation: Annotation | None = None
     snp_info: dict[tuple[str, int], SnpAnnotation] = {}
     notes: list[str] = []
+    seqs = {rec.name: rec.seq for rec in records}
     if annotation_path is not None:
         try:
-            annotation = load_annotation(annotation_path, sequences)
-            seqs = {rec.name: rec.seq for rec in records}
+            annotation = load_annotation(annotation_path, sequences, seqs=seqs)
             snp_info = annotate_snps(annotation, [(s.chrom, s.pos, s.ref, s.alt) for s in snps], seqs)
             notes += annotation.warnings
         except Exception as exc:  # noqa: BLE001 - a bad annotation loses the annotation, not the map
             annotation = None
             notes.append(f"The annotation {annotation_path.name} could not be used: {exc}")
+    bands: dict[str, RegionBand] = {}
+    for name, length in drawn:
+        if annotation is not None and name in annotation.sequences:
+            band = annotation.sequences[name].band
+        else:
+            band = find_regions([], length, seqs[name])
+        if band is not None and band.regions:
+            bands[name] = band
     assembler = settings.get("assembler")
     n_tracks = None
     n_bin = 1000
@@ -1673,19 +1743,31 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
                         + (f" (the {MAX_GENE_LABELS} with the most)." if any(
                             sum(1 for g in a.genes if g.snps >= MIN_LABEL_SNPS) > MAX_GENE_LABELS
                             for a in annotation.sequences.values()) else ".")))
-        if annotation.has_regions:
-            gene_text += " The band above the genes shows the regions derived from the annotated inverted repeats."
+    band_text = ""
+    if bands:
+        where = "above the genes" if gene_text else "under the axis"
+        texts = {name: band.text() for name, band in bands.items()}
+        if len(set(texts.values())) == 1:
+            band_text = f" The band {where} shows the LSC/IRb/SSC/IRa regions from {next(iter(texts.values()))}."
+        else:
+            band_text = f" The band {where} shows the LSC/IRb/SSC/IRa regions from " + "; ".join(
+                f"{esc(name)}: {text}" for name, text in texts.items()) + "."
+        if not gene_text:
+            hover += " and the region"
+    elif any(length > MAX_DETECTION_LENGTH for _, length in drawn):
+        band_text = (f" No search for an inverted repeat in sequences longer than {MAX_DETECTION_LENGTH / 1e6:g} "
+                     "Mb.")
     out = ["<h2>Genome map</h2>",
-           genome_map(drawn, snps, columns or genomes, n_tracks, n_bin, annotation, snp_info),
+           genome_map(drawn, snps, columns or genomes, n_tracks, n_bin, annotation, snp_info, bands),
            figures.caption(f"SNP positions along the reference ({len(snps):,} records of the VCF, {missing:,} "
                            f"with a missing call in at least one of the {genomes_text}). Hover a tick for {hover}."
-                           f"{binned}{gene_text}{n_text}{skipped}")]
+                           f"{binned}{gene_text}{band_text}{n_text}{skipped}")]
     out += [f'<p class="warn">{esc(note)}.</p>' for note in notes]
     if annotation is not None and annotation.sequences and snps:
         out.append(f'<h3>SNPs</h3><p class="meta">{snp_summary(snps, snp_info, annotation)} Click a column to '
                    "sort.</p>")
         out.append(snp_table(snps, snp_info, columns or genomes, annotation.has_regions, len(sequences) > 1))
-    return "".join(out)
+    return "".join(out), bands
 
 
 def write_report(output: Path) -> Path:

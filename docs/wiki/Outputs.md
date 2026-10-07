@@ -65,19 +65,24 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   bases per kb (coarser bins above 1.5 Mb) summed over all assemblies, at approximate positions: the
   insertions and deletions of a consensus shift the positions after them, so an assembly whose length differs
   from the reference's by up to 5% is rescaled to it (one differing by more is a partial consensus, counted at
-  its own positions). With an annotation (`--annotation`, or a GenBank reference), the
-  map also shows: a band of the plastome regions (LSC, IRb, SSC, IRa) when the annotation has two inverted
-  repeats of at least 500 bp (named as the annotation names them, otherwise by convention: the larger
-  single-copy region is the LSC and the repeat after it IRb; the single-copy regions are the gaps between the
-  repeats, one of which may span the origin); the genes of the + strand above a centre line and those of the
-  − strand below (protein-coding genes in green, tRNA and rRNA genes in violet, pseudogenes faint), each with
-  its name, type and coordinates on hover; labels for the genes with two or more SNPs (at most 40, those with
-  the most SNPs, on two rows); and, on each SNP's hover, its gene, context and effect. Above 1,500 genes
-  (a bacterial genome), the gene rows only show where genes lie, merged per pixel, without names or labels.
+  its own positions). A band of the plastome regions (LSC, IRb, SSC, IRa), with or without an annotation:
+  from the annotation's two inverted repeats of at least 500 bp (named as the annotation names them, otherwise
+  by convention: the larger single-copy region is the LSC and the repeat after it IRb; the single-copy regions
+  are the gaps between the repeats, one of which may span the origin), or else from the large inverted repeat
+  detected in the reference sequence itself (two copies of at least 5 kb, at least 99% identical, in a sequence
+  of 2 Mb or less); the caption says which, with the detected copies' size and identity, and without an
+  annotation each SNP's hover gives its region. With an annotation (`--annotation`, or a GenBank reference),
+  the map also shows: the genes of the + strand above a centre line and those of the − strand below
+  (protein-coding genes in green, tRNA and rRNA genes in violet, pseudogenes faint), each with its name, type
+  and coordinates on hover; labels for the genes with two or more SNPs (at most 40, those with the most SNPs, on
+  two rows; a gene without a symbol is labelled by its product when that is at most 12 characters, else by its
+  locus tag); and, on each SNP's hover, its gene, context and effect. Above 1,500 genes (a bacterial genome),
+  the gene rows only show where genes lie, merged per pixel, without names or labels.
 - **SNPs** (with an annotation): a summary (SNPs per region, per context and by effect, the genes with the most
   SNPs, and the SNPs on sequences without annotation, if any) and a sortable table with one row per SNP of the
   VCF: the sequence (when the reference has several), position, alleles, region,
-  gene, context (`CDS`, `intron`, `tRNA`, `rRNA`, `pseudogene`, `UTR`, or `intergenic between X and Y`, the
+  gene (its symbol, or `locus_tag (product)` for a gene without one, such as `LK299_pgp087 (maturase K)`),
+  context (`CDS`, `intron`, `tRNA`, `rRNA`, `pseudogene`, `UTR`, or `intergenic between X and Y`, the
   nearest genes on either side, around the origin of a circular sequence), the codon and amino-acid change and
   the effect (`synonymous`, `missense`, `nonsense`, `stop lost`, `stop retained` (a stop codon changed into another), `start lost`, `start retained`: a changed start
   codon that is still one in the genetic code used), and the number of genomes with the alternate allele or
@@ -86,7 +91,8 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   the genes with the most SNPs. The table shows at most 3,000 SNPs (by position). How the effects are computed is
   in [Methods](Methods#snp-effects).
 - **Methods**: a paragraph describing what was run, with program versions (and the annotation and translation
-  table, when used), ready to adapt for a paper.
+  table, when used, and where the plastome regions come from: the annotated inverted repeats, or the one
+  detected in the reference sequence, with the copies' size and identity), ready to adapt for a paper.
 - **Run**: command, reference (with the MD5 of the file as given), output folder, the metadata file and the
   colour column when there are any, and the version and path of every program.
 
@@ -200,7 +206,9 @@ is built; lower `--ska-min-freq` (see [FAQ](FAQ)).
 
 The provenance of the last run: BACoN version, command line, start time and duration, all settings, the path
 and version of every program used, the reference as given (path, number of sequences, length and the MD5 of the
-file itself, fasta or GenBank), the annotation when there is one (file, format, the name of its copy in the
+file itself, fasta or GenBank, and for each of its sequences the LSC/IRb/SSC/IRa regions with their source,
+`annotation` or `sequence`, and for the latter the detected copies' coordinates, lengths, differences and
+identity, or `"none"`), the annotation when there is one (file, format, the name of its copy in the
 output folder, numbers of genes and of annotated sequences, whether regions were derived, the translation
 tables, MD5), the sample metadata when there is some (the `--metadata` file and its MD5, the sample sheet's
 metadata columns, the name of the copy, the columns, how many samples have a row, how many rows match no sample,
