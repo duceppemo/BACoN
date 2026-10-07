@@ -600,6 +600,9 @@ _REGION = re.compile(r"^(?:(?P<lsc>LSC|large single[ -]copy)|(?P<ssc>SSC|small s
                      r"|(?P<ir>IR|inverted[ -]repeat)(?:[ _-]?(?P<copy>[AB]))?)(?: region)?$", re.I)
 
 
+_IR_COPY = re.compile(r"\b(?:IR|inverted[ -]repeats?(?: region)?)[ _-]?(?:IR)?([AB])\b", re.I)
+
+
 def region_label(f: RawFeature) -> str | None:
     """'LSC', 'SSC', 'IRa', 'IRb' or 'IR' for a feature annotating a region of a plastome, else None."""
     if f.type not in REGION_TYPES:
@@ -608,6 +611,10 @@ def region_label(f: RawFeature) -> str | None:
     for key in ("note", "standard_name", "name", "rpt_family", "gene", "product", "rpt_type"):
         if f.qualifiers.get(key):
             texts += re.split(r"[;,]", f.qualifiers[key])
+    for text in texts:  # A copy named anywhere: "IRa", "inverted repeat B", "inverted repeat region IRb"
+        copy = _IR_COPY.search(text)
+        if copy:
+            return "IR" + copy.group(1).lower()
     for text in texts:
         match = _REGION.match(text.strip())
         if match:

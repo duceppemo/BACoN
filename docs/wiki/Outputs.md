@@ -93,7 +93,9 @@ rebuilds it, also after the folder was moved. Examples: the
 
 ![The depth and N bases of the samples of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_bars.png)
 
-![The SNP distances of the tutorial in the report](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_distances.png)
+![The tree of the tutorial in the report, with the lineages as metadata](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_tree.png)
+
+![The SNP distances of the tutorial in the report, with the lineages as metadata](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_distances.png)
 
 ![The genome map of the tutorial](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/report_map.png)
 

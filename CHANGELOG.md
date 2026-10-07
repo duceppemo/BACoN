@@ -26,6 +26,11 @@
   genomes, the supports and a scale bar in SNPs; a heatmap of the distances with colour classes fitted to their
   range and the groups of identical genomes as coloured bands; and a genome map with the positions of the VCF's
   SNPs and, for templated assemblies, the `N` bases along the reference.
+- The bundled example is an annotated, plastid-like reference (LSC, IRb, SSC, IRa; 23 synthetic genes, as
+  GenBank and fasta) with a sample metadata file; its 20 SNPs fall in chosen genes and contexts, and
+  `example/run_example.sh` checks their effects as well as the distances, so the example shows every feature of
+  the report. The published reports and the wiki pictures were rebuilt with all the features.
+- The report's page is wider (1,440 px at most), so that a samples table with metadata columns fits.
 
 ## 0.3.5 (2026-10-02)
 

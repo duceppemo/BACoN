@@ -42,7 +42,7 @@ seconds, without conda, and test the pipeline logic: resuming, parameter changes
 real programs are exercised by the example and the validation:
 
 ```bash
-bash example/run_example.sh                   # seconds; checks SNP distances against the truth
+bash example/run_example.sh                   # seconds; checks SNP distances and effects against the truth
 bash validation/run_validation.sh /tmp/val    # a few minutes; scores every assembler and SNP method
 ```
 

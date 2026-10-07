@@ -1042,7 +1042,7 @@ CSS = f"""
 *{{box-sizing:border-box}}
 :root{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}}
-main{{max-width:1180px;margin:0 auto;padding:24px 16px 80px}}
+main{{max-width:1440px;margin:0 auto;padding:24px 16px 80px}}
 h1{{font-size:26px;line-height:1.2;margin:0 0 6px}}
 h1 b{{color:var(--s1)}}
 h2{{font-size:21px;margin:44px 0 10px;padding-top:12px;border-top:1px solid var(--grid)}}

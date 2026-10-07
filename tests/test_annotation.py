@@ -503,3 +503,13 @@ def test_gene_snp_counts(tmp_path):
     annotate_snps(ann, [("ref.1", 5, "C", "A"), ("ref.1", 6, "T", "C"), ("ref.1", 15, "G", "A"),
                         ("ref.1", 15, "G", "T"), ("other", 1, "A", "C")], {"ref.1": SEQ})
     assert [(g.name, g.snps) for g in ann.sequences["ref.1"].genes] == [("abc", 3), ("trnX", 0), ("rev", 0)]
+
+
+def test_inverted_repeat_copies_named_in_free_text():
+    from bacon.annotation import _IR_COPY
+    for text, copy in [("IRa", "a"), ("IRB", "b"), ("inverted repeat B", "b"), ("inverted repeat IRb", "b"),
+                       ("inverted repeat region IRa", "a"), ("Inverted Repeat A region", "a"), ("IR_A", "a")]:
+        match = _IR_COPY.search(text)
+        assert match and match.group(1).lower() == copy, text
+    for text in ("IRAK1 binding site", "inverted repeat", "spirAl", "LSC"):
+        assert not _IR_COPY.search(text), text
