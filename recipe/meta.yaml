@@ -3,7 +3,7 @@
 # recompute the sha256, reset `number` to 0, and update bioconda-recipes (its autobump bot usually does).
 # The package is named bacon-nanopore because conda-forge already has an unrelated `bacon`.
 {% set name = "bacon-nanopore" %}
-{% set version = "0.3.5" %}
+{% set version = "0.3.6" %}
 
 package:
   name: {{ name }}
@@ -11,7 +11,7 @@ package:
 
 source:
   url: https://github.com/duceppemo/BACoN/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 2e34e430d5fd3341b9a2877d323da99d5db614433c4587c4b4cca5aea2fab02a
+  sha256: dcf732f66379329ba8555ac981900ac3fbd92a1cfdd76bc4e4b6a368b6479683
 
 build:
   number: 0
