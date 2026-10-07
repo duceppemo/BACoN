@@ -23,8 +23,10 @@ the file given, fasta or GenBank.
 reference, used in the report only: the genome map gets the genes, the regions of a plastome and the effect of
 each SNP ([Outputs](Outputs#reporthtml)). It is not part of any checkpoint: adding, changing or removing it
 reruns nothing. The LSC/IRb/SSC/IRa band of a plastome comes from the annotated inverted repeats or, when the
-annotation does not mark them (most RefSeq plastomes), from the large inverted repeat BACoN detects in the
-reference sequence itself; the band is drawn with or without an annotation, the gene track only with one
+annotation does not mark them (older RefSeq plastomes), from the large inverted repeat BACoN detects in the
+reference sequence itself, when the regions have the layout of a plastome (the repeats at least 5% of the
+sequence, the larger single-copy region at most 200 kb, the record not a mitochondrion or a chromosome); the
+band is drawn with or without an annotation, the gene track only with one
 ([Methods](Methods#5-snp-effects)). The default is the reference itself when it is a GenBank file. The annotated sequences must
 have the names of the reference's sequences (a single annotated sequence of the same length as a single
 reference sequence is accepted whatever its name); features on other sequences or beyond the end of a sequence

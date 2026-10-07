@@ -1361,6 +1361,73 @@ def test_run_info_records_the_regions_detected_in_the_reference(stubs, dataset, 
                                  "differences": 0, "identity": 1.0}
     assert "Regions of plastid: LSC/IRb/SSC/IRa, from the inverted repeat detected in the reference sequence " \
            "(two copies of 6,000 bp, 100% identical)" in (out / "bacon.log").read_text()
-    # Without a comparison there is no genome map: the Methods still say where the regions come from
-    assert "regions were derived from the inverted repeat detected in the reference sequence (two copies of " \
-           "6,000 bp, 100% identical)" in (out / "report.html").read_text()
+    # Without a comparison there is no genome map, so no band: the Methods do not describe regions the report
+    # does not show (run_info.json has them)
+    assert "LSC/IRb/SSC/IRa" not in (out / "report.html").read_text()
+
+
+def test_run_info_regions_from_the_sequence_when_the_annotation_has_no_repeats(stubs, dataset, tmp_path):
+    from tests.test_annotation import make_plastome
+    _, reads = dataset
+    ref = tmp_path / "plastid.fasta"
+    ref.write_text(">plastid\n" + make_plastome() + "\n")
+    gb = tmp_path / "ann.gb"
+    gb.write_text(_genbank_of(ref, name="plastid"))  # A CDS, no repeat feature
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none", annotation=gb)) == 0
+    info = json.loads((out / "run_info.json").read_text())
+    regions = info["reference"]["regions"]["plastid"]
+    assert info["annotation"]["regions"] is True and regions["source"] == "sequence"
+    assert regions["repeat"]["lengths"] == [6000, 6000]
+    assert "Regions of plastid: LSC/IRb/SSC/IRa, from the inverted repeat detected in the reference sequence" \
+        in (out / "bacon.log").read_text()
+
+
+def test_regions_are_in_no_checkpoint_fingerprint(stubs, dataset, tmp_path):
+    from tests.test_annotation import make_plastome
+    _, reads = dataset
+    ref = tmp_path / "plastid.fasta"
+    ref.write_text(">plastid\n" + make_plastome() + "\n")
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out)) == 0
+    fingerprints = {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)}
+    assert len(fingerprints) >= 4
+    assert json.loads((out / "run_info.json").read_text())["reference"]["regions"]["plastid"]["source"] == "sequence"
+    # The same run with an annotation of the repeats (a little off): the regions change, the fingerprints do not
+    gb = tmp_path / "ann.gb"
+    gb.write_text(_genbank_of(ref, name="plastid", features=(
+        "     repeat_region   9001..15000\n                     /rpt_type=inverted\n"
+        "     repeat_region   19001..24990\n                     /rpt_type=inverted\n")))
+    stubs.unlink()
+    assert run(settings(ref, reads, out, annotation=gb)) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the sample that failed before: nothing ran again
+    regions = json.loads((out / "run_info.json").read_text())["reference"]["regions"]["plastid"]
+    assert regions["source"] == "annotation" and {r["name"]: r["end"] for r in regions["regions"]} == \
+        {"LSC": 9000, "IRb": 15000, "SSC": 19000, "IRa": 24990}
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)} == fingerprints
+    stubs.unlink()
+    assert run(settings(ref, reads, out)) == 0  # And back
+    assert calls(stubs) == ["minimap2"]
+    assert json.loads((out / "run_info.json").read_text())["reference"]["regions"]["plastid"]["source"] == "sequence"
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)} == fingerprints
+
+
+def test_run_info_records_a_repeat_that_gives_no_band(stubs, dataset, tmp_path):
+    import random
+
+    from bacon.annotation import reverse_complement
+    _, reads = dataset
+    rng = random.Random(4)
+    x = "".join(rng.choices("ACGT", k=5500))
+    ref = tmp_path / "abutting.fasta"  # The copies abut across the origin, as in the Toxoplasma apicoplast
+    ref.write_text(">ref\n" + reverse_complement(x) + "A" + "".join(rng.choices("ACGT", k=19998)) + "A" + x + "\n")
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    regions = json.loads((out / "run_info.json").read_text())["reference"]["regions"]["ref"]
+    assert regions == {"source": "none", "regions": [], "note": "inverted repeat found but not a plastome layout "
+                                                                "(the copies abut)",
+                       "repeat": {"copies": [[1, 5500], [25501, 31000]], "lengths": [5500, 5500], "differences": 0,
+                                  "identity": 1.0}}
+    assert "Regions of ref: none (inverted repeat found but not a plastome layout (the copies abut))" \
+        in (out / "bacon.log").read_text()
+    assert "LSC/IRb/SSC/IRa" not in (out / "report.html").read_text()

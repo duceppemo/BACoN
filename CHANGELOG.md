@@ -4,22 +4,43 @@
 
 ### Added
 - The LSC/IRb/SSC/IRa band of the genome map no longer needs annotated inverted repeats: BACoN detects the
-  large inverted repeat in each reference sequence (two copies of at least 5 kb, at least 99% identical, exact
-  coordinates, in a sequence of 2 Mb or less; about 0.1 s for a plastome) and uses it when the annotation has
-  no inverted repeats, most RefSeq plastomes, or when there is no annotation at all (the gene track still needs
-  one). Annotated repeats keep priority unless the sequence contradicts them (NC_001879.2 annotates its LSC as
-  an inverted repeat): then the sequence wins, with a warning. The caption, the Methods paragraph and the log
-  say where the regions come from, with the detected copies' size and identity; `run_info.json` records the
-  regions of each reference sequence (`reference.regions`), their source and the detected copies, or `"none"`.
-  On NC_008096.2 (potato) the detected copies are exactly the annotated ones.
+  large inverted repeat in each reference sequence (two copies of at least 5 kb, at least 99% identical, in a
+  sequence of 2 Mb or less; about 0.1 s for a plastome, 1 s for 2 Mb) and uses it when the annotation has no
+  inverted repeats (older RefSeq plastomes often annotate none) or when there is no annotation at all (the gene
+  track still needs one). The copies' coordinates are those of the maximal match: on NC_008096.2 (potato)
+  exactly the annotated ones, on other records within 1–8 bp of the annotated junctions, on NC_007144.1
+  (cucumber) the copies minimap2 aligns. Mismatches, indels and runs of N each count as one difference, so an
+  insertion of up to 3 kb in one copy, a scaffold gap or compensating indels (cucumber) do not reject the
+  repeat, and a diverged flank is dropped (the Arabidopsis mitochondrion NC_037304.1 has a 6,590 bp repeat,
+  100% identical, in diverged flanks). The band is only drawn when the regions have the layout of a plastome:
+  the repeats at least 5% of the sequence, the larger single-copy region at most 200 kb, and the record not said
+  to be a mitochondrion (GenBank `/organelle`, NCBI GFF3 `genome=`) or a chromosome; the inverted rRNA operons
+  of a bacterium (*Helicobacter pylori* NC_000915.1) or the repeat of a plant mitochondrion (maize NC_007982.1)
+  get no band. Annotated repeats keep priority when the detected copies lie inside them; the sequence wins,
+  with a warning, when the annotation names other stretches, or names repeats that give no layout (NC_001879.2,
+  tobacco, annotates its LSC as `inverted repeat B` and its IRa twice), or repeats that are not a plastome
+  layout. The caption, the Methods paragraph (when the report shows the band) and the log say where the regions
+  come from, with the detected copies' size and identity; `run_info.json` records the regions of each reference
+  sequence (`reference.regions`), their source and the detected copies, `"none"`, or a repeat that gives no
+  band with a `note` saying why.
 
 ### Changed
-- A gene without a symbol (no `/gene`, as in many RefSeq records: only `/locus_tag` and `/product`) is shown as
-  `locus_tag (product)`, `LK299_pgp087 (maturase K)`, in the SNP table, the hovers, the intergenic contexts and
-  the summary of the genes with the most SNPs (`LK299_pgp087 (maturase K; 4)`); on the map by its product when
-  that is at most 12 characters, else by its locus tag. Its identifier (the locus tag) is unchanged, and no
-  symbol is made up from a product. In GFF3, a `Name` that is the locus tag, the ID or the product is not a
-  symbol.
+- A gene without a symbol (no `/gene`, as in older RefSeq records: only `/locus_tag` and `/product`) is shown as
+  `locus_tag (product)`, `LK299_pgr007 (23S ribosomal RNA)`, in the SNP table, the hovers, the intergenic
+  contexts and the summary of the genes with the most SNPs (`LK299_pgr007 (23S ribosomal RNA; 4)`); on the map
+  by its product when that is at most 12 characters (`tRNA-Val` for rice's `OrsajCt141`), else by its locus tag.
+  Its identifier (the locus tag) is unchanged, and no symbol is made up from a product. In GFF3, a `Name` that
+  is the locus tag, the product, the `gene_id` or the ID is not a symbol, nor the ID without its type prefix
+  when the gene has a locus tag or the `Name` looks like one (`ID=gene-matK;Name=matK` keeps matK).
+- GFF3: Ensembl's `ncRNA_gene` features are genes (their tRNA and rRNA transcripts are named after them, and a
+  gene without a `Name` after its `gene_id`); a CDS or RNA feature without a `Parent` joins the gene feature
+  containing it on its strand (the rRNA genes NCBI writes with `gene_biotype=other`: tomato NC_007898.3 now has
+  the 142 genes of its GenBank record). GenBank: a quoted value continued on the next line is joined without a
+  space after a hyphen, or after a comma followed by a digit, where the flat file broke a word
+  (`2,6-diaminopimelate`).
+- The genome map's caption says, for a reference with several sequences, that the band is above the genes or
+  under the axis for the sequences without annotation, and the Methods paragraph describes the regions only when
+  the report shows the band (not from `run_info.json` when no map was drawn).
 
 ## 0.3.6 (2026-10-07)
 

@@ -1102,19 +1102,126 @@ def test_report_labels_genes_without_a_symbol_by_locus_tag_and_product(tmp_path)
         in page and "(300 bp), ribosomal" not in page  # The product is not repeated after the label
 
 
-def test_methods_text_describes_the_regions_from_the_run_info_record():
+def test_methods_text_describes_the_regions_only_when_the_report_shows_a_band():
+    from bacon.annotation import Region, RegionBand
     from bacon.report import methods_text
     base = {"settings": {}, "reference": {"file": "/x/ref.fa"}}
     assert "LSC/IRb/SSC/IRa" not in methods_text(base)
+    # The regions recorded in run_info.json are not described when no map (no band) is in the report
     detected = {"source": "sequence", "regions": [{"name": "LSC", "start": 1, "end": 9000, "length": 9000}],
                 "repeat": {"copies": [[9001, 15000], [19001, 25000]], "lengths": [6000, 6000], "differences": 0,
                            "identity": 1.0}}
     info = {**base, "reference": {"file": "/x/ref.fa", "regions": {"c1": detected, "c2": "none"}}}
-    assert f"The LSC/IRb/SSC/IRa regions were derived from {DETECTED}." in methods_text(info)
-    annotated = {"source": "annotation", "regions": [{"name": "LSC", "start": 1, "end": 9000, "length": 9000}]}
-    info = {**base, "reference": {"file": "/x/ref.fa", "regions": {"c1": detected, "c2": annotated}}}
-    assert f"derived from c1: {DETECTED}; c2: the annotated inverted repeats." in methods_text(info)
-    # The report's own regions win over the record
-    from bacon.annotation import RegionBand
-    assert "derived from the annotated inverted repeats." in methods_text(info, None, {"c1": RegionBand(
-        [__import__("bacon.annotation").annotation.Region("LSC", 1, 9000, 9000)], "annotation")})
+    assert "LSC/IRb/SSC/IRa" not in methods_text(info) and "LSC/IRb/SSC/IRa" not in methods_text(info, None, {})
+    # The bands of the map are described, one text when they all have the same source, else per sequence
+    band = RegionBand([Region("LSC", 1, 9000, 9000)], "annotation")
+    assert "derived from the annotated inverted repeats." in methods_text(info, None, {"c1": band})
+    from bacon.annotation import InvertedRepeat
+    found = RegionBand([Region("LSC", 1, 9000, 9000)], "sequence",
+                       InvertedRepeat((9001, 15000), (19001, 25000), (6000, 6000), 0))
+    text = methods_text(info, None, {"c1": found, "c2": band, "c3": RegionBand([], "none")})
+    assert f"derived from c1: {DETECTED}; c2: the annotated inverted repeats." in text
+    assert "k-mers" in text and "c3" not in text  # How the repeat is found, when one was; no band: not mentioned
+
+
+def test_dense_gene_titles_use_the_labels(tmp_path, monkeypatch):
+    import bacon.report as report
+    from bacon.annotation import load_annotation
+    gb = tmp_path / "a.gb"
+    gb.write_text(_plastid_genbank("ACGT" * 1000, (
+        "     gene            1..300\n                     /locus_tag=\"LK299_pgr007\"\n"
+        "     rRNA            1..300\n                     /locus_tag=\"LK299_pgr007\"\n"
+        "                     /product=\"23S ribosomal RNA\"\n"
+        "     gene            complement(2000..2072)\n                     /locus_tag=\"OrsajCt141\"\n"
+        "     tRNA            complement(2000..2072)\n                     /locus_tag=\"OrsajCt141\"\n"
+        "                     /product=\"tRNA-Val\"\n")))
+    annotation = load_annotation(gb, [("c1", 4000)])
+    monkeypatch.setattr(report, "MAX_GENE_RECTS", 1)
+    out = genome_map([("c1", 4000)], [], 2, annotation=annotation)
+    assert "1 gene: LK299_pgr007 (23S ribosomal RNA)" in out and "1 gene: OrsajCt141 (tRNA-Val)" in out
+
+
+def test_label_widths_follow_the_map_label():
+    from bacon.annotation import Gene
+    from bacon.report import _text_px, place_labels
+    left, right = 118, 1100
+    scale = (right - left) / 4000
+
+    def gene(name: str, product: str, start: int) -> Gene:
+        g = Gene("c1", name, "rRNA", 1, [(start, start + 100)], product=product)
+        g.snps = 2
+        return g
+
+    short, long_ = _text_px("tRNA-Val", 9.5), _text_px("LK299_pgr007", 9.5)
+    assert short + 1 < long_
+    apart = int((short + 7) / scale)  # Two labels this far apart fit side by side when short, not when long
+    placed, rows = place_labels([gene("LK299_pgr007", "tRNA-Val", 1000), gene("LK299_pgr008", "tRNA-Ile", 1000 + apart)],
+                                left, right, scale)
+    assert rows == 1 and [row for _, row, _ in placed] == [0, 0]
+    placed, rows = place_labels([gene("LK299_pgr007", "23S ribosomal RNA", 1000),
+                                 gene("LK299_pgr008", "16S ribosomal RNA", 1000 + apart)], left, right, scale)
+    assert rows == 2 and [row for _, row, _ in placed] == [0, 1]  # Labelled by their 12-character identifiers
+
+
+def test_band_height_is_reserved_without_annotation():
+    import re
+
+    from bacon.annotation import find_regions
+    from tests.test_annotation import make_plastome
+    seq = make_plastome()
+    band = find_regions([], len(seq), seq)
+    plain = genome_map([("c1", len(seq))], [], 2)
+    banded = genome_map([("c1", len(seq))], [], 2, bands={"c1": band})
+
+    def snp_row(svg: str) -> float:
+        return float(re.search(r'y="([\d.]+)"[^>]*>SNPs</text>', svg).group(1))
+
+    def height(svg: str) -> float:
+        return float(re.search(r'viewBox="0 0 \d+ (\d+)"', svg).group(1))
+
+    assert 'class="band-ir"' in banded and 'class="band-ir"' not in plain
+    assert snp_row(banded) - snp_row(plain) == 16  # The SNP track moves down by the band's height ...
+    assert height(banded) - height(plain) == 16  # ... and the figure is taller by as much
+
+
+def test_merged_ticks_hover_gives_the_region_without_annotation():
+    from bacon.annotation import find_regions
+    from bacon.report import Snp
+    from tests.test_annotation import make_plastome
+    seq = make_plastome()
+    band = find_regions([], len(seq), seq)
+    snps = [Snp("c1", 100, "A", "G", 1, 0), Snp("c1", 101, "C", "T", 2, 0), Snp("c1", 12000, "A", "G", 1, 0)]
+    out = genome_map([("c1", len(seq))], snps, 3, bands={"c1": band})
+    assert "2 SNPs at c1:100–101; 0 with a missing call. 100 A&gt;G (1 alt) LSC 101 C&gt;T (2 alt) LSC</title>" in out
+    assert "called in every genome. IRb</title>" in out
+
+
+def test_caption_says_when_a_sequence_is_too_long_to_search(tmp_path):
+    out = _full_run(tmp_path)
+    (out / "reference.fasta").write_text(">c1 big\n" + "A" * 2_000_001 + "\n")
+    page = build_report(out)
+    assert "No search for an inverted repeat in sequences longer than 2 Mb." in page
+    assert "LSC/IRb/SSC/IRa" not in page
+
+
+def test_caption_places_the_band_per_sequence(tmp_path):
+    from tests.test_annotation import make_plastome
+    out = _full_run(tmp_path)
+    s1, s2 = make_plastome(seed=1), make_plastome(seed=2)
+    (out / "reference.fasta").write_text(f">c1 a\n{s1}\n>c2 b\n{s2}\n")
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        f"c1\t150\t.\t{s1[149]}\t{'A' if s1[149] != 'A' else 'C'}\t.\t.\t.\tGT\t1\t0\n"
+        f"c2\t12000\t.\t{s2[11999]}\t{'A' if s2[11999] != 'A' else 'C'}\t.\t.\t.\tGT\t1\t0\n")
+    (out / "annotation.gb").write_text(_plastid_genbank(s1, (  # c1 only
+        "     gene            101..400\n                     /gene=\"psbA\"\n"
+        "     CDS             101..400\n                     /gene=\"psbA\"\n")))
+    info = json.loads((out / "run_info.json").read_text())
+    info["annotation"] = {"file": "/x/NC_1.gb", "format": "genbank", "copy": "annotation.gb", "transl_tables": [11]}
+    (out / "run_info.json").write_text(json.dumps(info))
+    page = build_report(out)
+    assert f"The band above the genes, or under the axis for sequences without annotation shows the " \
+           f"LSC/IRb/SSC/IRa regions from {DETECTED}." in page
+    assert "with the gene, its context and the effect of the SNP, or the region alone on sequences without " \
+           "annotation." in page
+    assert "called in every genome. IRb</title>" in page  # c2's tick: the region alone

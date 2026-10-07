@@ -174,6 +174,14 @@ class GenBankRecord:
         return f"{self.name} {self.definition}" if self.definition else self.name
 
 
+def _join_wrapped(previous: str, text: str) -> str:
+    """A quoted value continued on the next line, joined with a space, except where the flat file broke a word:
+    after a hyphen (`ATP-` / `dependent`) or a comma followed by a digit (`2,` / `6-diaminopimelate`)."""
+    if (previous.endswith("-") and text[:1].isalnum()) or (previous.endswith(",") and text[:1].isdigit()):
+        return previous + text
+    return f"{previous} {text}".strip()
+
+
 def _closes_quote(text: str) -> bool:
     """Whether a line ends a quoted GenBank value: it ends with an odd number of quotes (`""` is a quote)."""
     return (len(text) - len(text.rstrip('"'))) % 2 == 1
@@ -282,7 +290,7 @@ def _genbank_records(fh) -> list[GenBankRecord]:  # noqa: C901 - a line-oriented
             value = (text[:-1] if closed else text).replace('""', '"')
             pending.quoted = not closed
             q[pending.current] = (q[pending.current] + value if pending.current == "translation"
-                                  else f"{q[pending.current]} {value}".strip())
+                                  else _join_wrapped(q[pending.current], value))
         elif text.startswith("/"):
             key, _, value = text[1:].partition("=")
             if value.startswith('"'):
@@ -489,7 +497,7 @@ class Gene:
     @property
     def label(self) -> str:
         """The gene as the report shows it: its name when that is its gene symbol, else the identifier followed
-        by the product (or the symbol) in parentheses: `LK299_pgp087 (maturase K)`."""
+        by the product (or the symbol) in parentheses: `LK299_pgr007 (23S ribosomal RNA)`."""
         detail = self.symbol or self.product
         if self.symbol == self.name or not detail or detail == self.name:
             return self.name
@@ -498,7 +506,7 @@ class Gene:
     @property
     def map_label(self) -> str:
         """A short label for the genome map: the name, or, for a gene without a symbol, its product when it is
-        short (at most MAX_MAP_PRODUCT characters: `maturase K` rather than `LK299_pgp087`)."""
+        short (at most MAX_MAP_PRODUCT characters: `tRNA-Val` rather than `OrsajCt141`)."""
         if self.symbol or not self.product or len(self.product) > MAX_MAP_PRODUCT:
             return self.name
         return self.product
@@ -543,25 +551,30 @@ class Region:
 
 
 def _gene_name(q: dict[str, str], fallback: str) -> str:
-    for key in ("gene", "locus_tag", "product", "name", "id"):
+    for key in ("gene", "locus_tag", "product", "name", "gene_id", "id"):  # gene_id: Ensembl, before `gene:` IDs
         if q.get(key):
             return q[key].split("; ")[0]
     return fallback
 
 
+_LOCUS_TAG = re.compile(r"^[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9]+$")  # PREFIX_number, as NCBI assigns them
+
+
 def _symbol(q: dict[str, str], gff3_gene: bool = False) -> str:
     """The gene symbol of a feature: its `gene` qualifier (GenBank /gene, GFF3 gene=); for a GFF3 gene feature,
-    also its `Name` unless that is an identifier, the locus tag, the ID (with or without a type prefix such as
-    `gene-`) or the product (NCBI names a gene without a symbol after its locus tag). Nothing else: a locus tag
-    or a product is not a symbol, and no symbol is made up from a product."""
+    also its `Name` unless that is an identifier: the locus tag, the product, the gene_id or the ID, or the ID
+    without its type prefix (`gene-`, `gene:`) when the feature has a locus tag or the Name looks like one (NCBI
+    names a gene without a symbol after its locus tag; a third party's `ID=gene-matK;Name=matK` is a symbol).
+    Nothing else: a locus tag or a product is not a symbol, and no symbol is made up from a product."""
     if q.get("gene"):
         return q["gene"].split("; ")[0]
     if not gff3_gene:
         return ""
     name = q.get("name", "").split("; ")[0]
     ident = q.get("id", "")
-    if not name or name in (q.get("locus_tag"), q.get("product"), ident) \
-            or ident.endswith(("-" + name, ":" + name)):
+    if not name or name in (q.get("locus_tag"), q.get("product"), q.get("gene_id"), ident):
+        return ""
+    if ident.endswith(("-" + name, ":" + name)) and ("locus_tag" in q or _LOCUS_TAG.match(name)):
         return ""
     return name
 
@@ -697,19 +710,38 @@ def genes_from_genbank(features: list[RawFeature], default_table: int = DEFAULT_
     return _finish(genes)
 
 
+GFF3_GENE_TYPES = ("gene", "pseudogene", "ncRNA_gene")  # ncRNA_gene: Ensembl's tRNA and rRNA genes
+
+
 def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TABLE, length: int = 0) -> list[Gene]:
-    """Group GFF3 features into genes through their Parent links (gene > mRNA/tRNA/rRNA > CDS/exon)."""
+    """Group GFF3 features into genes through their Parent links (gene > mRNA/tRNA/rRNA > CDS/exon). A CDS or
+    RNA feature without a Parent joins the gene feature on its strand that contains it and has its locus_tag
+    or gene (or, when it has neither, any gene feature containing it: NCBI writes the rRNA of a gene with
+    `gene_biotype=other` without a Parent), else it is a gene of its own."""
     by_id = {f.id: f for f in features if f.id}
     gene_of: dict[str, Gene] = {}
     genes: list[Gene] = []
+    gene_features: list[tuple[RawFeature, Gene]] = []
     for f in features:
-        if f.type in ("gene", "pseudogene"):
+        if f.type in GFF3_GENE_TYPES:
             gene = Gene(f.seq, _gene_name(f.qualifiers, f"gene:{f.location.start}"), "other", f.location.strand,
                         list(f.location.parts), pseudo=f.type == "pseudogene" or _is_pseudo(f.qualifiers),
                         symbol=_symbol(f.qualifiers, gff3_gene=True))
             genes.append(gene)
+            gene_features.append((f, gene))
             if f.id:
                 gene_of[f.id] = gene
+
+    def enclosing(f: RawFeature) -> Gene | None:
+        keys = {f.qualifiers[k] for k in ("locus_tag", "gene") if f.qualifiers.get(k)}
+        for raw, gene in gene_features:
+            if raw.seq != f.seq or raw.location.strand != f.location.strand \
+                    or not all(any(s <= ps and pe <= e for s, e in gene.extent) for ps, pe in f.location.parts):
+                continue
+            own = {raw.qualifiers[k] for k in ("locus_tag", "gene") if raw.qualifiers.get(k)}
+            if not keys or keys & own:
+                return gene
+        return None
 
     def ancestor(f: RawFeature) -> Gene | None:
         seen, queue = set(), list(f.parents)
@@ -724,7 +756,7 @@ def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TAB
 
     for f in features:
         if f.type == "CDS" or f.type in RNA_TYPES:
-            gene = ancestor(f)
+            gene = ancestor(f) or (enclosing(f) if not f.parents else None)
             if gene is None:
                 genes.append(_new_gene(f, default_table, length))
             else:
@@ -867,20 +899,30 @@ def _regions_between(a: tuple[int, int, int], b: tuple[int, int, int], a_label: 
 
 IR_K = 32  # Seeds: k-mers of one strand matching k-mers of the other
 IR_STEP = 4  # Every IR_STEP-th k-mer of the sequence is indexed; every k-mer of the other strand is looked up
-IR_BAND = 500  # Seeds within this many antidiagonals of the best one belong to the same repeat (indels shift them)
-IR_MAX_GAP = 2000  # A longer stretch without a seed ends the repeat
+IR_BAND = 500  # Seeds within this many antidiagonals of the chain's belong to the same repeat (indels shift them)
+IR_MAX_GAP = 2000  # A longer stretch of a copy without a seed ends the repeat
+IR_MAX_INDEL = 3000  # The chain goes on past an indel of up to this many bases when the seeds resume beyond it
 IR_LOOKAHEAD = 12  # At the ends, a mismatch is passed when this many bases match after it
+IR_FEW = 3  # Equal stretches with more mismatches than this are aligned (compensating indels look like mismatches)
+IR_MARGIN = 16  # Stretches are aligned within a band of their length difference plus this many bases either side
+IR_MAX_CELLS = 400_000  # A larger alignment (cells) is not done: the stretch counts as all different
 MIN_DETECTED_REPEAT = 5000  # Each copy of a detected repeat must be this long (plastid IRs are 10-30 kb)
 MIN_IDENTITY = 0.99  # ... and the copies this identical
+IR_PENALTY = 20  # Trimming: a base of the chain scores +1, a difference -20 (a flank under 95% identical, < 0)
 MAX_DETECTION_LENGTH = 2_000_000  # Longer sequences (bacteria) are not searched
+AGREE_FRACTION = 0.8  # A detected copy lying this much inside an annotated copy confirms the annotation
+PLASTOME_MIN_IR_FRACTION = 0.05  # A plastome layout: the two repeats make at least this much of the sequence ...
+PLASTOME_MAX_SINGLE_COPY = 200_000  # ... and the larger single-copy region is at most this long
+PLASTID_GENOMES = {"plastid", "chloroplast", "apicoplast", "cyanelle", "chromoplast", "leucoplast", "proplastid"}
 _IR_COMPLEMENT = str.maketrans("ACGT", "TGCA")
+_NON_ACGT = re.compile("[^ACGT]+")
 
 
 @dataclass
 class InvertedRepeat:
     """Two copies of an inverted repeat found in a sequence: 1-based inclusive coordinates (the end smaller than
-    the start when a copy spans the origin), the copies' lengths and the differences between them (mismatches
-    and indel bases)."""
+    the start when a copy spans the origin), the copies' lengths and the differences between them: mismatches,
+    indels and runs of bases other than ACGT, each counted once whatever its length."""
 
     first: tuple[int, int]  # The copy starting first in the sequence
     second: tuple[int, int]
@@ -905,7 +947,7 @@ def _repeat_seeds(seq: str, k: int, step: int) -> list[tuple[int, int]]:
     step-th k-mer of the sequence is indexed (once: a k-mer at several indexed positions, or with a base other
     than ACGT, is left out), and every k-mer of the reverse complement is looked up."""
     n = len(seq)
-    masked = {i for m in re.finditer("[^ACGT]+", seq) for i in range(max(0, m.start() - k + 1), m.end())}
+    masked = {i for m in _NON_ACGT.finditer(seq) for i in range(max(0, m.start() - k + 1), m.end())}
     index: dict[str, int] = {}
     for i in range(0, n - k + 1, step):
         if i not in masked:
@@ -923,17 +965,16 @@ def _repeat_seeds(seq: str, k: int, step: int) -> list[tuple[int, int]]:
     return sorted(seeds)
 
 
-def _repeat_chain(seeds: list[tuple[int, int]], k: int) -> list[tuple[int, int]]:
-    """The longest chain of seeds of one inverted repeat: the seeds on the antidiagonal (i + j constant) with the
-    most seeds and those within IR_BAND of it (small indels between the copies shift the antidiagonal), kept in
-    order (i increasing, j decreasing), the chain broken by a gap of more than IR_MAX_GAP. A seed on another
-    antidiagonal is only taken when the current one has no seed within IR_MAX_GAP after it (a short duplication
-    inside the repeat seeds a parallel antidiagonal; a real indel ends the current one)."""
-    if not seeds:
-        return []
-    counts = Counter(i + j for i, j in seeds)
-    best = max(counts, key=lambda c: (counts[c], -c))
-    band = [(i, j) for i, j in seeds if abs(i + j - best) <= IR_BAND]
+def _band(seeds: list[tuple[int, int]], centre: int) -> list[tuple[int, int]]:
+    """The seeds within IR_BAND of the antidiagonal `centre` (i + j), in order."""
+    return [(i, j) for i, j in seeds if abs(i + j - centre) <= IR_BAND]
+
+
+def _walk(band: list[tuple[int, int]], k: int) -> list[list[tuple[int, int]]]:
+    """Chain the seeds of one band in order (i increasing, j decreasing), a gap of more than IR_MAX_GAP without
+    a seed breaking the chain. A seed on another antidiagonal is only taken when the current one has no seed
+    within IR_MAX_GAP after it (a short duplication inside the repeat seeds a parallel antidiagonal; a real
+    indel ends the current one)."""
     by_antidiagonal: dict[int, list[int]] = {}
     for i, j in band:
         by_antidiagonal.setdefault(i + j, []).append(i)
@@ -954,36 +995,164 @@ def _repeat_chain(seeds: list[tuple[int, int]], k: int) -> list[tuple[int, int]]
                     continue
         chain.append((i, j))
     chains.append(chain)
-    return max(chains, key=lambda ch: ch[-1][0] + k - ch[0][0] if ch else 0)
+    return chains
 
 
-def _edit_distance(a: str, b: str) -> int:
-    if not a or not b:
-        return len(a) + len(b)
-    previous = list(range(len(b) + 1))
-    for x, ca in enumerate(a, 1):
-        current = [x]
-        for y, cb in enumerate(b, 1):
-            current.append(min(previous[y] + 1, current[y - 1] + 1, previous[y - 1] + (ca != cb)))
-        previous = current
-    return previous[-1]
+def _links(g1: int, g2: int) -> bool:
+    """Whether two seeds `g1` bases apart in one copy and `g2` in the other can follow each other in a chain: at
+    most IR_MAX_GAP bases of the shorter stretch without a seed, and an indel of at most IR_MAX_INDEL."""
+    return min(g1, g2) <= IR_MAX_GAP and abs(g1 - g2) <= IR_MAX_INDEL
 
 
-def _chain_differences(seq: str, chain: list[tuple[int, int]], k: int) -> int:
-    """The differences between the copies along the chain: the bases between consecutive seeds compared (edit
-    distance when their lengths differ; the length difference alone when the seeds overlap)."""
-    differences = 0
-    for (i1, j1), (i2, j2) in zip(chain, chain[1:]):
-        g1, g2 = i2 - i1 - k, j1 - j2 - k  # The bases of each copy between the two seeds
-        if g1 == g2:
-            if g1 > 0:
-                a, b = seq[i1 + k:i2], reverse_complement(seq[j2 + k:j1])
-                differences += sum(x != y for x, y in zip(a, b))
-        elif g1 <= 0 or g2 <= 0:
-            differences += abs(g1 - g2)
+def _continue(seeds: list[tuple[int, int]], chain: list[tuple[int, int]], k: int) -> list[tuple[int, int]]:
+    """Extend a chain forwards past indels larger than IR_BAND: when a seed beyond the chain's last one links to
+    it (_links) on another antidiagonal (the one with the smallest indel, then the nearest), the chain goes on
+    along that seed's band, and so on."""
+    while True:
+        pi, pj = chain[-1]
+        lo = bisect_right(seeds, (pi, pj))
+        hi = bisect_left(seeds, (pi + k + IR_MAX_GAP + IR_MAX_INDEL + 1, -1))
+        found = None
+        for i, j in seeds[lo:hi]:
+            if j >= pj:
+                continue
+            g1, g2 = i - pi - k, pj - j - k
+            if _links(g1, g2) and (found is None or (abs(g1 - g2), i) < found[0]):
+                found = ((abs(g1 - g2), i), (i, j))
+        if found is None:
+            return chain
+        i, j = found[1]
+        chain = chain + _walk([(i, j), *(s for s in _band(seeds, i + j) if s[0] > i)], k)[0]
+
+
+def _repeat_chain(seeds: list[tuple[int, int]], k: int) -> list[tuple[int, int]]:
+    """The chain of seeds of the largest inverted repeat: the longest chain (_walk) through the antidiagonal
+    (i + j constant) with the most seeds and those within IR_BAND of it, continued at both ends past larger
+    indels (_continue)."""
+    if not seeds:
+        return []
+    counts = Counter(i + j for i, j in seeds)
+    best = max(counts, key=lambda c: (counts[c], -c))
+    chain = max(_walk(_band(seeds, best), k), key=lambda ch: ch[-1][0] + k - ch[0][0] if ch else 0)
+    if not chain:
+        return []
+    chain = _continue(seeds, chain, k)
+    mirrored = sorted((-i, -j) for i, j in seeds)  # Backwards from the chain's start is forwards here
+    chain = _continue(mirrored, [(-i, -j) for i, j in reversed(chain)], k)
+    return [(-i, -j) for i, j in reversed(chain)]
+
+
+def _banded_edit_distance(a: str, b: str, band: int) -> int:
+    """The edit distance of `a` to `b` (len(a) <= len(b); a base other than ACGT matches anything) through the
+    cells within `band` of the diagonals running from the first bases to the last."""
+    la, lb = len(a), len(b)
+    delta = lb - la
+    inf = la + lb + 1
+    wild = bool(_NON_ACGT.search(a + b))
+    prev = list(range(min(delta + band, lb) + 1))  # Row 0: y insertions
+    plo = 0
+    for x in range(1, la + 1):
+        lo, hi = max(0, x - band), min(lb, x + delta + band)
+        up = prev[lo - plo:]  # prev at (x - 1, y) for y from lo; beyond its end: out of the band
+        if len(up) < hi - lo + 1:
+            up.append(inf)
+        diag = prev[lo - 1 - plo] if lo - 1 >= plo else inf  # prev at (x - 1, lo - 1)
+        ca = a[x - 1]
+        wild_a = wild and ca not in "ACGT"
+        if lo == 0:
+            cur, left, start = [x], x, 1
+            diag = up[0]
         else:
-            differences += _edit_distance(seq[i1 + k:i2], reverse_complement(seq[j2 + k:j1]))
-    return differences
+            cur, left, start = [], inf, lo
+        append = cur.append
+        for y in range(start, hi + 1):
+            u = up[y - lo]
+            cb = b[y - 1]
+            v = diag if (ca == cb or wild_a or (wild and cb not in "ACGT")) else diag + 1
+            if u + 1 < v:
+                v = u + 1
+            if left + 1 < v:
+                v = left + 1
+            append(v)
+            left, diag = v, u
+        prev, plo = cur, lo
+    return prev[lb - plo]
+
+
+def _matches(x: str, y: str) -> bool:
+    return x == y or x not in "ACGT" or y not in "ACGT"
+
+
+def _ambiguous_runs(a: str, b: str) -> int:
+    """The runs of columns of two aligned stretches (same length) differing by a base other than ACGT: an N run
+    in one copy counts once, the same ambiguity code in both copies not at all."""
+    runs, inside = 0, False
+    for x, y in zip(a, b):
+        odd = x != y and (x not in "ACGT" or y not in "ACGT")
+        if odd and not inside:
+            runs += 1
+        inside = odd
+    return runs
+
+
+def _stretch_differences(a: str, b: str) -> int:
+    """The differences between the bases of each copy between two seeds (`b` read on the first copy's strand):
+    mismatches, indels and runs of bases other than ACGT (which match anything), each counted once. After their
+    common ends are removed, stretches of equal length are compared base by base unless that gives more than
+    IR_FEW mismatches (compensating indels look like a stretch of mismatches): then, like stretches of different
+    lengths, they are aligned within a band of their length difference plus IR_MARGIN; an alignment of more than
+    IR_MAX_CELLS cells is not done and the stretch counts as all different."""
+    ambiguous = bool(_NON_ACGT.search(a + b))
+    p = 0
+    while p < len(a) and p < len(b) and _matches(a[p], b[p]):
+        p += 1
+    s = 0
+    while s < len(a) - p and s < len(b) - p and _matches(a[-1 - s], b[-1 - s]):
+        s += 1
+    runs = _ambiguous_runs(a[:p], b[:p]) + _ambiguous_runs(a[len(a) - s:], b[len(b) - s:]) if ambiguous else 0
+    a, b = a[p:len(a) - s], b[p:len(b) - s]
+    if len(a) > len(b):
+        a, b = b, a
+    delta = len(b) - len(a)
+    if not delta:
+        if ambiguous:
+            runs += _ambiguous_runs(a, b)
+        mismatches = sum(not _matches(x, y) for x, y in zip(a, b))
+        if mismatches <= IR_FEW:
+            return mismatches + runs
+    elif ambiguous:
+        runs += len(_NON_ACGT.findall(a)) + len(_NON_ACGT.findall(b))
+    if not a:
+        return 1 + runs  # An indel
+    if len(a) * (delta + 2 * IR_MARGIN + 1) > IR_MAX_CELLS:
+        return len(a) + 1 + runs
+    return _banded_edit_distance(a, b, IR_MARGIN) - max(0, delta - 1) + runs
+
+
+def _link_differences(seq: str, first: tuple[int, int], second: tuple[int, int], k: int) -> int:
+    """The differences between the copies between two consecutive seeds of a chain: those of the stretches
+    between them (_stretch_differences), or one indel when the seeds overlap by different amounts."""
+    (i1, j1), (i2, j2) = first, second
+    g1, g2 = i2 - i1 - k, j1 - j2 - k  # The bases of each copy between the two seeds
+    if g1 <= 0 or g2 <= 0:
+        return int(g1 != g2)
+    return _stretch_differences(seq[i1 + k:i2], reverse_complement(seq[j2 + k:j1]))
+
+
+def _best_subchain(chain: list[tuple[int, int]], differences: list[int], k: int) -> tuple[int, int, int]:
+    """The part of a chain scoring most, a base of the first copy counting +1 and a difference -IR_PENALTY (a
+    diverged flank scores less than nothing): the indexes of its first and last seeds and its differences."""
+    best = (k, 0, 0, 0)  # Score, first seed, last seed, differences
+    running, start, count = k, 0, 0
+    for idx, ((i1, _), (i2, _)) in enumerate(zip(chain, chain[1:])):
+        gain = i2 - i1 - IR_PENALTY * differences[idx]
+        if running + gain < k:  # Starting afresh at the next seed scores more
+            running, start, count = k, idx + 1, 0
+        else:
+            running, count = running + gain, count + differences[idx]
+        if running >= best[0]:  # The longer chain on a tie
+            best = (running, start, idx + 1, count)
+    return best[1], best[2], best[3]
 
 
 def _shift_interval(interval: tuple[int, int], offset: int, n: int) -> tuple[int, int]:
@@ -991,13 +1160,39 @@ def _shift_interval(interval: tuple[int, int], offset: int, n: int) -> tuple[int
     return (s - 1 + offset) % n + 1, (e - 1 + offset) % n + 1
 
 
+def _may_continue(seq: str, a: int, b_end: int, k: int) -> bool:
+    """Whether copies reaching the origin (the first starting at the first base, or the second ending at the
+    last) may go on beyond it after an indel: a k-mer of the bases after the second copy matches, read on the
+    other strand, one of the bases before the first (IR_MAX_INDEL + k bases each, fewer when the copies would
+    meet)."""
+    n = len(seq)
+    w = min(IR_MAX_INDEL + k, (a + n - b_end) // 2)
+    if w < k:
+        return False
+    after = (seq[b_end:] + seq)[:w]
+    before = reverse_complement((seq + seq[:a])[a - w + n:a + n])
+    kmers = {after[p:p + k] for p in range(w - k + 1)}
+    return any(before[p:p + k] in kmers for p in range(w - k + 1))
+
+
+def _same_pair(found: InvertedRepeat, repeat: InvertedRepeat, n: int) -> bool:
+    """Whether two detections are of the same repeat: their copies overlap, pair by pair (in either pairing: a
+    copy across the origin starts late in the sequence but covers its first base)."""
+    f = [_pieces(*c, n) for c in (found.first, found.second)]
+    r = [_pieces(*c, n) for c in (repeat.first, repeat.second)]
+    return any(_overlap(f[0], r[x]) > 0 and _overlap(f[1], r[1 - x]) > 0 for x in (0, 1))
+
+
 def detect_inverted_repeat(seq: str, _rotated: bool = False) -> InvertedRepeat | None:  # noqa: C901
     """The large inverted repeat of a sequence (circular: a copy may span the origin), or None: two copies of at
-    least MIN_DETECTED_REPEAT bp each, at least MIN_IDENTITY identical, not overlapping each other (a palindrome
-    is not a repeat). Seeds (k-mers matching k-mers of the other strand, see _repeat_seeds) on one antidiagonal
-    are chained, the chain is extended base by base at both ends (through a mismatch followed by IR_LOOKAHEAD
-    matching bases), and the differences between the copies are counted between the seeds. A repeat found across
-    (or at) the end of the sequence is searched again in the sequence rotated to start between the copies.
+    least MIN_DETECTED_REPEAT bp each, at least MIN_IDENTITY identical, not overlapping (they may abut: the two
+    halves of a palindrome are two copies). Seeds (k-mers matching k-mers of the other strand, see _repeat_seeds)
+    are chained (_repeat_chain), the differences between the copies are counted between the seeds (mismatches,
+    indels and runs of N, each once: _stretch_differences), the chain is trimmed to its part scoring most
+    (_best_subchain, which drops diverged flanks) and extended base by base at both ends (through a mismatch
+    followed by IR_LOOKAHEAD matching bases). A repeat found across the origin of the sequence, or ending at it
+    with matching k-mers beyond (_may_continue), is searched again in the sequence rotated to start between the
+    copies, where the whole of each copy is seeded; that result is taken when it is the same pair of copies.
     Sequences shorter than two copies or longer than MAX_DETECTION_LENGTH are not searched. Linear in the length:
     about a tenth of a second for a plastome, a second for 2 Mb."""
     seq = seq.upper()
@@ -1008,11 +1203,13 @@ def detect_inverted_repeat(seq: str, _rotated: bool = False) -> InvertedRepeat |
     chain = _repeat_chain(_repeat_seeds(seq, k, IR_STEP), k)
     if not chain:
         return None
-    differences = _chain_differences(seq, chain, k)
+    per_link = [_link_differences(seq, s, t, k) for s, t in zip(chain, chain[1:])]
+    start, end, differences = _best_subchain(chain, per_link, k)
+    chain = chain[start:end + 1]
     a, a_end = chain[0][0], chain[-1][0] + k  # The first copy, [a, a_end)
     b, b_end = chain[-1][1], chain[0][1] + k  # The second, [b, b_end)
-    if a_end > b:  # The copies overlap: a palindrome
-        return None
+    if a_end > b:  # The innermost seeds overlap (by less than k): the copies abut
+        a_end = b = (a_end + b) // 2
     look = IR_LOOKAHEAD
 
     def matches(x: int, y: int) -> bool:
@@ -1035,26 +1232,25 @@ def detect_inverted_repeat(seq: str, _rotated: bool = False) -> InvertedRepeat |
             a_end, b, differences = a_end + 1, b - 1, differences + 1
         else:
             break
-    if (a <= 0 or b_end >= n) and not _rotated:
-        # Across the origin, or ending at it (the extension stops at an indel): search again from between the
-        # copies, where the whole of each copy is seeded
+    repeat = InvertedRepeat((a % n + 1, (a_end - 1) % n + 1), (b % n + 1, (b_end - 1) % n + 1),
+                            (a_end - a, b_end - b), differences)
+    if not _rotated and (a < 0 or b_end > n or ((a == 0 or b_end == n) and _may_continue(seq, a, b_end, k))):
         offset = (a_end + b) // 2 % n
         found = detect_inverted_repeat(seq[offset:] + seq[:offset], _rotated=True)
-        if found is None:
-            return None
-        copies = sorted(zip((_shift_interval(c, offset, n) for c in (found.first, found.second)), found.lengths))
-        return InvertedRepeat(copies[0][0], copies[1][0], (copies[0][1], copies[1][1]), found.differences)
-    lengths = (a_end - a, b_end - b)
-    if min(lengths) < MIN_DETECTED_REPEAT:
+        if found is not None:
+            copies = sorted(zip((_shift_interval(c, offset, n) for c in (found.first, found.second)),
+                                found.lengths))
+            found = InvertedRepeat(copies[0][0], copies[1][0], (copies[0][1], copies[1][1]), found.differences)
+            if _same_pair(found, repeat, n):
+                return found
+    if min(repeat.lengths) < MIN_DETECTED_REPEAT or repeat.identity < MIN_IDENTITY:
         return None
-    repeat = InvertedRepeat((a % n + 1, (a_end - 1) % n + 1), (b % n + 1, (b_end - 1) % n + 1), lengths,
-                            differences)
-    return repeat if repeat.identity >= MIN_IDENTITY else None
+    return repeat
 
 
 def regions_from_repeat(repeat: InvertedRepeat, length: int) -> list[Region]:
     """The LSC/IRb/SSC/IRa regions of a sequence from its detected inverted repeat, named by convention (IRb
-    follows the LSC, the larger single-copy region)."""
+    follows the LSC, the larger single-copy region); none when the copies abut."""
     copies = sorted((repeat.first, repeat.second), key=lambda c: c[0])
     intervals = [(s, e, repeat.lengths[(repeat.first, repeat.second).index((s, e))]) for s, e in copies]
     return _regions_between(intervals[0], intervals[1], "IR", "IR", length)
@@ -1063,11 +1259,13 @@ def regions_from_repeat(repeat: InvertedRepeat, length: int) -> list[Region]:
 @dataclass
 class RegionBand:
     """The LSC/IRb/SSC/IRa regions of one sequence and where they come from: the annotated inverted repeats
-    (`annotation`) or the inverted repeat detected in the sequence (`sequence`)."""
+    (`annotation`) or the inverted repeat detected in the sequence (`sequence`); or no regions (`none`) with
+    the repeat found and a note saying why it gives none."""
 
     regions: list[Region]
     source: str
     repeat: InvertedRepeat | None = None
+    note: str = ""
 
     def text(self) -> str:
         """`the annotated inverted repeats` or `the inverted repeat detected in the reference sequence (two copies
@@ -1087,6 +1285,8 @@ class RegionBand:
             item["repeat"] = {"copies": [list(self.repeat.first), list(self.repeat.second)],
                               "lengths": list(self.repeat.lengths), "differences": self.repeat.differences,
                               "identity": round(self.repeat.identity, 6)}
+        if self.note:
+            item["note"] = self.note
         return item
 
 
@@ -1099,36 +1299,93 @@ def _overlap(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> int:
 
 
 def _agree(annotated: list[Region], repeat: InvertedRepeat, length: int) -> bool:
-    """Whether the annotated inverted repeats are the detected ones: each annotated copy overlaps a detected
-    copy over at least 80% of the longer of the two."""
-    detected = [(_pieces(*c, length), size) for c, size in zip((repeat.first, repeat.second), repeat.lengths)]
-    for r in (r for r in annotated if r.name.startswith("IR")):
-        pieces = _pieces(r.start, r.end, length)
-        if not any(_overlap(pieces, d) >= 0.8 * max(r.length, size) for d, size in detected):
+    """Whether the detected repeat confirms the annotated one: each detected copy lies at least AGREE_FRACTION
+    inside an annotated copy (a detection cut short by a large insertion or a run of N in one copy confirms the
+    annotation; copies found elsewhere, as when the annotation names the single-copy regions as the repeats,
+    contradict it)."""
+    pieces = [_pieces(r.start, r.end, length) for r in annotated if r.name.startswith("IR")]
+    for copy, size in zip((repeat.first, repeat.second), repeat.lengths):
+        detected = _pieces(*copy, length)
+        if not any(_overlap(detected, p) >= AGREE_FRACTION * size for p in pieces):
             return False
     return True
 
 
-def find_regions(features: list[RawFeature], length: int, seq: str | None = None, name: str = "",
+def _not_a_plastid(features: list[RawFeature]) -> str:
+    """Why the annotation says the sequence is not a plastid genome (`the source feature says
+    organelle=mitochondrion`, `the region feature says genome=chromosome`), or '' when it says it is one, or
+    nothing: a GenBank source feature's /organelle, or an NCBI GFF3 region's genome= attribute."""
+    for f in features:
+        if f.type == "source" and f.qualifiers.get("organelle"):
+            value = f.qualifiers["organelle"].split("; ")[0]
+            kind = value.lower().partition(":")[2] or value.lower()
+            return "" if kind in PLASTID_GENOMES else f"the source feature says organelle={value}"
+        if f.type == "region" and f.qualifiers.get("genome"):
+            value = f.qualifiers["genome"].split("; ")[0]
+            return "" if value.lower() in PLASTID_GENOMES else f"the region feature says genome={value}"
+    return ""
+
+
+def _layout_problem(regions: list[Region], length: int, not_plastid: str = "") -> str:
+    """Why four regions are not the quadripartite layout of a plastome ('' when they are): the sequence is
+    said not to be a plastid genome, the repeats make less than PLASTOME_MIN_IR_FRACTION of the sequence (the
+    inverted rRNA operons of a bacterium, a small repeat of a plant mitochondrion), or the larger single-copy
+    region is longer than PLASTOME_MAX_SINGLE_COPY."""
+    if not_plastid:
+        return not_plastid
+    repeats = sum(r.length for r in regions if r.name.startswith("IR"))
+    single = max(r.length for r in regions if not r.name.startswith("IR"))
+    if repeats < PLASTOME_MIN_IR_FRACTION * length:
+        return (f"the repeats are {repeats / length:.1%} of the sequence, less than "
+                f"{PLASTOME_MIN_IR_FRACTION:.0%}")
+    if single > PLASTOME_MAX_SINGLE_COPY:
+        return (f"the larger single-copy region is {single / 1000:,.0f} kb, more than "
+                f"{PLASTOME_MAX_SINGLE_COPY // 1000} kb")
+    return ""
+
+
+def find_regions(features: list[RawFeature], length: int, seq: str | None = None, name: str = "",  # noqa: C901
                  warnings: list[str] | None = None) -> RegionBand | None:
-    """The regions of a sequence: from its annotated inverted repeats (derive_regions) when they are the
-    inverted repeat found in the sequence, or when the sequence is not given or has no detectable one; else from
-    the detected repeat (regions_from_repeat), with a warning when the annotation named other features."""
+    """The regions of a sequence: from its annotated inverted repeats (derive_regions) when they make a
+    plastome layout (_layout_problem) that the inverted repeat found in the sequence confirms (_agree), or when
+    the sequence is not given or has no detectable repeat; else from the detected repeat (regions_from_repeat),
+    with a warning (in `warnings`) when the annotation named inverted repeats. A repeat, annotated or detected,
+    that is not a plastome layout gives no regions: a RegionBand without regions (`none`) keeps the detected
+    repeat and a note saying why, for run_info.json. None when nothing was found."""
     annotated = derive_regions(features, length) if features else []
+    named = bool(features) and bool(_inverted_repeats(features, length))
+    not_plastid = _not_a_plastid(features) if features else ""
+    annotated_problem = _layout_problem(annotated, length, not_plastid) if annotated else ""
     repeat = detect_inverted_repeat(seq) if seq is not None else None
-    if annotated and (repeat is None or _agree(annotated, repeat, length)):
+    detected = regions_from_repeat(repeat, length) if repeat else []
+    detected_problem = "" if not repeat else ("the copies abut" if not detected
+                                              else _layout_problem(detected, length, not_plastid))
+    copies = ", ".join(f"{r.start:,}–{r.end:,}" for r in annotated if r.name.startswith("IR"))
+    if annotated and not annotated_problem and (repeat is None or detected_problem
+                                                or _agree(annotated, repeat, length)):
         return RegionBand(annotated, "annotation")
-    if repeat is None:
-        return None
-    regions = regions_from_repeat(repeat, length)
-    if not regions:
-        return RegionBand(annotated, "annotation") if annotated else None
-    if annotated and warnings is not None:
-        copies = ", ".join(f"{r.start:,}–{r.end:,}" for r in annotated if r.name.startswith("IR"))
+    found = "" if repeat is None else (f"{repeat.first[0]:,}–{repeat.first[1]:,} and {repeat.second[0]:,}–"
+                                       f"{repeat.second[1]:,}")
+    if repeat is None or detected_problem:
+        if warnings is not None and annotated:  # Then annotated_problem: a plausible annotation was returned
+            warnings.append(f"{name}: the annotated inverted repeats ({copies}) are not a plastome layout "
+                            f"({annotated_problem}); no regions from them")
+        if repeat is None:
+            return RegionBand([], "none", None, f"annotated inverted repeats but not a plastome layout "
+                                                f"({annotated_problem})") if annotated else None
+        return RegionBand([], "none", repeat, f"inverted repeat found but not a plastome layout "
+                                              f"({detected_problem})")
+    if warnings is not None and annotated and annotated_problem:
+        warnings.append(f"{name}: the annotated inverted repeats ({copies}) are not a plastome layout "
+                        f"({annotated_problem}); the regions follow the inverted repeat found in the sequence "
+                        f"({found})")
+    elif warnings is not None and annotated:
         warnings.append(f"{name}: the annotated inverted repeats ({copies}) are not the inverted repeat found in "
-                        f"the sequence ({repeat.first[0]:,}–{repeat.first[1]:,} and {repeat.second[0]:,}–"
-                        f"{repeat.second[1]:,}); the regions follow the sequence")
-    return RegionBand(regions, "sequence", repeat)
+                        f"the sequence ({found}); the regions follow the sequence")
+    elif warnings is not None and named:
+        warnings.append(f"{name}: the annotated inverted repeats do not give a plastome layout; the regions "
+                        f"follow the inverted repeat found in the sequence ({found})")
+    return RegionBand(detected, "sequence", repeat)
 
 
 # ---------------------------------------------------------------------------------------------------------------

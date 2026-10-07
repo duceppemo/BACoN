@@ -109,15 +109,24 @@ locations with `join`, `complement`, `order`, partial ends and trans-splicing, `
 (features linked by `ID` and `Parent`, the phase column, `pseudogene` features and the `pseudo`, `gene_biotype`
 and `biotype` attributes, `transl_except`); a CDS or RNA feature belongs to the gene feature of the same name
 that overlaps it, or is a gene of its own. A gene is named after its `gene` qualifier, else `locus_tag`,
-`product` or `ID`. Many RefSeq records (plastomes among them) have genes without a `/gene` symbol, only a
-`/locus_tag` and a `/product`: such a gene keeps its locus tag as its identifier, but the report shows it as
-`locus_tag (product)`, `LK299_pgp087 (maturase K)`, in the SNP table's Gene column, the hovers, the intergenic
-contexts (`intergenic between X and Y`) and the summary of the genes with the most SNPs (`LK299_pgp087 (maturase
-K; 19)`); on the map, where labels must be short, by its product when that is at most 12 characters (`maturase
-K`), else by its identifier. A gene has a symbol when a feature of its has `/gene`; in GFF3, `gene=`, or on the
-gene feature a `Name` that is not its locus tag, its ID (with or without a type prefix such as `gene-`) or its
-product (NCBI names a gene without a symbol after its locus tag; the `Name` of a CDS, a protein accession, is
-never a symbol). No symbol is made up from a product. The parts of a CDS are read in the order of translation: as the GenBank location lists them,
+`product`, `Name`, `gene_id` or `ID`. Older RefSeq records (plastomes among them) have genes without a `/gene`
+symbol, only a `/locus_tag` and a `/product` (recent records usually have the symbol): such a gene keeps its
+locus tag as its identifier, but the report shows it as `locus_tag (product)`, `LK299_pgr007 (23S ribosomal
+RNA)` in NC_008096.2 (potato), in the SNP table's Gene column, the hovers, the intergenic contexts (`intergenic
+between X and Y`) and the summary of the genes with the most SNPs (`LK299_pgr007 (23S ribosomal RNA; 19)`); on
+the map, where labels must be short, by its product when that is at most 12 characters (`tRNA-Val` for
+`OrsajCt141` of NC_001320.1, rice), else by its identifier (`LK299_pgr007`). A gene has a symbol when a feature
+of its has `/gene`; in GFF3, `gene=`, or on the gene feature a `Name` that is not an identifier: its locus tag,
+its product, its `gene_id` or its ID, or its ID without the type prefix (`gene-`, `gene:`) when the gene has a
+locus tag or the `Name` looks like one (`PREFIX_number`; NCBI names a gene without a symbol after its locus tag,
+whereas a third party's `ID=gene-matK;Name=matK` keeps *matK* as its symbol; the `Name` of a CDS, a protein
+accession, is never a symbol). No symbol is made up from a product. Ensembl's `ncRNA_gene` features are genes
+(their tRNA and rRNA transcripts are named after them), and a CDS or RNA feature without a `Parent` belongs to
+the gene feature on its strand that contains it and shares its locus tag or symbol (or, when it has neither, to
+any gene feature containing it: NCBI writes the rRNA of a gene with `gene_biotype=other` without a `Parent`).
+The lines of a GenBank value continued on the next line are joined with a space, except after a hyphen or
+after a comma followed by a digit, where the flat file broke a word (`2,` / `6-diaminopimelate`). The parts of
+a CDS are read in the order of translation: as the GenBank location lists them,
 and for the lines of a GFF3 CDS (sharing an `ID`, or without one, a `Parent`) by their `part=` numbers (NCBI)
 when given, else in file order (NCBI lists them 5′ to 3′), except for lines listed by ascending coordinate
 (Ensembl, a sorted file): those of a −-strand CDS are read in descending order, and those of a CDS across the
@@ -165,37 +174,63 @@ named alike meeting at the origin). A repeat annotated twice (a `repeat_region` 
 same stretch) counts once; with more than two repeats annotated, BACoN takes the two `repeat_region` with
 `/rpt_type=inverted`, else the pair named IRa and IRb, else the two longest.
 
-Most RefSeq plastomes do not annotate their inverted repeats, so BACoN also looks for the large inverted repeat
-in each reference sequence itself, with or without an annotation (standard library only, linear in the length:
-about 0.1 s for a plastome, 1 s for 2 Mb; sequences longer than 2 Mb, bacterial chromosomes, are not
+Most older RefSeq plastomes do not annotate their inverted repeats, so BACoN also looks for the large inverted
+repeat in each reference sequence itself, with or without an annotation (standard library only, linear in the
+length: about 0.1 s for a plastome, 1 s for 2 Mb; sequences longer than 2 Mb, bacterial chromosomes, are not
 searched). Every fourth 32-mer of the sequence is indexed (a 32-mer at several indexed positions, or with a
 base other than ACGT, is left out), every 32-mer of the reverse complement is looked up, and each match is a
 seed (*i*, *j*): the 32-mer at *j* read on the other strand is the one at *i*. The seeds of an inverted repeat
-share an antidiagonal (*i* + *j* constant; a small indel between the copies shifts it), so the antidiagonal
-with the most seeds and those within 500 of it are chained in order (*i* increasing, *j* decreasing; a gap of
-more than 2 kb without a seed ends the chain; a seed on a parallel antidiagonal is only taken when the current
-one has no seed within 2 kb after it, which keeps a short duplication inside the repeat from being read as an
-indel). The chain is extended base by base at both ends, through a mismatch when the 12 bases after it match,
-so the copies' coordinates are those of the maximal match (they can differ by a base or two from a published
-junction where the flanking bases happen to match; a copy may end across the origin, as the tomato NC_007898.3
-IRa does by one base). The differences between the copies are counted between the seeds (edit distance where
-their lengths differ). A repeat is accepted when each copy is at least 5,000 bp (plastid IRs are 10–30 kb; a
-lineage that lost one copy, or the 3 kb repeat of the bundled example, gets no band from the sequence), the
-copies are at least 99% identical and do not overlap (a palindrome is not a repeat). A repeat across the origin
-of the circular sequence is found by searching again from a point between the copies. The regions are then
-derived as from annotated repeats, named by convention (IRb follows the LSC). Any sequence of 2 Mb or less with
-such a repeat gets the band, a plant mitochondrial genome or a small bacterial genome with two inverted rRNA
-operons included: the names are those of plastomes.
+share an antidiagonal (*i* + *j* constant; an indel between the copies shifts it by its length), so the
+antidiagonal with the most seeds and those within 500 of it are chained in order (*i* increasing, *j*
+decreasing; a gap of more than 2 kb without a seed ends the chain; a seed on a parallel antidiagonal is only
+taken when the current one has no seed within 2 kb after it, which keeps a short duplication inside the repeat
+from being read as an indel), and the chain goes on past a larger indel, of up to 3 kb in one copy, when the
+seeds resume beyond it on another antidiagonal (an insertion of 600 bp or of 2.5 kb in one copy does not cut
+the repeat; a longer one, or a run of N longer than 2 kb, does, and the longer part is the repeat). The
+differences between the copies are counted between the seeds: mismatches, indels and runs of bases other than
+ACGT, each counted once whatever its length (an insertion, or a scaffold gap of 300 N, is one difference). The
+stretches between two seeds are compared base by base when they have the same length, and aligned (an edit
+distance within a band of their length difference plus 16 bases) when their lengths differ or when the
+comparison base by base finds more than three mismatches: two compensating indels, a base lost and another
+gained 300 bp further, look like 225 mismatches base by base but are two differences (NC_007144.1, cucumber,
+whose copies are 99.9% identical, has such a pair). The chain is then trimmed to its part scoring most (a base
++1, a difference −20), which drops a diverged flank (the Arabidopsis mitochondrion NC_037304.1 has a 6,590 bp
+repeat, 100% identical, inside flanks far less so), and extended base by base at both ends, through a mismatch
+when the 12 bases after it match, so the copies' coordinates are those of the maximal match (they can differ
+by one to eight bases from a published junction where the flanking bases happen to match; a copy may end across
+the origin, as the tomato NC_007898.3 IRa does by one base). A repeat is accepted when each copy is at least
+5,000 bp (plastid IRs are 10–30 kb; a lineage that lost one copy, or the 3 kb repeat of the bundled example,
+gets no band from the sequence), the copies are at least 99% identical and do not overlap; copies that abut (the
+two halves of a palindrome; the *Toxoplasma* apicoplast NC_001799.1 has its copies abutting across the origin)
+are a repeat without a region between them, so without a band. A repeat across the origin of the circular
+sequence, or ending exactly at it with matching 32-mers beyond, is searched again from a point between the
+copies, and that result is taken when it is the same pair of copies. The regions are then derived as from
+annotated repeats, named by convention (IRb follows the LSC).
 
-The annotated repeats keep priority: when the annotation marks two inverted repeats of at least 500 bp, the
-band follows them (their coordinates) unless the sequence contradicts them, that is unless the repeat found in
-the sequence overlaps neither annotated copy over 80% of its length (NC_001879.2, tobacco, annotates its LSC
-as `inverted repeat B`); then the band follows the sequence and the report says so. The map's caption, the
-Methods paragraph and the log say which source was used, with the detected copies' size and identity (`the
-inverted repeat detected in the reference sequence (two copies of 25,593 bp, 100% identical)`), and
-`run_info.json` records, for each reference sequence, the regions, their source and the detected copies, or
-`"none"`. On NC_008096.2 (potato) the detected copies are exactly the annotated IRb 85,738–111,330 and IRa
-129,704–155,296; on NC_000932.1 (*Arabidopsis*) 26,264 bp, the published size.
+The band is drawn only when the four regions have the quadripartite layout of a plastome, whether the repeats
+are annotated or detected: the two repeats make at least 5% of the sequence, the larger single-copy region is at
+most 200 kb (among 64 plastid genomes tested, from the 11 kb *Pilostyles* to the 218 kb *Pelargonium* plastome,
+the 48 with an inverted repeat of 5 kb have 10–70% of their sequence in the repeats and a LSC of at most 136 kb;
+the inverted rRNA operons of *Helicobacter pylori* NC_000915.1 are 1.3% of 1.67 Mb, and the 16.9 kb repeat of the
+maize mitochondrion NC_007982.1 5.9% of 570 kb with 481 kb between the copies), and the record is not said to be
+something else: a GenBank `source` feature whose `/organelle` is not a plastid (`mitochondrion`), or an NCBI GFF3
+`region` whose `genome=` is not one (`chromosome`, `mitochondrion`), gets no plastome names. Such a repeat,
+annotated or detected, is recorded in `run_info.json` without regions and with a note saying why, and the log
+says so.
+
+The annotated repeats keep priority: when the annotation marks two inverted repeats of at least 500 bp that make
+a plastome layout, the band follows them (their coordinates) as long as each copy of the repeat found in the
+sequence lies at least 80% inside an annotated copy (a detection cut short by a large insertion or a run of N
+confirms the annotation). The sequence wins, with a warning, when the detected copies lie elsewhere, or when the
+annotated repeats are not a plastome layout. NC_001879.2 (tobacco) annotates its LSC as `inverted repeat B`,
+its SSC as `inverted repeat A` and its IRa as a third feature: its features give no layout at all, which the
+report says, and the band follows the sequence. The map's caption, the Methods paragraph (when the report shows
+a band) and the log say which source was used, with the detected copies' size and identity (`the inverted
+repeat detected in the reference sequence (two copies of 25,593 bp, 100% identical)`), and `run_info.json`
+records, for each reference sequence, the regions, their source and the detected copies, or `"none"`. On
+NC_008096.2 (potato) the detected copies are exactly the annotated IRb 85,738–111,330 and IRa 129,704–155,296;
+on NC_000932.1 (*Arabidopsis*) 26,264 bp, the published size; on NC_007144.1 (cucumber) 25,193 and 25,189 bp,
+the copies minimap2 aligns.
 
 ## Choices that changed in 0.3
 

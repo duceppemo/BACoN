@@ -22,7 +22,6 @@ from bacon.annotation import (
     MAX_DETECTION_LENGTH,
     Annotation,
     Gene,
-    InvertedRepeat,
     Region,
     RegionBand,
     SequenceAnnotation,
@@ -1031,25 +1030,11 @@ def _num(value: object, default: float) -> float:
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
 
 
-def _regions_methods(info: dict, bands: dict[str, RegionBand] | None) -> str:
-    """How the LSC/IRb/SSC/IRa regions were obtained: from the regions of this report's genome map when it was
-    drawn, else from the record in run_info.json (a run of BACoN 0.3.6 or earlier has none)."""
-    texts: dict[str, str] = {}
-    if bands is not None:
-        texts = {name: band.text() for name, band in bands.items() if band and band.regions}
-    else:
-        for name, item in ((info.get("reference") or {}).get("regions") or {}).items():
-            if not isinstance(item, dict) or not item.get("regions"):
-                continue
-            if item.get("source") == "annotation":
-                texts[name] = RegionBand([], "annotation").text()
-            elif item.get("source") == "sequence":
-                found = item.get("repeat") or {}
-                repeat = None
-                if len(found.get("copies") or []) == 2 and len(found.get("lengths") or []) == 2:
-                    repeat = InvertedRepeat(tuple(found["copies"][0]), tuple(found["copies"][1]),
-                                            tuple(found["lengths"]), int(found.get("differences") or 0))
-                texts[name] = RegionBand([], "sequence", repeat).text()
+def _regions_methods(bands: dict[str, RegionBand] | None) -> str:
+    """How the LSC/IRb/SSC/IRa regions of this report's genome map were obtained; nothing when the report shows
+    no band (no map, or none of its sequences has regions): the regions recorded in run_info.json are not
+    described when the report does not show them."""
+    texts = {name: band.text() for name, band in (bands or {}).items() if band and band.regions}
     if not texts:
         return ""
     if len(set(texts.values())) == 1:
@@ -1146,7 +1131,7 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
         name = html.escape(Path(annotation["file"]).name)
         parts.append(f"Genes were read from the annotation {name}; the effect of each SNP on the coding sequences "
                      f"(codon and amino-acid change) was derived by BACoN with translation table {table_text}.")
-    regions = _regions_methods(info, bands)
+    regions = _regions_methods(bands)
     if regions:
         parts.append(regions + (" The inverted repeat is found by matching the k-mers of the sequence with those "
                                 "of its reverse complement, chaining the matches and extending them base by base "
@@ -1615,7 +1600,7 @@ def snp_summary(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], ann
 
 
 def _gene_count(g: Gene) -> str:
-    """`<i>matK</i> (19)`, or for a gene without a symbol `<i>LK299_pgp087</i> (maturase K; 19)`."""
+    """`<i>matK</i> (19)`, or for a gene without a symbol `<i>LK299_pgr007</i> (23S ribosomal RNA; 19)`."""
     detail = g.label[len(g.name) + 2:-1] if g.label != g.name else ""  # What the label adds in parentheses
     return f"<i>{esc(g.name)}</i> ({esc(detail) + '; ' if detail else ''}{g.snps})"
 
@@ -1745,15 +1730,19 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
                             for a in annotation.sequences.values()) else ".")))
     band_text = ""
     if bands:
-        where = "above the genes" if gene_text else "under the axis"
+        with_genes = [annotation is not None and name in annotation.sequences for name in bands]
+        where = ("above the genes" if all(with_genes) else "under the axis" if not any(with_genes)
+                 else "above the genes, or under the axis for sequences without annotation")
         texts = {name: band.text() for name, band in bands.items()}
         if len(set(texts.values())) == 1:
             band_text = f" The band {where} shows the LSC/IRb/SSC/IRa regions from {next(iter(texts.values()))}."
         else:
             band_text = f" The band {where} shows the LSC/IRb/SSC/IRa regions from " + "; ".join(
                 f"{esc(name)}: {text}" for name, text in texts.items()) + "."
-        if not gene_text:
+        if not any(with_genes):
             hover += " and the region"
+        elif not all(with_genes):
+            hover += ", or the region alone on sequences without annotation"
     elif any(length > MAX_DETECTION_LENGTH for _, length in drawn):
         band_text = (f" No search for an inverted repeat in sequences longer than {MAX_DETECTION_LENGTH / 1e6:g} "
                      "Mb.")

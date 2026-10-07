@@ -387,16 +387,19 @@ def _remove_copy(s: Settings, path: Path, recorded: str | None, what: str) -> No
 
 def _reference_regions(records: list[Record], annotation: Annotation | None) -> dict[str, object]:
     """For run_info.json, the LSC/IRb/SSC/IRa regions of each reference sequence (RegionBand.record: from the
-    annotation, or from the inverted repeat detected in the sequence), or "none"."""
+    annotation, or from the inverted repeat detected in the sequence; an inverted repeat that is not a plastome
+    layout is recorded without regions, with a note), or "none"."""
     regions: dict[str, object] = {}
     for rec in records:
         if annotation is not None and rec.name in annotation.sequences:
             band = annotation.sequences[rec.name].band
         else:
             band = find_regions([], len(rec.seq), rec.seq)
-        regions[rec.name] = band.record() if band is not None and band.regions else "none"
+        regions[rec.name] = band.record() if band is not None else "none"
         if band is not None and band.regions:
             log.info("Regions of %s: %s, from %s", rec.name, "/".join(r.name for r in band.regions), band.text())
+        elif band is not None and band.note:
+            log.info("Regions of %s: none (%s)", rec.name, band.note)
     return regions
 
 
