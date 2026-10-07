@@ -43,8 +43,8 @@ def test_read_table_refuses_unclosed_quotes_and_quoted_line_breaks(tmp_path):
     csv.write_text('sample,note\ns1,"line one\nline two"\ns2,x\n')  # A line break in a value breaks the copy
     with pytest.raises(BaconError, match="line 2: a quoted value spans several lines"):
         read_table(csv, "Metadata file")
-    csv.write_text('\n# c\nsample,note\ns1,"say ""hi"""\n\ns2,"ab"c\n')  # The line is the file's
-    with pytest.raises(BaconError, match="line 6: "):
+    csv.write_text('\n# c\nsample,note\ns1,"say ""hi"""\n\ns2,"ab\n')  # The line is the file's; the last line
+    with pytest.raises(BaconError, match="line 6: an unclosed quote"):
         read_table(csv, "Metadata file")
     tsv = tmp_path / "m.tsv"
     tsv.write_text('sample\tsize\tgroup\ns1\t"5 inch\tA\ns2\t3\tB\ns3\t2\tB\n')
@@ -208,3 +208,67 @@ def test_write_copy(tmp_path):
     write_copy(path, m)
     assert path.stat().st_mtime_ns == before  # Unchanged: not rewritten
     assert read_metadata(path).rows == m.rows  # The copy reads back as a metadata file
+
+
+def test_csv_is_read_as_0_3_5_read_it_but_quotes_cannot_swallow_rows(tmp_path):
+    # Not strict, as 0.3.5's csv parsing: text after a closing quote is kept (a space, then stripped)
+    csv = tmp_path / "m.csv"
+    csv.write_text('sample,group,note\n"s1" ,"A" ,"x"y\ns2, B,"say ""hi"""\n')
+    assert read_table(csv, "x")[1] == [{"sample": "s1", "group": "A", "note": "xy"},
+                                       {"sample": "s2", "group": "B", "note": 'say "hi"'}]
+    csv.write_text('sample,group\ns1,"A\ns2,B\ns3,C\n')  # Still an error: the quote would swallow s2 and s3
+    with pytest.raises(BaconError, match="line 2: an unclosed quote"):
+        read_table(csv, "x")
+    csv.write_text('sample,group\ns1,A\ns2,"B\n')  # On the last line too
+    with pytest.raises(BaconError, match="line 3: an unclosed quote"):
+        read_table(csv, "x")
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85"])
+def test_tables_are_split_on_line_ends_only(tmp_path, separator):
+    # str.splitlines() would split on these: a row cut in two, its values shifted
+    for name, sep in (("m.tsv", "\t"), ("m.csv", ",")):
+        path = tmp_path / name
+        path.write_text(f"sample{sep}note{sep}group\ns1{sep}a{separator}b{sep}A\ns2{sep}c{sep}B\n", encoding="utf-8")
+        meta = read_metadata(path)
+        assert meta.rows == {"s1": {"note": "a b" if separator.isspace() else f"a{separator}b", "group": "A"},
+                             "s2": {"note": "c", "group": "B"}}, name
+    path = tmp_path / "cr.tsv"
+    path.write_bytes(b"sample\tgroup\rs1\tA\rs2\tB\r")  # Old Mac line ends
+    assert read_metadata(path).rows == {"s1": {"group": "A"}, "s2": {"group": "B"}}
+
+
+def test_table_encodings(tmp_path, caplog):
+    text = "sample\torigin\r\ns1\tQu\u00e9bec\r\ns2\tMontr\u00e9al\r\n"
+    expected = {"s1": {"origin": "Qu\u00e9bec"}, "s2": {"origin": "Montr\u00e9al"}}
+    for encoding in ("utf-16", "utf-16-le", "utf-16-be"):  # With a BOM ("Unicode text" of a spreadsheet)
+        path = tmp_path / f"{encoding}.tsv"
+        bom = {"utf-16-le": b"\xff\xfe", "utf-16-be": b"\xfe\xff"}.get(encoding, b"")
+        path.write_bytes(bom + text.encode(encoding))
+        assert read_metadata(path).rows == expected, encoding
+    assert "not UTF-8" not in caplog.text
+    path = tmp_path / "excel.csv"
+    path.write_bytes(text.replace("\t", ",").encode("cp1252"))  # Excel on Windows
+    assert read_metadata(path).rows == expected
+    assert f"Metadata file {path} is not UTF-8: read as Windows-1252" in caplog.text
+    caplog.clear()
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_bytes("sample,file,origin\ns1,a.fastq,Qu\u00e9bec\n".encode("cp1252"))
+    assert sheet_metadata(sheet).rows == {"s1": {"origin": "Qu\u00e9bec"}}
+    assert "not UTF-8" not in caplog.text  # Said once, when the sheet's samples are read
+
+
+def test_write_copy_replaces_a_file_in_another_encoding(tmp_path):
+    path = tmp_path / "metadata.tsv"
+    path.write_bytes("sample\torigin\ns1\tQu\u00e9bec\n".encode("latin-1"))  # Hand-made, not UTF-8
+    m = Metadata(["origin"], {"s1": {"origin": "Montr\u00e9al"}})
+    write_copy(path, m)
+    assert path.read_text(encoding="utf-8") == "sample\torigin\ns1\tMontr\u00e9al\n"
+
+
+def test_quoted_values_survive_the_copy(tmp_path):
+    values = ['"A"', '""', 'a"b', '"', '"x', 'say "hi"', '"a" and "b"', "A"]
+    m = Metadata(["g"], {f"s{i}": {"g": v} for i, v in enumerate(values)})
+    path = tmp_path / "metadata.tsv"
+    write_copy(path, m)
+    assert read_metadata(path).rows == m.rows

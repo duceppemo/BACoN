@@ -81,13 +81,19 @@ Limits of the de novo assemblies:
   and the genomes of `--add-genomes`
   when more than half of the assemblies of the samples have a circular contig (Flye and myloasm report them; templated
   assemblies follow the reference and are never flagged circular, so with them the SNPs within 15 bases of the
-  ends of the reference are not compared).
+  ends of the reference are not compared: a split k-mer needs 15 bases on either side of its middle base).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
   with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
   divergent, which in the validation removed a low-depth sample. A genome much shorter than the reference can
   still make Parsnp fail, or be kept and reduce the core genome of every genome to what it covers: BACoN warns
   when the core genome is less than half of the reference. SNPs inside inverted repeats are missed, and SNPs
-  next to large deletions may be.
+  next to large deletions may be. SNPs within about 30 bases of the ends of the reference are not compared
+  either: Parsnp's locally collinear blocks end at their last maximal unique match. HarvestTools writes to
+  `snps.vcf` the SNPs Parsnp filtered out of its alignment too, with a `FILTER` other than `PASS` (`ALN`: more
+  than 20 indels in the 100 bp window around the SNP; `CID`: that window less than 50% identical; `LCB`: a block
+  shorter than 200 bp; `IND`, `N`: a column with an indel or an N; several joined by `:`, `CID:ALN`). Those
+  SNPs are not in the SNP alignment, so not in the distances or the tree; the report shows the `PASS` records
+  only and says how many others `snps.vcf` has. SKA2's VCF has no filter (`.`): every record is shown.
 
 **Distances.** `snp_distances.tsv` counts, for each pair of genomes, the positions of the SNP alignment where
 both have a nucleotide and they differ.
@@ -108,7 +114,10 @@ locations with `join`, `complement`, `order`, partial ends and trans-splicing, `
 `/transl_table`, `/transl_except`, `/pseudo`, quoted values spanning lines with `""` for a quote) and GFF3
 (features linked by `ID` and `Parent`, the phase column, `pseudogene` features and the `pseudo`, `gene_biotype`
 and `biotype` attributes, `transl_except`); a CDS or RNA feature belongs to the gene feature of the same name
-that overlaps it, or is a gene of its own. A gene is named after its `gene` qualifier, else `locus_tag`,
+that overlaps it, or is a gene of its own. The exons of a gene are the parts of its CDS and RNA features; a GFF3
+RNA feature with `exon` features of its own (NCBI writes a spliced tRNA, such as plastid *trnK*, *trnL*,
+*trnV*, *trnI*, *trnA* or *trnG*, as one line from its first base to its last) has those exons only, so its
+intron is an intron in either format (*matK*, inside the intron of *trnK*, is `CDS / intron`). A gene is named after its `gene` qualifier, else `locus_tag`,
 `product`, `Name`, `gene_id` or `ID`. Older RefSeq records (plastomes among them) have genes without a `/gene`
 symbol, only a `/locus_tag` and a `/product` (recent records usually have the symbol): such a gene keeps its
 locus tag as its identifier, but the report shows it as `locus_tag (product)`, `LK299_pgr007 (23S ribosomal
@@ -135,29 +144,40 @@ strand and at the low part, read downwards, on the − strand. The sequence leng
 else from the reference; without either (an annotated sequence matched to the reference by nothing but being
 the only one), a CDS across the origin listed by coordinate is read in coordinate order. A single line ending
 beyond the length of a sequence flagged `Is_circular=true` (Bakta writes a feature across the origin so, with
-end = its end + the length) is split into its two parts. So the trans-spliced plastid *rps12*, whose 5′ exon
+end = its end + the length) is split into its two parts, and a line lying wholly beyond that length (NCBI
+writes the 5′ exon of the *Epifagus* NC_001568.1 *rps12* at 82,777–82,890 on its 70,028 bp sequence:
+12,749–12,862) is moved back by the length. A trans-spliced CDS (`exception=trans-splicing`, or parts on both
+strands) whose lines are listed by ascending coordinate without `part=` numbers has no known order unless the
+file lists the parts of its other −-strand features 5′ to 3′ (NCBI); in a sorted file (Ensembl) it gives no
+effects, with a warning, rather than be read in a guessed order (descending, for potato's IRb *rps12*
+LK299_pgp043, would read exon 3 first). So the trans-spliced plastid *rps12*, whose 5′ exon
 lies in the LSC on the other strand, and
 a gene across the origin of a circular sequence are translated correctly from either format; a CDS or RNA
 feature across the origin (or trans-spliced) without a gene feature is a gene made of its parts, not of the
-whole sequence between them.
+whole sequence between them. A CDS with a part on another sequence (`join(X12345.1:1..100,201..500)`) keeps
+its parts on this one, but its frame there is unknown: it gives no effects, with a warning.
 
 For a SNP inside a coding sequence, BACoN rebuilds the coding sequence from the reference (the exons in the
 order of translation, reverse-complemented on the − strand, from the base given by `codon_start`), finds the
 codon containing the SNP, substitutes the alternate allele (complemented on the − strand) and translates both
-codons with the CDS's translation table (`/transl_table`, otherwise table 11, the bacterial and plastid code;
-tables 1, 2, 3, 4, 5, 9, 11, 13 and 14 are known, as [NCBI defines
-them](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi), the standard code with ATG as its only start
-codon; others use the standard code with table 11's start codons). The effect is `synonymous`, `missense`,
+codons with the CDS's translation table (`/transl_table`, otherwise table 11, the bacterial and plastid code,
+or table 1 for a sequence said to be a mitochondrion by its GenBank `/organelle` or NCBI GFF3 `genome=`: plant
+mitochondrial records give no `/transl_table`, and the INSDC default is table 1; tables 1, 2, 3, 4, 5, 9, 11, 13
+and 14 are known, as [NCBI defines them](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi), table 1
+being the standard code with ATG as its only start codon; others, such as 16, 21, 22 or 23, use the standard
+code with table 11's start codons, with a warning). The effect is `synonymous`, `missense`,
 `nonsense` (a stop codon gained), `stop lost`, `stop retained` (a stop codon changed into another), and for the
 initiation codon of a complete CDS `start lost` or `start retained` (the new codon is another start codon of
 the table, such as GTG in table 11). No effect is given when the codon is incomplete (a partial CDS), contains
 `N`, or when the VCF's reference allele does not match the reference, nor for a codon with a translational
 exception (`/transl_except`: a selenocysteine or pyrrolysine codon, an edited codon, a stop codon completed by
-polyadenylation), which is not a stop codon although the table says so: the SNP is still reported in the CDS,
-without an effect. RNA editing (plastid ACG start codons, for example) is not modelled. Pseudogenes get no
+polyadenylation, a codon split by an intron, `pos:join(...)`), which is not a stop codon although the table
+says so: the SNP is still reported in the CDS, without an effect. RNA editing (plastid ACG start codons, for example) is not modelled. Pseudogenes get no
 effect. Each alternate allele, and each of two overlapping coding sequences, gets an effect of its own, but the
 same effect through two coding sequences of a gene (the 5′ exon shared by the two *rps12* of a plastome, the
-two products of a ribosomal frameshift) is given once.
+two products of a ribosomal frameshift) is given once. A base read twice through a −1 ribosomal frameshift,
+written as overlapping parts (`join(66..327,327..1228)` in the F plasmid NC_002483.1, *dnaX* of *E. coli*),
+is changed in every copy: one effect per codon it changes, each codon with both copies changed.
 
 Outside coding sequences, the context is the gene's type (tRNA, rRNA), `intron` when the position lies
 between two exons of a gene, or `intergenic between X and Y`, the nearest genes on either side (around the
@@ -167,7 +187,9 @@ intron between its distant parts.
 The LSC/IRb/SSC/IRa band of a plastome is derived from the annotated inverted repeats (`repeat_region` with
 `/rpt_type=inverted`, or any region feature whose note starts by naming an inverted repeat, IRa or IRb, such
 as `IRb`, `inverted repeat A` or `inverted repeat region IRa`; a note merely mentioning a copy, `... in IRA`
-or `junction LSC-IRB`, does not annotate it), when there are two of at least 500 bp: the single-copy regions
+or `junction LSC-IRB`, or mentioning a junction or a border, `IRB/SSC junction` or `IRA-SSC border`, does not
+annotate it, nor does a feature shorter than 50 bp, so the junctions potato marks on 2 bp do not grow the
+copies), when there are two of at least 500 bp: the single-copy regions
 are the gaps between them, the larger one being the LSC, and the repeat following the LSC is IRb unless the
 annotation names them; one region may span the origin, a repeat too (`join(x..length,1..y)`, or two features
 named alike meeting at the origin). A repeat annotated twice (a `repeat_region` and a `misc_feature` over the

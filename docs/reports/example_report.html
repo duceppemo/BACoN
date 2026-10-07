@@ -8,21 +8,24 @@
 --good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
 --q0:#e1e0d9;--q1:#86b6ef;--q2:#3987e5;--q3:#1c5cab;--q4:#0d366b;
 --qt0:#52514e;--qt1:#0b0b0b;--qt2:#0b0b0b;--qt3:#fff;--qt4:#fff;
---bad-bg:#fbe3e3;--bad-fg:#8f1d1d;--warn-bg:#fdf1cf;--warn-fg:#6b4a00;--info-bg:#e1ecfa;--info-fg:#1c4f8f}
+--bad-bg:#fbe3e3;--bad-fg:#8f1d1d;--warn-bg:#fdf1cf;--warn-fg:#6b4a00;--info-bg:#e1ecfa;--info-fg:#1c4f8f;
+--pseudo-op:.35}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
 --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
 --good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
 --q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
---bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5}}
+--bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
+--pseudo-op:.72}}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
 --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
 --good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
 --q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
---bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5}
+--bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
+--pseudo-op:.72}
 *{box-sizing:border-box}
 :root{print-color-adjust:exact;-webkit-print-color-adjust:exact}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -56,7 +59,7 @@ margin:8px 0;break-inside:avoid}
 .branch{stroke:var(--ink2);stroke-width:1.5;fill:none;stroke-linecap:square}
 .bar{fill:var(--s1)}.bar0{fill:var(--axis)}.nbar{fill:var(--muted)}
 .snp-all{stroke:var(--s1);stroke-width:1.5}.snp-miss{stroke:var(--s2);stroke-width:1.5}
-.gene-cds{fill:var(--s3)}.gene-rna{fill:var(--s7)}.gene-pseudo{fill:var(--s3);opacity:.35}
+.gene-cds{fill:var(--s3)}.gene-rna{fill:var(--s7)}.gene-pseudo{fill:var(--s3);opacity:var(--pseudo-op)}
 .gene-other{fill:var(--muted)}.gene-dense{fill:var(--ink2);opacity:.55}
 .band-ir{fill:var(--q1);opacity:.55}.band-sc{fill:var(--q0)}.t-gene{font-style:italic}
 g.q0 rect{fill:var(--q0)}g.q1 rect{fill:var(--q1)}g.q2 rect{fill:var(--q2)}g.q3 rect{fill:var(--q3)}
@@ -101,6 +104,7 @@ dd{margin:0;word-break:break-all}
   table.samples td.note,table.samples td.long,table.snps td.ctx{min-width:0}
   thead{display:table-header-group} tr{break-inside:avoid}
   h2{break-after:avoid} .figcap{break-before:avoid}
+  svg.fig{max-height:155mm;width:auto;max-width:100%!important}
 }
 </style></head><body><main>
 <h1><b>BACoN</b> report</h1>

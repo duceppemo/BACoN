@@ -1,4 +1,5 @@
-"""Newick trees: parsing, midpoint rooting and drawing as SVG, with the standard library only."""
+"""Newick trees: parsing, midpoint rooting and drawing as SVG, with the standard library only. Every walk of a tree
+is iterative: a deep tree (a caterpillar of thousands of leaves) does not reach Python's recursion limit."""
 
 from __future__ import annotations
 
@@ -20,14 +21,28 @@ class Node:
         return not self.children
 
     def leaves(self) -> list[Node]:
-        if self.is_leaf():
-            return [self]
-        return [leaf for child in self.children for leaf in child.leaves()]
+        """The leaves, left to right."""
+        return [n for n in preorder(self) if not n.children]
 
     def add(self, child: Node) -> Node:
         child.parent = self
         self.children.append(child)
         return child
+
+
+def preorder(root: Node) -> list[Node]:
+    """The nodes, each before its descendants, children left to right."""
+    order, stack = [], [root]
+    while stack:
+        node = stack.pop()
+        order.append(node)
+        stack.extend(reversed(node.children))
+    return order
+
+
+def postorder(root: Node) -> list[Node]:
+    """The nodes, each after its descendants."""
+    return preorder(root)[::-1]
 
 
 def parse(text: str) -> Node:
@@ -59,23 +74,32 @@ def parse(text: str) -> Node:
                 raise BaconError(f"Bad branch length in Newick tree: {text[start:pos]!r}") from None
         return name.strip(), length
 
-    def subtree() -> Node:
+    def tree() -> Node:
+        """The tree starting at `pos`, read with a stack of the nodes whose children are being read."""
         nonlocal pos
-        node = Node()
-        if text[pos] == "(":
-            pos += 1
-            node.add(subtree())
-            while text[pos] == ",":
+        root = node = Node()
+        opened: list[Node] = []
+        while True:
+            while text[pos] == "(":  # Down to the first child
                 pos += 1
-                node.add(subtree())
-            if text[pos] != ")":
-                raise BaconError(f"Unbalanced parentheses in Newick tree at position {pos}")
-            pos += 1
-        node.name, node.length = label()
-        return node
+                opened.append(node)
+                node = node.add(Node())
+            node.name, node.length = label()
+            while opened:  # Up past the closed parentheses, to the next sibling
+                if text[pos] == ",":
+                    pos += 1
+                    node = opened[-1].add(Node())
+                    break
+                if text[pos] != ")":
+                    raise BaconError(f"Unbalanced parentheses in Newick tree at position {pos}")
+                pos += 1
+                node = opened.pop()
+                node.name, node.length = label()
+            else:
+                return root
 
     try:
-        root = subtree()
+        root = tree()
     except (IndexError, ValueError):  # ValueError: a quoted label without its closing quote
         raise BaconError("Truncated Newick tree") from None
     if text[pos:] != ";":
@@ -84,11 +108,12 @@ def parse(text: str) -> Node:
 
 
 def to_newick(node: Node) -> str:
-    def fmt(n: Node) -> str:
+    text: dict[int, str] = {}
+    for n in postorder(node):
         name = n.name if all(c not in n.name for c in " ,():;'") else "'" + n.name.replace("'", "") + "'"
-        inner = "(" + ",".join(fmt(c) for c in n.children) + ")" if n.children else ""
-        return f"{inner}{name}" + (f":{n.length:.8g}" if n.parent is not None else "")
-    return fmt(node) + ";"
+        inner = "(" + ",".join(text.pop(id(c)) for c in n.children) + ")" if n.children else ""
+        text[id(n)] = f"{inner}{name}" + (f":{n.length:.8g}" if n.parent is not None else "")
+    return text[id(node)] + ";"
 
 
 def _distances_from(start: Node) -> dict[int, tuple[float, Node]]:
@@ -144,17 +169,31 @@ def _reroot_on_edge(child: Node, offset: float) -> Node:
             adjacency.setdefault(id(c), []).append((node, c.length, label))
             stack.append(c)
 
-    def build(node: Node, came_from: Node, length: float, label: str) -> Node:
-        if id(node) in original_leaves:
-            return Node(node.name, length)
-        kids = [build(nb, node, ln, lab) for nb, ln, lab in adjacency[id(node)] if nb is not came_from]
-        if len(kids) == 1:  # The former root, now with one child: splice it out
-            kids[0].length += length
-            return kids[0]
-        new = Node(label, length)
-        for k in kids:
-            new.add(k)
-        return new
+    def build(start: Node, came_from: Node, start_length: float, start_label: str) -> Node:
+        """The subtree hanging from `start` away from `came_from`, built from its leaves up."""
+        visits = []  # (node, came from, length, label), each node before the nodes beyond it
+        stack = [(start, came_from, start_length, start_label)]
+        while stack:
+            visit = stack.pop()
+            visits.append(visit)
+            node, previous = visit[0], visit[1]
+            if id(node) not in original_leaves:
+                stack += [(nb, node, ln, lab) for nb, ln, lab in adjacency[id(node)] if nb is not previous]
+        built: dict[int, Node] = {}
+        for node, previous, length, label in reversed(visits):
+            if id(node) in original_leaves:
+                built[id(node)] = Node(node.name, length)
+                continue
+            kids = [built.pop(id(nb)) for nb, _, _ in adjacency[id(node)] if nb is not previous]
+            if len(kids) == 1:  # The former root, now with one child: splice it out
+                kids[0].length += length
+                built[id(node)] = kids[0]
+                continue
+            new = Node(label, length)
+            for k in kids:
+                new.add(k)
+            built[id(node)] = new
+        return built[id(start)]
 
     parent = child.parent
     assert parent is not None
@@ -190,9 +229,11 @@ def midpoint_root(root: Node) -> Node:
 
 
 def ladderize(node: Node) -> None:
-    for child in node.children:
-        ladderize(child)
-    node.children.sort(key=lambda c: len(c.leaves()))
+    """Sort the children of every node by their number of leaves, fewest first."""
+    count: dict[int, int] = {}
+    for n in postorder(node):
+        count[id(n)] = sum(count[id(c)] for c in n.children) if n.children else 1
+        n.children.sort(key=lambda c: count[id(c)])
 
 
 def to_svg(root: Node, title: str = "") -> str:
@@ -201,28 +242,10 @@ def to_svg(root: Node, title: str = "") -> str:
     row, left, top = 22, 36, 40 if title else 16
     label_width = 9 + 7.5 * max(len(leaf.name) for leaf in leaves)
     plot_width = 640.0
-    depth: dict[int, float] = {}
-
-    def assign_x(n: Node, d: float) -> None:
-        depth[id(n)] = d
-        for c in n.children:
-            assign_x(c, d + max(c.length, 0.0))
-
-    assign_x(root, 0.0)
+    depth = depths(root)
     max_depth = max(depth.values()) or 1.0
     scale = plot_width / max_depth
-    y: dict[int, float] = {}
-    for i, leaf in enumerate(leaves):
-        y[id(leaf)] = top + i * row
-
-    def assign_y(n: Node) -> float:
-        if n.is_leaf():
-            return y[id(n)]
-        ys = [assign_y(c) for c in n.children]
-        y[id(n)] = (min(ys) + max(ys)) / 2
-        return y[id(n)]
-
-    assign_y(root)
+    y = heights(root, {id(leaf): top + i * row for i, leaf in enumerate(leaves)})
     width = left + plot_width + label_width + 20
     height = top + len(leaves) * row + 40
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
@@ -231,23 +254,19 @@ def to_svg(root: Node, title: str = "") -> str:
     if title:
         parts.append(f'<text x="{left}" y="22" font-size="15" font-weight="bold">{escape(title)}</text>')
     lines, texts = [], []
-
-    def draw(n: Node) -> None:
+    for n, entering in walk(root):
         x0 = left + depth[id(n)] * scale
-        if n.children:
-            ys = [y[id(c)] for c in n.children]
-            lines.append(f"M{x0:.1f},{min(ys):.1f}V{max(ys):.1f}")
-            for c in n.children:
-                x1 = left + depth[id(c)] * scale
-                lines.append(f"M{x0:.1f},{y[id(c)]:.1f}H{x1:.1f}")
-                draw(c)
+        if entering and n.parent is not None:  # The branch to the node, before its subtree
+            lines.append(f"M{left + depth[id(n.parent)] * scale:.1f},{y[id(n)]:.1f}H{x0:.1f}")
+        if not entering:  # After its subtrees: an internal node's support
             if n.name and n.parent is not None:
                 texts.append(f'<text x="{x0 - 3:.1f}" y="{y[id(n)] - 4:.1f}" text-anchor="end" font-size="10" '
                              f'fill="#666">{escape(n.name)}</text>')
+        elif n.children:
+            ys = [y[id(c)] for c in n.children]
+            lines.append(f"M{x0:.1f},{min(ys):.1f}V{max(ys):.1f}")
         else:
             texts.append(f'<text x="{x0 + 5:.1f}" y="{y[id(n)] + 4.5:.1f}">{escape(n.name)}</text>')
-
-    draw(root)
     parts.append(f'<path d="{" ".join(lines)}" stroke="black" stroke-width="1.5" fill="none" '
                  f'stroke-linecap="square"/>')
     parts.extend(texts)
@@ -258,6 +277,39 @@ def to_svg(root: Node, title: str = "") -> str:
                  f'font-size="11">{bar:g} substitutions/site</text>')
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
+
+
+def depths(root: Node) -> dict[int, float]:
+    """The distance of every node (by id) from the root, negative branch lengths counting as 0."""
+    depth = {id(root): 0.0}
+    for n in preorder(root):
+        for c in n.children:
+            depth[id(c)] = depth[id(n)] + max(c.length, 0.0)
+    return depth
+
+
+def heights(root: Node, leaf_y: dict[int, float]) -> dict[int, float]:
+    """The vertical position of every node (by id): the leaves' as given, an internal node's halfway between its
+    first and last children's extremes."""
+    y = dict(leaf_y)
+    for n in postorder(root):
+        if n.children:
+            ys = [y[id(c)] for c in n.children]
+            y[id(n)] = (min(ys) + max(ys)) / 2
+    return y
+
+
+def walk(root: Node) -> list[tuple[Node, bool]]:
+    """The nodes in the order of a recursive drawing: (node, True) on entering it, then its subtrees, then
+    (node, False) on leaving it (internal nodes only)."""
+    events, stack = [], [(root, True)]
+    while stack:
+        node, entering = stack.pop()
+        events.append((node, entering))
+        if entering and node.children:
+            stack.append((node, False))
+            stack.extend((c, True) for c in reversed(node.children))
+    return events
 
 
 def _nice_length(x: float) -> float:

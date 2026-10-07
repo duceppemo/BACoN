@@ -42,7 +42,7 @@ seconds, without conda, and test the pipeline logic: resuming, parameter changes
 real programs are exercised by the example and the validation:
 
 ```bash
-bash example/run_example.sh                   # seconds; checks SNP distances and effects against the truth
+bash example/run_example.sh                   # seconds; checks SNP distances, effects and the report against the truth
 bash validation/run_validation.sh /tmp/val    # a few minutes; scores every assembler and SNP method
 ```
 
@@ -76,10 +76,15 @@ paths removed from `run_info.json` first.
    (`bash example/run_example.sh`) and the tutorial's command again with the bumped version (a resume reruns
    nothing; the report is rebuilt) before copying their `report.html`, with the local paths removed from
    `run_info.json` first (`tests/test_cli.py` checks that the published reports name the current version).
+   Then take the wiki's images of the report again from the rebuilt reports (`docs/images/example_report_*.png`
+   and `report_*.png`: the same parts of the page, cropped alike), so that they show the release. In
+   `CHANGELOG.md`, rename `## Unreleased` to `## X.Y.Z (YYYY-MM-DD)` (`tests/test_cli.py` checks that the
+   section of the current version exists; the release workflow publishes it).
 2. Commit, tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the versions, builds the
    package and creates the GitHub release with the changelog section.
-3. Zenodo archives the release and mints a version DOI: add it to `CITATION.cff` (`doi` and `identifiers`).
-   The README badge uses the concept DOI (10.5281/zenodo.22970412), which always points to the latest
-   version.
+3. Zenodo archives the release and mints a version DOI: add it to the `identifiers` of `CITATION.cff`. The
+   top-level `doi` stays the concept DOI (10.5281/zenodo.22970412), which always points to the latest version:
+   GitHub's "Cite this repository" at any tag then gives a DOI that resolves (a version DOI is only known after
+   the tag). The README badge uses the concept DOI too.
 4. Update `recipe/meta.yaml` (version, sha256 of the tag's tarball, build number 0). Bioconda's autobump bot
    usually opens the update pull request in bioconda-recipes by itself; otherwise open one with the new recipe.

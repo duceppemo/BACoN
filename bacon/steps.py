@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from bacon.seqio import (
     open_write,
     read_records,
     read_stats,
+    split_extension,
     write_fasta,
 )
 from bacon.tools import run, which
@@ -83,6 +85,21 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
     return _bait_result(output, total, kept)
 
 
+_SHELL_CHARACTERS = re.compile(r"""[\s'"`$\\!*?\[\](){}<>|&;#]""")
+
+
+def _shell_safe(*paths: Path) -> bool:
+    """Whether the absolute paths have no whitespace or shell character (that a program running commands through
+    a shell, or splitting them on spaces, would break on)."""
+    return not any(_SHELL_CHARACTERS.search(str(p.absolute())) for p in paths)
+
+
+def _extension(path: Path) -> str:
+    """The extension of a sequence file, compression included ('.fastq.gz'), by which BBDuk reads it."""
+    parts = split_extension(path.name)
+    return path.name[len(parts[0]):] if parts else "".join(path.suffixes)
+
+
 _BBDUK_COUNTS = re.compile(r"^(Input|Contaminants):\s+(\d+) reads\s.*?(\d+) bases", re.M)
 
 
@@ -99,10 +116,17 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
         source = merged
     output = out_dir / (sample.name + reads_suffix(sample.fmt))
     start = log_file.stat().st_size if log_file.exists() else 0
+    # bbduk.sh passes its arguments through `eval`: a path with a space (or a shell character) breaks it. BBDuk
+    # runs in out_dir, on links named after the sample.
+    links = {"in": out_dir / f".{sample.name}.input{_extension(source)}",
+             "ref": out_dir / f".{sample.name}.reference.fasta"}
     try:
-        run(["bbduk.sh", f"-Xmx{max(1, memory_gb)}g", "-eoom", "overwrite=true", f"in={source}",
-             f"ref={reference}", f"threads={threads}", f"k={kmer}", f"hdist={hdist}", "maskmiddle=f",
-             f"outm={output}"], log_file, what=f"(baiting {sample.name})")
+        for link, target in ((links["in"], source), (links["ref"], reference)):
+            link.unlink(missing_ok=True)
+            link.symlink_to(target.resolve())
+        run(["bbduk.sh", f"-Xmx{max(1, memory_gb)}g", "-eoom", "overwrite=true", f"in={links['in'].name}",
+             f"ref={links['ref'].name}", f"threads={threads}", f"k={kmer}", f"hdist={hdist}", "maskmiddle=f",
+             f"outm={output.name}"], log_file, cwd=out_dir, what=f"(baiting {sample.name})")
     except BaconError as exc:
         with open(log_file, errors="replace") as fh:
             fh.seek(start)
@@ -112,6 +136,8 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
                                    f"needed); see {log_file}") from exc
         raise
     finally:
+        for link in links.values():
+            link.unlink(missing_ok=True)
         if merged:
             merged.unlink(missing_ok=True)
     with open(log_file) as fh:
@@ -268,11 +294,29 @@ def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, 
     shutil.rmtree(work, ignore_errors=True)
     dirs.root.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}.log"
-    cmd = ["flye", f"--{read_type}", str(reads), "--genome-size", str(genome_size), "--threads", str(threads),
-           "--out-dir", str(work), "--iterations", str(iterations)]
-    if min_overlap:
-        cmd += ["--min-overlap", str(min_overlap)]
-    run(cmd, log_file, what=f"(assembling {name})")
+    # Flye refuses reads whose path has a space, and runs some programs through a shell (a space in its output
+    # folder breaks them): with such paths, it reads and writes through links in a temporary folder.
+    link_dir = Path(tempfile.mkdtemp(prefix="bacon_flye_")) if not _shell_safe(reads, work) else None
+    try:
+        if link_dir is not None:
+            if not _shell_safe(link_dir):
+                raise SampleFailed(f"Flye cannot use paths with spaces or shell characters ({work}), and the "
+                                   f"temporary folder {link_dir.parent} has some too: set TMPDIR to another "
+                                   "folder")
+            work.mkdir(parents=True)
+            (link_dir / "out").symlink_to(work.resolve())
+            (link_dir / f"reads{_extension(reads)}").symlink_to(reads.resolve())
+            reads, out = link_dir / f"reads{_extension(reads)}", link_dir / "out"
+        else:
+            out = work
+        cmd = ["flye", f"--{read_type}", str(reads), "--genome-size", str(genome_size), "--threads", str(threads),
+               "--out-dir", str(out), "--iterations", str(iterations)]
+        if min_overlap:
+            cmd += ["--min-overlap", str(min_overlap)]
+        run(cmd, log_file, what=f"(assembling {name})")
+    finally:
+        if link_dir is not None:
+            shutil.rmtree(link_dir, ignore_errors=True)  # The links only
     if not (work / "assembly.fasta").is_file():
         raise SampleFailed(f"Flye produced no assembly (see {work / 'flye.log'})")
     info = _flye_info(work / "assembly_info.txt")

@@ -67,21 +67,49 @@ def write_distances(path: Path, names: list[str], matrix: list[list[int]]) -> No
 # Parsnp
 # ---------------------------------------------------------------------------------------------------------------
 
+PARSNP_REFERENCE = "reference.fasta"  # The reference's name in the folder of Parsnp's inputs
+
+
 def _parsnp_names(assemblies: dict[str, Path], reference: Path) -> dict[str, str]:
-    """Parsnp names sequences after their file (and adds '.ref' to the reference); map them back."""
+    """Parsnp names sequences after their file (and adds '.ref' to the reference); map them back: the names of the
+    links Parsnp reads (_stage_parsnp_inputs), and those of the files themselves (the comparisons of earlier
+    versions of BACoN, which gave Parsnp the files)."""
     names = {path.name: name for name, path in assemblies.items()}
-    names[reference.name + ".ref"] = "Reference"
-    names[reference.name] = "Reference"
+    names.update({f"{name}.fasta": name for name in assemblies})
+    for ref in (reference.name, PARSNP_REFERENCE):
+        names[ref + ".ref"] = "Reference"
+        names[ref] = "Reference"
     return names
+
+
+def _stage_parsnp_inputs(reference: Path, assemblies: dict[str, Path], folder: Path) -> list[str]:
+    """Links to the reference and the assemblies, with names without spaces, in `folder`: Parsnp passes paths
+    to its programs in command lines split on whitespace, so a path with a space fails. Returns the links'
+    paths relative to the parent of `folder` (Parsnp's working folder), reference first."""
+    folder.mkdir(parents=True)
+    links = [(PARSNP_REFERENCE, reference)] + [(f"{name}.fasta", path) for name, path in assemblies.items()]
+    for link, target in links:
+        (folder / link).symlink_to(target.resolve())
+    return [f"{folder.name}/{link}" for link, _ in links]
 
 
 def run_parsnp(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *,
                threads: int) -> tuple[Path, Path]:
     shutil.rmtree(out_dir, ignore_errors=True)
     log_file = log_dir / "parsnp.log"
-    # -c: keep every genome (by default Parsnp silently drops genomes too distant from the reference).
-    run(["parsnp", "-r", str(reference), "-d", *map(str, assemblies.values()), "-o", str(out_dir),
-         "-p", str(threads), "-c"], log_file, what="(Parsnp)")
+    # Parsnp runs in a working folder next to out_dir, on relative paths without spaces (whatever the path of the
+    # output folder: see _stage_parsnp_inputs); its output is then moved to out_dir.
+    work = out_dir.parent / ".parsnp_work"
+    shutil.rmtree(work, ignore_errors=True)
+    try:
+        ref, *genomes = _stage_parsnp_inputs(reference, assemblies, work / "inputs")
+        # -c: keep every genome (by default Parsnp silently drops genomes too distant from the reference).
+        run(["parsnp", "-r", ref, "-d", *genomes, "-o", "output", "-p", str(threads), "-c"], log_file, cwd=work,
+            what="(Parsnp)")
+    finally:
+        if (work / "output").is_dir():  # Even after a failure: Parsnp's own logs are in its log/ folder
+            (work / "output").replace(out_dir)
+        shutil.rmtree(work, ignore_errors=True)
     xmfa, ggr = out_dir / "parsnp.xmfa", out_dir / "parsnp.ggr"
     if not xmfa.is_file() or not ggr.is_file():
         raise BaconError(f"Parsnp produced no alignment (assemblies too different from the reference?); "
@@ -159,10 +187,12 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
         write_fasta(genomes[name], [wrap_circular(r, kmer, force=force) for r in read_records(path)])
     genomes = {"Reference": inputs / "Reference.fasta", **genomes}
     write_ska_reference(reference, assemblies, genomes["Reference"], kmer, added)
+    # SKA2 splits each line of its file list on whitespace: paths relative to out_dir (no space; the names are
+    # sample names), where ska build runs.
     table = out_dir / "input.tsv"
-    table.write_text("".join(f"{name}\t{path}\n" for name, path in genomes.items()))
-    run(["ska", "build", "-o", str(out_dir / "ska"), "-k", str(kmer), "-f", str(table), "--threads", str(threads)],
-        log_file, what="(ska build)")
+    table.write_text("".join(f"{name}\t{path.relative_to(out_dir)}\n" for name, path in genomes.items()))
+    run(["ska", "build", "-o", str(out_dir / "ska"), "-k", str(kmer), "-f", table.name, "--threads", str(threads)],
+        log_file, cwd=out_dir, what="(ska build)")
     raw = out_dir / "ska.raw.aln"
     run(["ska", "align", "--min-freq", f"{min_freq:g}", "--filter", "no-const", "-o", str(raw),
          "--threads", str(threads), str(out_dir / "ska.skf")], log_file, what="(ska align)")

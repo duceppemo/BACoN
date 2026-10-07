@@ -104,3 +104,15 @@ def test_unterminated_quoted_label():
     from bacon import BaconError
     with pytest.raises(BaconError):
         parse("('A:1,B:1);")
+
+
+def test_deep_tree_walks_are_iterative():
+    # A caterpillar of 1,000 leaves is 999 levels deep: recursive walks would pass Python's recursion limit
+    text = "".join("(" for _ in range(999)) + "L0:1" + "".join(f",L{i}:1):0.5" for i in range(1, 999)) + ",L999:1);"
+    tree = parse(text)
+    assert len(tree.leaves()) == 1000 and to_newick(tree) == text
+    ladderize(tree)
+    assert [n.name for n in tree.children] == ["L999", ""]  # The leaf first: fewer leaves
+    rooted = midpoint_root(tree)
+    assert leaves(rooted) == sorted(f"L{i}" for i in range(1000))
+    assert to_svg(rooted).count("<text") >= 1000

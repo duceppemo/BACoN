@@ -90,3 +90,22 @@ def test_color_by_needs_metadata(capsys, tmp_path):
     assert main(["-r", str(tmp_path / "missing.fa"), "-i", str(tmp_path), "-o", str(tmp_path / "o"),
                  "--color-by", "None"]) == 1
     assert "--color-by needs" not in capsys.readouterr().err
+
+
+def test_an_output_that_is_a_file_is_an_error_not_a_traceback(tmp_path, caplog):
+    (tmp_path / "ref.fasta").write_text(">r\nACGT\n")
+    (tmp_path / "out").write_text("x")
+    assert main(["-r", str(tmp_path / "ref.fasta"), "-i", str(tmp_path / "ref.fasta"), "-o", str(tmp_path / "out"),
+                 "--snp-method", "none"]) == 1
+    assert f"The output folder {tmp_path / 'out'} is a file" in caplog.text
+
+
+def test_changelog_has_this_version_and_the_citation_the_concept_doi():
+    # A release renames "## Unreleased" to "## X.Y.Z (date)" (docs/wiki/Development.md); the release workflow
+    # takes that section for the GitHub release
+    root = Path(__file__).parents[1]
+    assert re.search(rf"^## {re.escape(bacon.__version__)} \(\d{{4}}-\d{{2}}-\d{{2}}\)$",
+                     (root / "CHANGELOG.md").read_text(), re.M)
+    # "Cite this repository" at a tag gives the top-level DOI: the concept DOI, which resolves to the latest version
+    citation = (root / "CITATION.cff").read_text()
+    assert "\ndoi: 10.5281/zenodo.22970412\n" in citation and "Concept DOI" in citation

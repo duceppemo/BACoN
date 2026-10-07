@@ -43,7 +43,11 @@ STUBS = {
         import gzip, os, sys
         args = sys.argv[1:]
         out = args[args.index("--out-dir") + 1]
-        os.mkdir(out)
+        if " " in os.path.abspath(args[args.index("--nano-hq") + 1]):  # As Flye
+            sys.exit("ERROR: Path to reads contain spaces")
+        if " " in os.path.abspath(out):  # Flye runs samtools through a shell
+            sys.exit("samtools view: failed to open")
+        os.makedirs(out, exist_ok=True)
         with gzip.open(args[args.index("--nano-hq") + 1], "rt") as fh:
             seq = fh.read().splitlines()[1]
         open(os.path.join(out, "assembly.fasta"), "w").write(">contig_1\\n" + seq + "\\n")
@@ -52,19 +56,26 @@ STUBS = {
             f"contig_1\\t{len(seq)}\\t30\\tY\\tN\\t1\\t*\\t1\\n")
         open(os.path.join(out, "assembly_graph.gfa"), "w").write("H\\tVN:Z:1.0\\n")
     """,
-    # ska build: nothing; ska align: an alignment of every genome in the build table (last base = sample index).
+    # ska build: reads its file list as SKA2 does (each line split on whitespace: a name and a file); ska align: an
+    # alignment of every genome in the build table (last base = sample index).
     "ska": """
         import os, sys
         args = sys.argv[1:]
         if args[0] == "build":
             prefix = args[args.index("-o") + 1]
             table = args[args.index("-f") + 1]
-            open(prefix + ".skf", "w").write(open(table).read())
+            names = []
+            for line in open(table):
+                fields = line.split()
+                if len(fields) != 2 or not os.path.isfile(fields[1]):
+                    sys.exit("Unable to parse line in file_list")
+                names.append(fields[0])
+            open(prefix + ".skf", "w").write("".join(n + "\\n" for n in names))
         elif args[0] == "map" and os.environ.get("STUB_SKA_MAP_FAIL"):
             open(args[args.index("-o") + 1], "w").write("partial")
             sys.exit("map failed")
         elif args[0] == "map":  # VCF: one variant, carried by every genome but the reference
-            names = [line.split("\\t")[0] for line in open(args[2]) if line.strip()]
+            names = [line.split()[0] for line in open(args[2]) if line.strip()]
             header = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *names]
             record = ["ref", "5", ".", "A", "C", ".", ".", ".", "GT"]
             record += ["0" if n == "Reference" else "1" for n in names]
@@ -73,7 +84,7 @@ STUBS = {
                 fh.write("\\t".join(header) + "\\n" + "\\t".join(record) + "\\n")
         else:
             out = args[args.index("-o") + 1]
-            names = [line.split("\\t")[0] for line in open(args[-1]) if line.strip()]
+            names = [line.split()[0] for line in open(args[-1]) if line.strip()]
             with open(out, "w") as fh:
                 for i, name in enumerate(names):
                     seq = "" if os.environ.get("STUB_SKA_EMPTY") else f"ACGT{'ACGT'[i % 4]}"
@@ -95,9 +106,12 @@ STUBS = {
             seq = seq.replace("\\n", "")
             out.write_text(f"{name}\\n{'N' * 10}{seq[10:]}\\n")
     """,
-    # Keeps reads whose name starts with "on"; reports BBDuk's counts; STUB_BBDUK_OOM: runs out of memory.
+    # Keeps reads whose name starts with "on"; reports BBDuk's counts; STUB_BBDUK_OOM: runs out of memory. Its
+    # arguments are split on whitespace, as bbduk.sh's `eval` splits them.
     "bbduk.sh": """
         import gzip, os, sys
+        if any(len(a.split()) > 1 for a in sys.argv[1:]):
+            sys.exit("Unknown parameter " + next(a for a in sys.argv[1:] if len(a.split()) > 1).split()[1])
         opts = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
         if os.environ.get("STUB_BBDUK_OOM"):
             sys.stderr.write("Allocating kmer table: Terminating due to java.lang.OutOfMemoryError: Java heap space\\n")
@@ -980,20 +994,65 @@ def test_guess_root_with_a_sample_named_distances():
     assert _guess_root({"distances": {"output": "/out/1_extracted/distances.fastq.gz"}}) == "/out"
 
 
+def _cgroups(tmp_path: Path, proc: str, files: dict[str, str]) -> tuple[str, str]:
+    """A fake /proc/self/cgroup and /sys/fs/cgroup."""
+    root = tmp_path / "cgroup"
+    for name, value in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(value + "\n")
+    root.mkdir(exist_ok=True)
+    (tmp_path / "proc_cgroup").write_text(proc)
+    return str(tmp_path / "proc_cgroup"), str(root)
+
+
+def test_cgroup_v2_limits_of_a_job_below_the_root(tmp_path):
+    import bacon.pipeline as pipeline
+    # systemd/SLURM: the job's group is below the root, which has no limit; the smallest limit on the way counts
+    job = "system.slice/slurmstepd.scope/job_42/step_0"
+    proc, root = _cgroups(tmp_path, f"0::/{job}\n", {
+        f"{job}/memory.max": "max", f"{job}/cpu.max": "max 100000",
+        "system.slice/slurmstepd.scope/job_42/memory.max": "4000000000",
+        "system.slice/slurmstepd.scope/job_42/cpu.max": "250000 100000",
+        "system.slice/memory.max": "8000000000"})
+    assert pipeline._cgroup_memory_limit(proc, root) == 4_000_000_000
+    assert pipeline._cgroup_cpu_limit(proc, root) == 3  # 2.5 CPUs, rounded up
+    # A container: its own group is the root
+    proc, root = _cgroups(tmp_path / "container", "0::/\n", {"memory.max": "2000000000", "cpu.max": "100000 100000"})
+    assert (pipeline._cgroup_memory_limit(proc, root), pipeline._cgroup_cpu_limit(proc, root)) == (2_000_000_000, 1)
+    # No limit anywhere; no cgroup file at all
+    proc, root = _cgroups(tmp_path / "none", f"0::/{job}\n", {f"{job}/memory.max": "max", f"{job}/cpu.max": "max 100000"})
+    assert (pipeline._cgroup_memory_limit(proc, root), pipeline._cgroup_cpu_limit(proc, root)) == (None, None)
+    assert pipeline._cgroup_memory_limit(str(tmp_path / "no_proc"), str(tmp_path / "no_root")) is None
+
+
+def test_cgroup_v1_limits(tmp_path):
+    import bacon.pipeline as pipeline
+    proc, root = _cgroups(tmp_path, "12:memory:/slurm/uid_1000/job_42\n4:cpu,cpuacct:/slurm/uid_1000/job_42\n"
+                          "1:name=systemd:/user.slice\n0::/user.slice\n", {
+                              "memory/slurm/uid_1000/job_42/memory.limit_in_bytes": "9223372036854771712",  # None
+                              "memory/slurm/uid_1000/memory.limit_in_bytes": "6000000000",
+                              "cpu,cpuacct/slurm/uid_1000/job_42/cpu.cfs_quota_us": "400000",
+                              "cpu,cpuacct/slurm/uid_1000/job_42/cpu.cfs_period_us": "100000",
+                              "cpu,cpuacct/slurm/cpu.cfs_quota_us": "-1",
+                              "cpu,cpuacct/slurm/cpu.cfs_period_us": "100000"})
+    assert pipeline._cgroup_memory_limit(proc, root) == 6_000_000_000
+    assert pipeline._cgroup_cpu_limit(proc, root) == 4
+
+
 def test_memory_and_cpus_under_a_job_scheduler(tmp_path, monkeypatch):
     import bacon.pipeline as pipeline
     from bacon.cli import build_parser
-    v2, v1 = tmp_path / "memory.max", tmp_path / "limit_in_bytes"
-    v2.write_text("max\n")
-    v1.write_text("4000000000\n")
-    assert pipeline._cgroup_memory_limit((str(v2), str(v1))) == 4_000_000_000  # v2 without limit, v1 with
-    assert pipeline._cgroup_memory_limit((str(tmp_path / "none"),)) is None
     monkeypatch.setattr(pipeline, "_cgroup_memory_limit", lambda: 4_000_000_000)
     assert pipeline.default_memory_gb() == 3  # 85% of 4 GB
     if hasattr(os, "sched_getaffinity"):
-        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1})
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 2, 3})
+        monkeypatch.setattr(pipeline, "_cgroup_cpu_limit", lambda: None)
+        assert pipeline.usable_cpus() == 4
+        monkeypatch.setattr(pipeline, "_cgroup_cpu_limit", lambda: 2)  # A CPU quota below the affinity
         assert pipeline.usable_cpus() == 2
         assert build_parser().parse_args(["-r", "r", "-i", "i", "-o", "o"]).threads == 2
+        monkeypatch.setattr(pipeline, "_cgroup_cpu_limit", lambda: 16)  # Above it
+        assert pipeline.usable_cpus() == 4
 
 
 def test_bbduk_memory_is_shared_by_the_samples_baited_in_this_run(stubs, dataset, tmp_path):
@@ -1431,3 +1490,126 @@ def test_run_info_records_a_repeat_that_gives_no_band(stubs, dataset, tmp_path):
     assert "Regions of ref: none (inverted repeat found but not a plastome layout (the copies abut))" \
         in (out / "bacon.log").read_text()
     assert "LSC/IRb/SSC/IRa" not in (out / "report.html").read_text()
+
+
+def test_paths_with_spaces_and_accents(stubs, tmp_path):
+    """SKA2 splits its file list on whitespace, bbduk.sh its arguments (and the stubs do the same)."""
+    data = tmp_path / "my data \u00e9t\u00e9"
+    (data / "reads").mkdir(parents=True)
+    ref = data / "ref erence.fasta"
+    ref.write_text(">ref\n" + "ACGT" * 250 + "\n")
+    for s in ("s1", "s2"):
+        _reads(data / "reads" / f"{s}.fastq.gz", [("on1", 900), ("on2", 800), ("off1", 700)])
+    public = data / "pub lished" / "pub.fasta"
+    public.parent.mkdir()
+    public.write_text(">chr\nACGTACGT\n")
+    for i, baiting in enumerate(("minimap2", "bbduk")):
+        out = tmp_path / f"my results \u00e9 {i}"
+        assert run(settings(ref, data / "reads", out, baiting=baiting, add_genomes=[public])) == 0
+        assert {row["Status"] for row in summary(out).values()} == {"ok"}
+        dist = (out / "4_compared" / "ska" / "snp_distances.tsv").read_text().splitlines()[0]
+        assert dist.split("\t") == ["snp-dists", "Reference", "pub", "s1", "s2"]
+        assert (out / "4_compared" / "ska" / "snps.vcf").is_file()
+        assert not [p.name for p in (out / "1_extracted").iterdir() if p.name.startswith(".")]  # Links removed
+        assert (out / "3_assembled" / "s1" / "assembly.fasta").is_file()  # Flye wrote in its folder, through a link
+
+
+def test_a_moved_project_reruns_nothing(stubs, dataset, tmp_path):
+    import shutil
+    ref, reads = dataset
+    project = tmp_path / "project"
+    project.mkdir()
+    shutil.move(reads, project / "reads")
+    shutil.move(ref, project / "ref.fasta")
+    run(settings(project / "ref.fasta", project / "reads", project / "out"))
+    moved = tmp_path / "elsewhere" / "project"
+    moved.parent.mkdir()
+    shutil.move(project, moved)  # The reads and the output together: the files keep their times
+    stubs.unlink()
+    assert run(settings(moved / "ref.fasta", moved / "reads", moved / "out")) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the failed sample is tried again
+    _reads(moved / "reads" / "s1.fastq.gz", [("on1", 900), ("on2", 800), ("on3", 700)])  # Sizes still checked
+    stubs.unlink()
+    assert run(settings(moved / "ref.fasta", moved / "reads", moved / "out")) == 0
+    made = calls(stubs)
+    assert made.count("minimap2") == 2 and made.count("flye") == 1  # s1 and the failed sample
+
+
+def test_added_genomes_are_checked_before_any_step(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    with pytest.raises(BaconError, match=r"--add-genomes: file not found: .*typo\.fasta"):
+        run(settings(ref, reads, out, add_genomes=[tmp_path / "typo.fasta"]))
+    (tmp_path / "notes.txt").write_text("not a genome\n")
+    with pytest.raises(BaconError, match="--add-genomes: not a fasta file"):
+        run(settings(ref, reads, out, add_genomes=[tmp_path / "notes.txt"]))
+    for name in ("s1.fasta", "none.fasta", "pub\n.fasta"):  # A sample's name (failed or not), an invalid name
+        (tmp_path / name).write_text(">x\nACGT\n")
+        with pytest.raises(BaconError, match="invalid or already used"):
+            run(settings(ref, reads, out, add_genomes=[tmp_path / name]))
+    assert calls(stubs) == [] and not (out / "1_extracted").exists()  # Before any step
+    assert run(settings(ref, reads, out, add_genomes=[tmp_path / "typo.fasta"], snp_method="none")) == 0
+    assert "--add-genomes is ignored: there is no comparison with --snp-method none" in caplog.text
+
+
+def test_an_output_folder_that_cannot_be_made_is_an_error(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    (tmp_path / "file").write_text("x")
+    with pytest.raises(BaconError, match="is a file"):
+        run(settings(ref, reads, tmp_path / "file"))
+    with pytest.raises(BaconError, match="Cannot write to the output folder"):
+        run(settings(ref, reads, tmp_path / "file" / "out"))  # Its parent is a file
+    if os.geteuid() != 0:  # root writes anywhere
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        locked.chmod(0o500)
+        try:
+            with pytest.raises(BaconError, match="Cannot write to the output folder .*Permission denied"):
+                run(settings(ref, reads, locked / "out"))
+        finally:
+            locked.chmod(0o700)
+
+
+def test_md5_is_allowed_on_fips_hosts(stubs, dataset, tmp_path, monkeypatch):
+    import hashlib
+    ref, reads = dataset
+    real = hashlib.md5
+
+    def fips_md5(data=b"", *, usedforsecurity=True):
+        if usedforsecurity:
+            raise ValueError("[digital envelope routines] unsupported")  # What OpenSSL in FIPS mode says
+        return real(data, usedforsecurity=False)
+
+    meta = tmp_path / "meta.tsv"
+    meta.write_text("sample\tgroup\ns1\tA\n")
+    public = tmp_path / "pub.fasta"
+    public.write_text(">chr\nACGTACGT\n")
+    gb = tmp_path / "ref.gb"
+    gb.write_text("LOCUS       ref                     1000 bp    DNA     circular\nFEATURES             Location/Qualifiers\n"
+                  "ORIGIN\n" + "".join(f"{i * 60 + 1:>9} {('acgt' * 15)}\n" for i in range(16)) + "//\n")
+    monkeypatch.setattr(hashlib, "md5", fips_md5)
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, metadata=meta, annotation=gb, add_genomes=[public])) == 0
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["reference"]["md5"] == real(ref.read_bytes()).hexdigest()  # The same digests
+    assert info["metadata"]["md5"] == real(meta.read_bytes()).hexdigest()
+    assert info["annotation"]["md5"] == real(gb.read_bytes()).hexdigest()
+
+
+def test_a_checkpoint_that_cannot_be_saved_stops_the_run_cleanly(stubs, dataset, tmp_path, monkeypatch):
+    import errno
+    ref, reads = dataset
+    real = Path.write_text
+    saves = []
+
+    def full_disk(self, *args, **kwargs):
+        if self.name == "bait.tmp":
+            saves.append(self)
+            if len(saves) > 1:  # The first sample done (the checkpoint at the start of the step is saved)
+                raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", full_disk)
+    with pytest.raises(BaconError, match=r"Could not save the checkpoint .*bait\.json: No space left on device"):
+        run(settings(ref, reads, tmp_path / "out"))
+    assert not (tmp_path / "out" / ".checkpoints" / "bait.tmp").exists()

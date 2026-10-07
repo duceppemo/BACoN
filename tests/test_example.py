@@ -197,7 +197,8 @@ def test_check_fails_a_snp_on_another_sequence_or_a_wrong_effect(example, refere
     vcf.write_text("\n".join(lines) + "\n")
     failures = checker.check(run)
     assert len(failures) == 1 and failures[0].startswith("VCF sites: ") and "('plasmid', " in failures[0]
-    assert capsys.readouterr().out.count("OK: ") == 1  # The distances only
+    out = capsys.readouterr().out
+    assert out.count("OK: ") == 2 and "OK: report.html has the annotation" in out  # The distances and the report
     # A wrong truth row: the annotation check names the SNP
     effects = run / "data" / "planted_effects.tsv"
     rows = effects.read_text().splitlines()

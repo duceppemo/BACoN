@@ -124,6 +124,8 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `-p`, `--parallel` | 2 | Samples processed at the same time |
 | `-m`, `--memory` | 85% of RAM | Total memory for BBDuk, in GB, divided between the samples processed in parallel (`-p`) |
 | `--debug` | | Verbose log |
+| `-v`, `--version` | | Print BACoN's version and exit |
+| `-h`, `--help` | | Print the options and exit |
 
 ## Resuming and changing parameters
 

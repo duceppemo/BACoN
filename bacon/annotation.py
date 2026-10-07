@@ -3,8 +3,10 @@ SNPs on its coding sequences. Used by the report only (standard library only).
 
 Sequence names: a GenBank record is named after its VERSION (accession.version, `NC_008096.2`), or its LOCUS name
 without one, as NCBI's fasta of the same record; a GFF3 feature after its first column. Translation: each CDS's
-`/transl_table` (GFF3: `transl_table=`), else table 11 (bacterial and plastid code); the genetic codes 1, 2, 3, 4,
-5, 9, 11, 13 and 14 are known, other tables are translated with the standard code and table 11's start codons.
+`/transl_table` (GFF3: `transl_table=`), else table 11 (bacterial and plastid code), or table 1 for a sequence
+said to be a mitochondrion (/organelle, GFF3 genome=: the INSDC default); the genetic codes 1, 2, 3, 4, 5, 9, 11,
+13 and 14 are known, other tables are translated with the standard code and table 11's start codons, with a
+warning.
 """
 
 from __future__ import annotations
@@ -25,7 +27,9 @@ log = logging.getLogger(__name__)
 GENBANK_EXTENSIONS = (".gb", ".gbk", ".gbff", ".genbank")
 GFF_EXTENSIONS = (".gff", ".gff3")
 DEFAULT_TABLE = 11
+MITOCHONDRIAL_TABLE = 1  # The default for a mitochondrion (INSDC; plant mitochondrial records give no table)
 MIN_INVERTED_REPEAT = 500  # Shorter inverted repeats (hairpins, transposon ends) do not make a region band
+MIN_REGION_FEATURE = 50  # Shorter features (junction marks of 1-2 bp) are not part of a region
 RNA_TYPES = {"tRNA": "tRNA", "rRNA": "rRNA", "ncRNA": "ncRNA", "misc_RNA": "ncRNA", "tmRNA": "ncRNA",
              "transcript": "ncRNA", "antisense_RNA": "ncRNA", "RNase_P_RNA": "ncRNA", "SRP_RNA": "ncRNA"}
 REGION_TYPES = {"repeat_region", "misc_feature", "region", "inverted_repeat", "sequence_feature", "misc_structure",
@@ -69,6 +73,8 @@ class Location:
     partial_low: bool = False  # '<' before the lowest coordinate
     partial_high: bool = False  # '>' after the highest coordinate
     listed: list[tuple[int, int, int]] | None = None  # GenBank: (start, end, strand) in the order written
+    dropped: bool = False  # Parts on another sequence (remote references) were left out
+    unordered: bool = False  # The order of translation of the parts is unknown (GFF3, see _order_parts)
 
     @property
     def ordered(self) -> list[tuple[int, int, int]]:
@@ -129,16 +135,18 @@ def _location_pieces(text: str, strand: int = 1) -> list[tuple[int, int, int, bo
 
 def parse_location(text: str) -> Location | None:
     """A GenBank location: `123..456`, `complement(...)`, `join(...)`, `order(...)`, nested, with `<`/`>` partial
-    ends, single bases and `n^m` sites. None when every part is on another sequence (remote references, skipped).
-    ValueError for anything else."""
-    pieces = _location_pieces("".join(text.split()))
+    ends, single bases and `n^m` sites. None when every part is on another sequence (remote references, skipped);
+    a location with some parts on another sequence keeps the others and is flagged `dropped`. ValueError for
+    anything else."""
+    text = "".join(text.split())
+    pieces = _location_pieces(text)
     if not pieces:
         return None
     listed = [(s, e, strand) for s, e, strand, *_ in pieces]
     pieces.sort()
     # The strand of the feature: that of most of its bases (a trans-spliced CDS can have parts on both strands)
     strand = 1 if sum((e - s + 1) * strand for s, e, strand in listed) >= 0 else -1
-    return Location(strand, [(s, e) for s, e, *_ in pieces], pieces[0][3], pieces[-1][4], listed)
+    return Location(strand, [(s, e) for s, e, *_ in pieces], pieces[0][3], pieces[-1][4], listed, ":" in text)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -320,19 +328,28 @@ def genbank_fasta_records(path: Path) -> list[Record]:
     return [Record(r.header, r.seq) for r in records]
 
 
-def _order_parts(loc: Location, numbers: list[int | None], length: int) -> None:
+def _order_parts(loc: Location, numbers: list[tuple[int | None, int]], length: int,
+                 trans_spliced: bool = False, five_to_three: bool = False) -> None:
     """Put the parts of a multi-line GFF3 feature in the order of translation: by their `part=` numbers (NCBI)
     when every line has one, else as listed (NCBI lists them 5' to 3', which puts a trans-spliced CDS, or one
     across the origin, out of coordinate order), except for parts listed by ascending coordinate (Ensembl, a
-    sorted file): those of a reverse-strand feature are read in descending order, and those of a feature across
-    the origin (spanning more than half the sequence, from its first base to its last) start at the high part on
-    the + strand and at the low parts, read downwards, on the - strand. Without the sequence's length (no
-    ##sequence-region, and no reference sequence of that name) a feature across the origin cannot be told apart.
-    The strand of the feature is that of most of its bases."""
+    sorted file): those of a trans-spliced feature (`trans_spliced`, or parts on both strands) have no known
+    order (`Location.unordered`: such a CDS gives no effects) unless the file lists the parts of its other
+    features 5' to 3' (`five_to_three`: a reverse-strand feature by descending coordinate), those of a
+    reverse-strand feature are read in descending order, and those of a feature across the origin (spanning more
+    than half the sequence, from its first base to its last) start at the high part on the + strand and at the
+    low parts, read downwards, on the - strand. Without the sequence's length (no ##sequence-region, and no
+    reference sequence of that name) a feature across the origin cannot be told apart. `numbers`: the `part=`
+    number and the line of each part (a line across the origin makes two parts). The strand of the feature is
+    that of most of its bases."""
     listed = loc.listed or []
     strands = {strand for _, _, strand in listed}
-    if all(n is not None for n in numbers) and len(set(numbers)) == len(numbers):
-        listed = [part for _, part in sorted(zip(numbers, listed))]
+    by_line = {line: number for number, line in numbers}
+    if all(n is not None for n in by_line.values()) and len(set(by_line.values())) == len(by_line):
+        order = sorted(range(len(listed)), key=lambda i: (numbers[i][0], i))  # The parts of a line stay in order
+        listed = [listed[i] for i in order]
+    elif listed == sorted(listed) and (trans_spliced or len(strands) > 1):
+        loc.unordered = not five_to_three
     elif len(strands) == 1 and listed == sorted(listed):
         strand = strands.pop()
         across = bool(length) and listed[-1][1] - listed[0][0] + 1 > length / 2
@@ -341,7 +358,7 @@ def _order_parts(loc: Location, numbers: list[int | None], length: int) -> None:
             k = max(range(1, len(listed)), key=lambda i: listed[i][0] - listed[i - 1][1])
             low, high = listed[:k], listed[k:]
             listed = high + low if strand > 0 else low[::-1] + high[::-1]
-        elif strand < 0 and not across:
+        elif strand < 0:
             listed = listed[::-1]
     loc.listed = listed
     loc.strand = 1 if sum((e - s + 1) * strand for s, e, strand in listed) >= 0 else -1
@@ -354,10 +371,13 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
     features (the parts of a CDS, sharing an ID, or CDS lines without an ID sharing a Parent) are merged, their
     parts kept in the order of translation (`Location.listed`); a line of a circular sequence ending beyond its
     length (Bakta writes a feature across the origin so, with end = its end + the length) is split into its two
-    parts. The lengths come from the file, else from `known_lengths` (the reference's). Attribute keys are
-    lower-cased."""
+    parts, and one lying wholly beyond it (NCBI writes a part of a feature across the origin so) is moved back
+    by the length. The lengths come from the file, else from `known_lengths` (the reference's). Attribute keys
+    are lower-cased."""
     features: dict[str, RawFeature] = {}  # By ID (a CDS without one: by sequence and Parent)
-    part_numbers: dict[str, list[int | None]] = {}  # The `part=` attribute of each line of a merged feature
+    # The `part=` attribute and the line number of each part of a merged feature
+    part_numbers: dict[str, list[tuple[int | None, int]]] = {}
+    lines = 0
     order: list[RawFeature] = []
     lengths: dict[str, int] = {}
     circular: set[str] = set()
@@ -374,6 +394,7 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                     continue
                 if line.startswith("#") or not line.strip():
                     continue
+                lines += 1
                 cols = line.rstrip("\r\n").split("\t")
                 if len(cols) < 8 or not (cols[3].isdigit() and cols[4].isdigit()):
                     continue
@@ -397,6 +418,8 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                 part = attributes.get("part", "")
                 number = int(part) if part.isdigit() else None
                 length = lengths.get(cols[0]) or known_lengths.get(cols[0], 0)
+                if length and start > length and end - length <= length and cols[0] in circular:
+                    start, end = start - length, end - length  # Wholly beyond the origin
                 pieces = [(start, end)]  # In the order of translation
                 if length and end > length >= start and end - length < start and cols[0] in circular:
                     pieces = [(start, length), (1, end - length)]  # Across the origin, as Bakta writes it
@@ -410,7 +433,7 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                     same.location.partial_high |= partial_high
                     if phase is not None:
                         same.phases[pieces[0][0]] = phase
-                    part_numbers[key].append(number)
+                    part_numbers[key] += [(number, lines)] * len(pieces)
                     continue
                 location = Location(strand, sorted(pieces), partial_low, partial_high,
                                     [(s, e, strand) for s, e in pieces])
@@ -419,14 +442,22 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                     feature.phases[pieces[0][0]] = phase
                 if key and key not in features:
                     features[key] = feature
-                    part_numbers[key] = [number]
+                    part_numbers[key] = [(number, lines)] * len(pieces)
                 order.append(feature)
     except DECOMPRESSION_ERRORS as exc:
         raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
-    for key, numbers in part_numbers.items():
-        if len(numbers) > 1:
-            seq = features[key].seq
-            _order_parts(features[key].location, numbers, lengths.get(seq) or known_lengths.get(seq, 0))
+    multi = [key for key, numbers in part_numbers.items() if len({line for _, line in numbers}) > 1]
+    # Whether the file lists parts 5' to 3': those of a reverse-strand feature by descending coordinate
+    five_to_three = False
+    for key in multi:
+        listed = features[key].location.listed or []
+        if not _is_trans_spliced(features[key]) and {strand for _, _, strand in listed} == {-1} \
+                and listed == sorted(listed, reverse=True):
+            five_to_three = True
+    for key in multi:
+        f = features[key]
+        _order_parts(f.location, part_numbers[key], lengths.get(f.seq) or known_lengths.get(f.seq, 0),
+                     _is_trans_spliced(f), five_to_three)
     return order, lengths, circular
 
 
@@ -445,6 +476,9 @@ class Cds:
     trans_spliced: bool = False
     strands: list[int] | None = None  # The strand of each part, when they differ (trans-splicing across strands)
     transl_except: list[tuple[int, int]] = field(default_factory=list)  # Codons read otherwise (/transl_except)
+    # Why the coding sequence cannot be read ("" when it can): a part on another sequence, parts in an unknown
+    # order. Such a CDS gives no effects
+    unreadable: str = ""
     _coding: tuple[int, str] | None = field(default=None, repr=False, compare=False)  # Cache: (id(seq), coding)
 
     def part_strand(self, k: int) -> int:
@@ -464,16 +498,22 @@ class Cds:
             self._coding = (id(seq), text[self.codon_start - 1:])
         return self._coding[1]
 
-    def index(self, pos: int) -> tuple[int, int] | None:
-        """0-based position of a reference base in the coding sequence (after codon_start) and the strand of the
-        part it is in; None outside the coding sequence."""
-        offset = 0
+    def indexes(self, pos: int) -> list[tuple[int, int]]:
+        """0-based positions of a reference base in the coding sequence (after codon_start) and the strand of the
+        part it is in: one, or several when parts overlap (ribosomal slippage reads a base twice); none outside
+        the coding sequence."""
+        found, offset = [], 0
         for k, (s, e) in enumerate(self.parts):
             strand = self.part_strand(k)
             if s <= pos <= e:
-                return offset + (e - pos if strand < 0 else pos - s) - (self.codon_start - 1), strand
+                found.append((offset + (e - pos if strand < 0 else pos - s) - (self.codon_start - 1), strand))
             offset += e - s + 1
-        return None
+        return found
+
+    def index(self, pos: int) -> tuple[int, int] | None:
+        """The first of `indexes`; None outside the coding sequence."""
+        found = self.indexes(pos)
+        return found[0] if found else None
 
 
 @dataclass
@@ -584,11 +624,13 @@ def _is_pseudo(q: dict[str, str]) -> bool:
         or any(q.get(key, "").lower().endswith("pseudogene") for key in ("gene_biotype", "biotype"))
 
 
-_TRANSL_EXCEPT = re.compile(r"pos:\s*((?:complement\()?[<>]?\d+(?:\.\.[<>]?\d+)?\)?)\s*,\s*aa:\s*\w+", re.I)
+# pos: a range, or a location with up to two levels of parentheses (complement(join(a..b,c..d)): a split codon)
+_TRANSL_EXCEPT = re.compile(r"pos:\s*((?:[^,()\s]|\((?:[^()]|\([^()]*\))*\))+)\s*,\s*aa:\s*\w+", re.I)
 
 
 def _transl_except(text: str) -> list[tuple[int, int]]:
-    """The reference ranges of `/transl_except=(pos:a..b,aa:Sec)` qualifiers (several joined by '; ' or ',')."""
+    """The reference ranges of `/transl_except=(pos:a..b,aa:Sec)` qualifiers (several joined by '; ' or ','; a
+    codon split by an intron or the origin is a join of ranges)."""
     ranges: list[tuple[int, int]] = []
     for match in _TRANSL_EXCEPT.finditer(text):
         try:
@@ -632,13 +674,17 @@ def _cds(f: RawFeature, default_table: int, length: int = 0) -> Cds:
     table = f.qualifiers.get("transl_table", "").strip()
     trans = _is_trans_spliced(f) or _spliced_apart(loc, length)
     strands = [strand for _, _, strand in loc.ordered]
+    unreadable = ("a part on another sequence" if loc.dropped
+                  else "trans-spliced parts in an unknown order" if loc.unordered else "")
     return Cds(loc.strand, [(s, e) for s, e, _ in loc.ordered], codon_start,
                int(table) if table.isdigit() else default_table, partial5, partial3, trans,
-               strands if len(set(strands)) > 1 else None, _transl_except(f.qualifiers.get("transl_except", "")))
+               strands if len(set(strands)) > 1 else None, _transl_except(f.qualifiers.get("transl_except", "")),
+               unreadable)
 
 
-def _attach(gene: Gene, f: RawFeature, default_table: int, length: int = 0) -> None:
-    """Add a CDS, tRNA, rRNA or other RNA feature to its gene."""
+def _attach(gene: Gene, f: RawFeature, default_table: int, length: int = 0, exons: bool = True) -> None:
+    """Add a CDS, tRNA, rRNA or other RNA feature to its gene; its parts are exons of the gene unless `exons` is
+    False (a GFF3 RNA spanning its introns, with exon features of its own)."""
     if _is_pseudo(f.qualifiers):
         gene.pseudo = True
     if f.type == "CDS":
@@ -647,7 +693,7 @@ def _attach(gene: Gene, f: RawFeature, default_table: int, length: int = 0) -> N
             gene.kind = "CDS"
     elif f.type in RNA_TYPES and gene.kind == "other":
         gene.kind = RNA_TYPES[f.type]
-    if f.type == "CDS" or f.type in RNA_TYPES:
+    if exons and (f.type == "CDS" or f.type in RNA_TYPES):
         gene.exons = sorted(set(gene.exons) | set(f.location.parts))
     if not gene.product and f.qualifiers.get("product"):
         gene.product = f.qualifiers["product"].split("; ")[0]
@@ -655,7 +701,7 @@ def _attach(gene: Gene, f: RawFeature, default_table: int, length: int = 0) -> N
         gene.symbol = _symbol(f.qualifiers)
 
 
-def _new_gene(f: RawFeature, default_table: int, length: int = 0) -> Gene:
+def _new_gene(f: RawFeature, default_table: int, length: int = 0, exons: bool = True) -> Gene:
     """A gene made from a CDS or RNA feature without a gene feature of its own: its extent is the hull of the
     parts, or the parts themselves when they are not one stretch of the sequence (trans-splicing, a feature
     across the origin)."""
@@ -664,7 +710,7 @@ def _new_gene(f: RawFeature, default_table: int, length: int = 0) -> Gene:
     extent = list(loc.parts) if apart else [(loc.start, loc.end)]
     gene = Gene(f.seq, _gene_name(f.qualifiers, f"{f.type}:{loc.start}"), "other", loc.strand, extent,
                 pseudo=_is_pseudo(f.qualifiers))
-    _attach(gene, f, default_table, length)
+    _attach(gene, f, default_table, length, exons)
     return gene
 
 
@@ -717,8 +763,13 @@ def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TAB
     """Group GFF3 features into genes through their Parent links (gene > mRNA/tRNA/rRNA > CDS/exon). A CDS or
     RNA feature without a Parent joins the gene feature on its strand that contains it and has its locus_tag
     or gene (or, when it has neither, any gene feature containing it: NCBI writes the rRNA of a gene with
-    `gene_biotype=other` without a Parent), else it is a gene of its own."""
+    `gene_biotype=other` without a Parent), else it is a gene of its own. The exons of a gene are the parts of
+    its CDS and RNA features, and its exon features when it is not protein-coding; an RNA feature with exon
+    features spans its introns (NCBI: a spliced tRNA is one line from its first base to its last) and only its
+    exon features are its exons."""
     by_id = {f.id: f for f in features if f.id}
+    exon_parents = {parent for f in features if f.type == "exon" for parent in f.parents}
+    rna_gene: dict[str, Gene] = {}  # The gene of each RNA feature, by ID
     gene_of: dict[str, Gene] = {}
     genes: list[Gene] = []
     gene_features: list[tuple[RawFeature, Gene]] = []
@@ -757,12 +808,16 @@ def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TAB
     for f in features:
         if f.type == "CDS" or f.type in RNA_TYPES:
             gene = ancestor(f) or (enclosing(f) if not f.parents else None)
+            exons = not (f.type in RNA_TYPES and f.id in exon_parents)
             if gene is None:
-                genes.append(_new_gene(f, default_table, length))
+                gene = _new_gene(f, default_table, length, exons)
+                genes.append(gene)
             else:
-                _attach(gene, f, default_table, length)
+                _attach(gene, f, default_table, length, exons)
+            if f.id and f.type in RNA_TYPES:
+                rna_gene[f.id] = gene
         elif f.type == "exon":
-            gene = ancestor(f)
+            gene = ancestor(f) or next((rna_gene[p] for p in f.parents if p in rna_gene), None)
             if gene is not None and gene.kind != "CDS":
                 gene.exons = sorted(set(gene.exons) | set(f.location.parts))
     return _finish(genes)
@@ -775,16 +830,20 @@ _REGION = re.compile(r"^(?:(?P<lsc>LSC|large single[ -]copy)|(?P<ssc>SSC|small s
 # A copy named at the start of a note (or of one of its ';'/','-separated items): "IRa", "inverted repeat B",
 # "inverted repeat region IRb"; not a mention further in ("... in IRA", "junction LSC-IRB")
 _IR_COPY = re.compile(r"^\s*(?:IR|inverted[ -]repeats?(?: region)?)[ _-]?(?:IR)?([AB])\b", re.I)
+_BOUNDARY = re.compile(r"junction|border", re.I)
 
 
 def region_label(f: RawFeature) -> str | None:
-    """'LSC', 'SSC', 'IRa', 'IRb' or 'IR' for a feature annotating a region of a plastome, else None."""
+    """'LSC', 'SSC', 'IRa', 'IRb' or 'IR' for a feature annotating a region of a plastome, else None. A value
+    mentioning a junction or a border (`IRB/SSC junction`, `IRA-SSC border`) marks the boundary between two
+    regions, not a region."""
     if f.type not in REGION_TYPES:
         return None
     texts: list[str] = []
     for key in ("note", "standard_name", "name", "rpt_family", "gene", "product", "rpt_type"):
-        if f.qualifiers.get(key):
-            texts += re.split(r"[;,]", f.qualifiers[key])
+        value = f.qualifiers.get(key, "")
+        if value and not _BOUNDARY.search(value):
+            texts += re.split(r"[;,]", value)
     for text in texts:
         copy = _IR_COPY.match(text)
         if copy:
@@ -832,13 +891,16 @@ class _Repeat:
 
 def _inverted_repeats(features: list[RawFeature], length: int) -> list[_Repeat]:
     """The annotated inverted repeats of a sequence, each annotated once: the features labelling the same (or an
-    unnamed) repeat over the same stretch are merged; those of less than MIN_INVERTED_REPEAT bp are left out."""
+    unnamed) repeat over the same stretch are merged; those of less than MIN_INVERTED_REPEAT bp are left out, and
+    features of less than MIN_REGION_FEATURE bp (a junction marked on 1-2 bp) are not merged into them."""
     repeats: list[_Repeat] = []
     for f in features:
         label = region_label(f)
         if not label or not label.startswith("IR"):
             continue
         pieces = [(s, e) for s, e in f.location.parts if e <= length]
+        if sum(e - s + 1 for s, e in pieces) < MIN_REGION_FEATURE:
+            continue
         inverted = f.type == "repeat_region" and f.qualifiers.get("rpt_type", "").lower() == "inverted"
         for repeat in repeats:
             if (repeat.label == label or "IR" in (repeat.label, label)) and repeat.touches(pieces, length):
@@ -1311,6 +1373,18 @@ def _agree(annotated: list[Region], repeat: InvertedRepeat, length: int) -> bool
     return True
 
 
+def _organelle(features: list[RawFeature]) -> str:
+    """The organelle of a sequence, lower-case and without its kind (`plastid:chloroplast` -> `chloroplast`): a
+    GenBank source feature's /organelle, or an NCBI GFF3 region's genome= attribute; '' when not said."""
+    for f in features:
+        if f.type == "source" and f.qualifiers.get("organelle"):
+            value = f.qualifiers["organelle"].split("; ")[0].lower()
+            return value.partition(":")[2] or value
+        if f.type == "region" and f.qualifiers.get("genome"):
+            return f.qualifiers["genome"].split("; ")[0].lower()
+    return ""
+
+
 def _not_a_plastid(features: list[RawFeature]) -> str:
     """Why the annotation says the sequence is not a plastid genome (`the source feature says
     organelle=mitochondrion`, `the region feature says genome=chromosome`), or '' when it says it is one, or
@@ -1529,10 +1603,24 @@ def load_annotation(path: Path, sequences: list[tuple[str, int]], default_table:
         if name in kept:
             is_circular = any(old in circular for old, new in rename.items() if new == name)
             band = find_regions(kept[name], length, (seqs or {}).get(name), name, warnings)
+            table = MITOCHONDRIAL_TABLE if _organelle(kept[name]) == "mitochondrion" else default_table
             annotation.sequences[name] = SequenceAnnotation(
-                name, length, builder(kept[name], default_table, length), band, is_circular)
+                name, length, builder(kept[name], table, length), band, is_circular)
     if rename and not annotation.sequences:
         warnings.append(f"{path.name}: no feature on the reference sequences")
+    unreadable = [g.name for s in annotation.sequences.values() for g in s.genes
+                  if g.kind != "pseudogene" and any(c.unreadable for c in g.cds)]
+    if unreadable:
+        reasons = sorted({c.unreadable for s in annotation.sequences.values() for g in s.genes for c in g.cds
+                          if c.unreadable})
+        more = " …" if len(unreadable) > 5 else ""
+        warnings.append(f"{path.name}: {len(unreadable)} coding sequence(s) give no SNP effects "
+                        f"({'; '.join(reasons)}): {', '.join(unreadable[:5])}{more}")
+    unknown = [table for table in annotation.tables if table not in TABLES]
+    if unknown:
+        warnings.append(f"{path.name}: translation table(s) {', '.join(map(str, unknown))} not known to BACoN: "
+                        "their coding sequences are translated with the standard code and the start codons of "
+                        f"table {DEFAULT_TABLE}")
     return annotation
 
 
@@ -1597,26 +1685,43 @@ class Effect:
 
 
 def cds_effect(cds: Cds, gene: str, pos: int, ref: str, alt: str, seq: str) -> Effect | None:
-    """The effect of a SNP on a coding sequence; None when the position is outside it, the codon is incomplete
-    (a partial CDS), contains N or has a translational exception (/transl_except: selenocysteine, an edited
-    codon), or the VCF's reference base does not match the reference."""
-    if len(ref) != 1 or len(alt) != 1 or alt.upper() not in "ACGT":
-        return None
-    found = cds.index(pos)
-    if found is None or found[0] < 0 or cds.excepted(pos):
-        return None
-    i, strand = found
+    """The first of `cds_effects`, or None."""
+    effects = cds_effects(cds, gene, pos, ref, alt, seq)
+    return effects[0] if effects else None
+
+
+def cds_effects(cds: Cds, gene: str, pos: int, ref: str, alt: str, seq: str) -> list[Effect]:
+    """The effects of a SNP on a coding sequence: one per codon it changes (a base read twice through ribosomal
+    slippage, `join(66..327,327..1228)`, changes every copy). None when the position is outside the coding
+    sequence, the codon is incomplete (a partial CDS), contains N or has a translational exception
+    (/transl_except: selenocysteine, an edited codon), the coding sequence cannot be read (`Cds.unreadable`), or
+    the VCF's reference base does not match the reference."""
+    if len(ref) != 1 or len(alt) != 1 or alt.upper() not in "ACGT" or cds.unreadable or cds.excepted(pos):
+        return []
+    found = [(i, strand) for i, strand in cds.indexes(pos) if i >= 0]
     coding = cds.coding_sequence(seq)
-    codon_index, within = divmod(i, 3)
-    codon = coding[3 * codon_index:3 * codon_index + 3]
+    mutated = list(coding)
+    for i, strand in found:
+        base, alt_base = ref.upper(), alt.upper()
+        if strand < 0:
+            base, alt_base = reverse_complement(base), reverse_complement(alt_base)
+        if i < len(coding) and coding[i] != base:
+            return []
+        if i < len(coding):
+            mutated[i] = alt_base
+    effects = []
+    for codon_index in dict.fromkeys(i // 3 for i, _ in found):
+        effect = _codon_effect(cds, gene, alt, codon_index, coding[3 * codon_index:3 * codon_index + 3],
+                               "".join(mutated[3 * codon_index:3 * codon_index + 3]))
+        if effect is not None:
+            effects.append(effect)
+    return effects
+
+
+def _codon_effect(cds: Cds, gene: str, alt: str, codon_index: int, codon: str, codon_alt: str) -> Effect | None:
+    """The effect of a change of codon (0-based codon_index); None for an incomplete codon or one with N."""
     if len(codon) < 3 or "N" in codon:
         return None
-    base, alt_base = (ref.upper(), alt.upper())
-    if strand < 0:
-        base, alt_base = reverse_complement(base), reverse_complement(alt_base)
-    if codon[within] != base:
-        return None
-    codon_alt = codon[:within] + alt_base + codon[within + 1:]
     first = codon_index == 0 and not cds.partial5
     aa = translate(codon, cds.transl_table, start=first)
     aa_alt = translate(codon_alt, cds.transl_table, start=first)
@@ -1658,13 +1763,11 @@ def annotate_snp(seq_ann: SequenceAnnotation, pos: int, ref: str, alts: list[str
                 continue
             for cds in g.cds:
                 for alt in alts:
-                    effect = cds_effect(cds, g.name, pos, ref, alt, seq)
-                    if effect is None:
-                        continue
-                    key = (effect.gene, effect.alt, effect.codons, effect.change, effect.kind)
-                    if key not in seen:
-                        seen.add(key)
-                        effects.append(effect)
+                    for effect in cds_effects(cds, g.name, pos, ref, alt, seq):
+                        key = (effect.gene, effect.alt, effect.codons, effect.change, effect.kind)
+                        if key not in seen:
+                            seen.add(key)
+                            effects.append(effect)
         return SnpAnnotation(region, genes, " / ".join(contexts), effects)
     before, after = seq_ann.neighbours(pos)
     if before is not None and after is not None:

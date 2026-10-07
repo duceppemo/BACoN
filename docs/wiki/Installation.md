@@ -58,9 +58,10 @@ curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.6.tar.gz | ta
 bash example/run_example.sh
 ```
 
-generates a small simulated dataset (a 30 kb circular reference and four samples with known SNPs), runs BACoN
-with the default settings and checks every pairwise SNP distance against the truth ([Example](Example)). It takes a few
-seconds.
+generates a small simulated dataset (an annotated 30 kb circular reference, four samples with known SNPs and
+their metadata), runs BACoN with the default settings and checks the results against the truth: every pairwise
+SNP distance, the region, gene, context and effect of every SNP, and the report's annotation and metadata
+([Example](Example)); it prints one `OK` line per check. It takes a few seconds.
 
 ## pip only
 

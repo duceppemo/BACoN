@@ -14,6 +14,7 @@ import json
 import re
 from pathlib import Path
 
+from bacon import BaconError
 from bacon.metadata import Metadata, shown_name
 from bacon.newick import parse
 
@@ -124,13 +125,19 @@ def reads_bargraph(rows: list[dict[str, str]], run: str = "") -> dict | None:
 
 
 def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dict:
+    """The distance heatmap, rows and columns in the order of the tree's leaves (like report.html), or of the
+    distance table when the tree is missing, unreadable or of other genomes."""
     lines = path.read_text().splitlines()
     names = lines[0].split("\t")[1:]
     rows = {line.split("\t")[0]: [int(x) for x in line.split("\t")[1:]] for line in lines[1:]}
     order, in_tree_order = names, False
-    if tree is not None and tree.exists():  # Rows and columns in tree order, like report.html
-        leaves = [leaf.name for leaf in parse(tree.read_text()).leaves()]
-        if sorted(leaves) == sorted(names):
+    leaves: list[str] = []
+    if tree is not None and tree.exists():
+        try:
+            leaves = [leaf.name for leaf in parse(tree.read_text()).leaves()]
+        except (BaconError, OSError, UnicodeDecodeError, RecursionError):
+            leaves = []
+        if leaves and sorted(leaves) == sorted(names):
             order, in_tree_order = leaves, True
     index = {n: i for i, n in enumerate(names)}
     matrix = [[rows[a][index[b]] for b in order] for a in order]
@@ -142,7 +149,7 @@ def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dic
                        + " (recent MultiQC versions also offer a clustered view).",
         "plot_type": "heatmap",
         "pconfig": {"id": f"bacon_distances_heatmap_{_run_id(run)}", "title": f"BACoN {run}: SNP distances",
-                    "square": True, "min": 0,
+                    "square": True, "min": 0, "tt_decimals": 0,
                     "colstops": [[0, "#ffffd9"], [0.25, "#a1dab4"], [0.5, "#41b6c4"], [0.75, "#225ea8"],
                                  [1, "#081d58"]]},
         "xcats": order,

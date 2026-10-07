@@ -37,8 +37,11 @@ class Metadata:
         return [self.value(n, column) for n in names]
 
 
-def read_table(path: Path, what: str, comment_lines: bool = False) -> tuple[list[str], list[dict[str, str]]]:
-    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, LF or CRLF; blank lines are ignored, and
+def read_table(path: Path, what: str, comment_lines: bool = False,
+               encoding_warning: bool = True) -> tuple[list[str], list[dict[str, str]]]:
+    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, UTF-16 with a BOM, or else Windows-1252
+    (with a warning, unless not `encoding_warning`); LF, CRLF or CR line ends (only those: other characters that
+    Python counts as line breaks, such as a form feed, are whitespace in a cell). Blank lines are ignored, and
     lines starting with '#' before the header are comments (after it, they are data, unless `comment_lines`: a
     sample sheet). A tab in the header makes it a TSV: cells are split on tabs only (no quote can swallow a row),
     and a cell entirely in quotes loses them (`""` inside is one quote); otherwise a CSV, whose quoted values may
@@ -48,11 +51,12 @@ def read_table(path: Path, what: str, comment_lines: bool = False) -> tuple[list
     if not path.is_file():
         raise BaconError(f"{what} not found: {path}")
     try:
-        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        data = path.read_bytes()
     except OSError as exc:
         raise BaconError(f"{what} cannot be read: {path} ({exc.strerror})") from None
+    text = _decode(data, path, what, encoding_warning)
     lines: list[tuple[int, str]] = []  # (line number in the file, text)
-    for number, line in enumerate(text.splitlines(), 1):
+    for number, line in enumerate(text.replace("\r\n", "\n").replace("\r", "\n").split("\n"), 1):
         if not line.strip() or (line.lstrip().startswith("#") and (comment_lines or not lines)):
             continue
         lines.append((number, line))
@@ -74,10 +78,29 @@ def read_table(path: Path, what: str, comment_lines: bool = False) -> tuple[list
     return [c for c in header if c], rows
 
 
+def _decode(data: bytes, path: Path, what: str, warn: bool) -> str:
+    """The text of a table: UTF-16 when it starts with a UTF-16 byte order mark (as some spreadsheets save
+    "Unicode text"), UTF-8 (with or without a BOM), or Windows-1252 (Excel's encoding on Windows) when it is not
+    valid UTF-8."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        if warn:
+            log.warning("%s %s is not UTF-8: read as Windows-1252 (cp1252); if some characters look wrong, save "
+                        "it as UTF-8", what, path)
+        return data.decode("cp1252", errors="replace")
+
+
+_END = "\n"  # After the last line: a quoted value that reaches it was never closed
+
+
 def _csv_records(lines: list[tuple[int, str]], path: Path, what: str) -> list[list[str]]:
-    """The cells of each line of a CSV, strictly: an unclosed quote or a quoted line break is an error naming the
-    line (the value would otherwise swallow the following rows, or break the copy)."""
-    reader = csv.reader((line for _, line in lines), strict=True)
+    """The cells of each line of a CSV, as 0.3.5 read them (Python's csv module, not strict: `"a" ,b` is `a `
+    and b), but an unclosed quote or a quoted line break is an error naming the line (the value would otherwise
+    swallow the following rows, or break the copy)."""
+    reader = csv.reader([*(line for _, line in lines), _END])
     records = []
     while True:
         start = reader.line_num
@@ -86,9 +109,15 @@ def _csv_records(lines: list[tuple[int, str]], path: Path, what: str) -> list[li
         except StopIteration:
             return records
         except csv.Error as exc:
-            raise BaconError(f"{what} {path}, line {lines[start][0]}: {exc} (an unclosed quote?)") from None
+            raise BaconError(f"{what} {path}, line {lines[start][0]}: {exc}") from None
+        if reader.line_num > len(lines):  # Into the end marker: the quote was never closed
+            if start == len(lines):  # The end marker itself
+                return records
+            raise BaconError(f"{what} {path}, line {lines[start][0]}: an unclosed quote (its value would swallow "
+                             "the lines after it)")
         if reader.line_num - start > 1:
-            raise BaconError(f"{what} {path}, line {lines[start][0]}: a quoted value spans several lines")
+            raise BaconError(f"{what} {path}, line {lines[start][0]}: a quoted value spans several lines (an "
+                             "unclosed quote?)")
         records.append(cells)
 
 
@@ -146,7 +175,8 @@ def read_metadata(path: Path) -> Metadata:
 def sheet_metadata(path: Path) -> Metadata | None:
     """The metadata in a sample sheet: its columns other than 'sample' and 'file'. A sample on several rows keeps
     the first value of each column; rows giving different values are reported."""
-    header, rows = read_table(path, "Sample sheet", comment_lines=True)
+    # Its encoding was reported when its samples were read (bacon.samples.read_sample_sheet)
+    header, rows = read_table(path, "Sample sheet", comment_lines=True, encoding_warning=False)
     key = _find(header, "sample")
     columns = [c for c in header if c.lower() not in KEY_COLUMNS]
     if key is None or not columns:
@@ -253,13 +283,25 @@ def shown_name(column: str, taken: Iterable[str]) -> str:
     return f"{column} (metadata)" if column.lower() in {t.lower() for t in taken} else column
 
 
+def _tsv_cell(value: str) -> str:
+    """A value as the copy holds it: a value in quotes ("A") is quoted again, so that read_table, which removes the
+    quotes around a cell, gives it back."""
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return '"' + value.replace('"', '""') + '"'
+    return value
+
+
 def write_copy(path: Path, metadata: Metadata) -> None:
-    """The normalised TSV (sample first, blank cells for missing values), rewritten only when it changes."""
-    lines = ["\t".join(["sample", *metadata.columns])]
-    lines += ["\t".join([name, *(metadata.value(name, c) for c in metadata.columns)]) for name in metadata.rows]
-    text = "\n".join(lines) + "\n"
-    if path.exists() and path.read_text(encoding="utf-8") == text:
-        return
+    """The normalised TSV (sample first, blank cells for missing values), rewritten only when it changes; read
+    with read_metadata, it gives the same values."""
+    rows = [["sample", *metadata.columns]]
+    rows += [[name, *(metadata.value(name, c) for c in metadata.columns)] for name in metadata.rows]
+    data = ("\n".join("\t".join(_tsv_cell(v) for v in row) for row in rows) + "\n").encode("utf-8")
+    try:
+        if path.read_bytes() == data:  # Bytes: a file in another encoding (hand-made) is simply replaced
+            return
+    except OSError:
+        pass
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(text, encoding="utf-8")
+    tmp.write_bytes(data)
     tmp.replace(path)

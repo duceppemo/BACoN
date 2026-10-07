@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from bacon.compare import clean_alignment, snp_distances, write_distances
 from bacon.seqio import Record, read_records
 
@@ -174,8 +176,11 @@ def test_parsnp_warns_when_the_core_is_a_fraction_of_the_reference(tmp_path, mon
 
     def fake_run(cmd, log, **kwargs):
         if cmd[0] == "parsnp":
-            out = Path(cmd[cmd.index("-o") + 1])
+            assert not any(" " in arg for arg in cmd)  # Parsnp splits its command lines on spaces
+            out = kwargs["cwd"] / cmd[cmd.index("-o") + 1]
             out.mkdir(parents=True)
+            assert [(kwargs["cwd"] / f).read_text() for f in cmd[cmd.index("-d") + 1:cmd.index("-o")]] == [
+                asm["a"].read_text()]
             (out / "parsnp.xmfa").write_text("x")
             (out / "parsnp.ggr").write_text("x")
         elif "-M" in cmd:
@@ -207,10 +212,10 @@ def test_added_genomes_are_extended_like_the_reference(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, log, **kwargs):
-        if cmd[1] == "build":  # Record the genomes as SKA2 would read them
-            for line in Path(cmd[cmd.index("-f") + 1]).read_text().splitlines():
-                name, path = line.split("\t")
-                seen[name] = len(next(read_records(Path(path))).seq)
+        if cmd[1] == "build":  # Record the genomes as SKA2 would read them (paths relative to its folder)
+            for line in (kwargs["cwd"] / cmd[cmd.index("-f") + 1]).read_text().splitlines():
+                name, path = line.split()
+                seen[name] = len(next(read_records(kwargs["cwd"] / path)).seq)
         elif cmd[1] == "align":
             Path(cmd[cmd.index("-o") + 1]).write_text("".join(f">{n}\nA\n" for n in seen))
 
@@ -267,3 +272,36 @@ def test_ska_pan_alignment_has_only_snp_sites(tmp_path):
     _, snps = run_ska(tmp_path / "ref.fasta", assemblies, tmp_path / "out", tmp_path / "logs", threads=1,
                       min_freq=0.5)
     assert {len(r.seq) for r in read_records(snps)} == {1}
+
+
+@pytest.mark.parametrize("method", ["ska", "parsnp"])
+def test_real_tools_with_spaces_and_accents_in_the_paths(tmp_path, method):
+    """SKA2 splits its file list on whitespace; Parsnp its command lines (with the real programs)."""
+    import random
+    import shutil
+
+    from bacon.compare import run_parsnp, run_ska, write_vcf
+    if not all(shutil.which(p) for p in ({"ska": ["ska"], "parsnp": ["parsnp", "harvesttools"]}[method])):
+        pytest.skip(f"{method} not installed")
+    folder = tmp_path / "my r\u00e9sults"
+    folder.mkdir()
+    rng = random.Random(3)
+    ref = "".join(rng.choice("ACGT") for _ in range(6000))
+    (folder / "ref erence.fasta").write_text(f">chr\n{ref}\n")
+    swap = {"A": "C", "C": "G", "G": "T", "T": "A"}
+    assemblies = {}
+    for i, name in enumerate(("a", "b", "c")):
+        g = list(ref)
+        g[1000 + 1000 * i] = swap[g[1000 + 1000 * i]]
+        assemblies[name] = folder / f"gen ome {name}.fasta"
+        assemblies[name].write_text(f">{name}\n{''.join(g)}\n")
+    (folder / "lo gs").mkdir()
+    out = folder / "com pared"
+    if method == "ska":
+        _, snps = run_ska(folder / "ref erence.fasta", assemblies, out, folder / "lo gs", threads=1, min_freq=1)
+    else:
+        _, snps = run_parsnp(folder / "ref erence.fasta", assemblies, out, folder / "lo gs", threads=1)
+    assert {r.name: len(r.seq) for r in read_records(snps)} == {"Reference": 3, "a": 3, "b": 3, "c": 3}
+    _, count = write_vcf(method, folder / "ref erence.fasta", out, folder / "lo gs", threads=1,
+                         assemblies=assemblies, source="test")
+    assert count == 3

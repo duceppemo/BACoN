@@ -43,8 +43,9 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   `Sample`: a column whose values are all numbers sorts as numbers, long values wrap, the values of the
   colour column carry their colour swatch, and a column named like one of the table's own (`Status`, `Note`,
   `Depth`...) is headed `Status (metadata)`. Two bar charts follow, sorted: the depth of each sample after
-  filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly. Failed
-  samples are listed without a bar.
+  filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly (templated
+  assemblies only: a de novo run gets a sentence instead of a chart of empty bars). Failed samples are listed
+  without a bar.
 - **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches,
   a scale bar (with its equivalent number of SNPs for SKA2), and a coloured square for each group of identical
   genomes; or why there is none. With a colour column, colour is given to the column only: each leaf gets a
@@ -60,9 +61,11 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   genomes of each group (and those in no group) for each value. The groups of identical genomes are then drawn
   in two alternating greys, so that colour means the column's values only. Without any SNP site, no identity
   is claimed. Above 150 genomes the heatmap is left out (the distances are in `snp_distances.tsv`).
-- **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf`, coloured by whether
-  every genome has a call there; for templated assemblies (whose coordinates follow the reference), the `N`
-  bases per kb (coarser bins above 1.5 Mb) summed over all assemblies, at approximate positions: the
+- **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf` (the records that passed
+  their filters: Parsnp's filtered SNPs are not in the distances, and the caption counts them), coloured by
+  whether every genome has a call there; for templated assemblies (whose coordinates follow the reference), the
+  `N` bases per kb (coarser bins above 1.5 Mb) summed over the assemblies of the run's samples, at approximate
+  positions: the
   insertions and deletions of a consensus shift the positions after them, so an assembly whose length differs
   from the reference's by up to 5% is rescaled to it (one differing by more is a partial consensus, counted at
   its own positions). A band of the plastome regions (LSC, IRb, SSC, IRa), with or without an annotation:
@@ -83,7 +86,8 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   the gene rows only show where genes lie, merged per pixel, without names or labels.
 - **SNPs** (with an annotation): a summary (SNPs per region, per context and by effect, the genes with the most
   SNPs, and the SNPs on sequences without annotation, if any) and a sortable table with one row per SNP of the
-  VCF: the sequence (when the reference has several), position, alleles, region,
+  VCF: the sequence (when the reference has several), position, alleles, region (also for a sequence without
+  annotation, from its band; the summary counts those too),
   gene (its symbol, or `locus_tag (product)` for a gene without one, such as `LK299_pgr007 (23S ribosomal RNA)`),
   context (`CDS`, `intron`, `tRNA`, `rRNA`, `pseudogene`, `UTR`, or `intergenic between X and Y`, the
   nearest genes on either side, around the origin of a circular sequence), the codon and amino-acid change and
@@ -92,9 +96,9 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   without a call. A SNP in several alternate alleles, or in two overlapping coding sequences, has one effect per
   allele and per gene. A summary line gives the SNPs per region and per context, the counts of each effect and
   the genes with the most SNPs. The table shows at most 3,000 SNPs (by position). How the effects are computed is
-  in [Methods](Methods#snp-effects).
-- **Methods**: a paragraph describing what was run, with program versions (and the annotation and translation
-  table, when used, and, when the report shows the LSC/IRb/SSC/IRa band, where the regions come from: the
+  in [Methods](Methods#5-snp-effects).
+- **Methods**: a paragraph describing what was run, with program versions (and the annotation, when the map
+  drew its genes, with the translation table when SNPs were annotated with it, and, when the report shows the LSC/IRb/SSC/IRa band, where the regions come from: the
   annotated inverted repeats, or the one detected in the reference sequence, with the copies' size and
   identity), ready to adapt for a paper.
 - **Run**: command, reference (with the MD5 of the file as given), output folder, the metadata file and the
@@ -194,8 +198,12 @@ exactly the SNPs of the truth.
   [Methods](Methods#4-comparison)). All SNPs are listed, whatever `--ska-min-freq` (which only
   affects the alignment, the distances and the tree). A SNP in both copies of an inverted repeat is listed at
   both of its positions; a difference between the two copies of one genome is ambiguous and is not listed.
-- **Parsnp**: from HarvestTools: the SNPs of the core-genome alignment, with HarvestTools' filters in the FILTER
-  column (for example `IND` next to an indel). SNPs in inverted repeats are missing, as in the distances.
+- **Parsnp**: from HarvestTools: the SNPs of the core-genome alignment, with Parsnp's filters in the FILTER
+  column: `PASS`, or the reasons a SNP was left out of the alignment, and so of the distances and the tree
+  (`ALN`, `CID`, `LCB`, `IND`, `N`, several joined by `:`; see [Methods](Methods#4-comparison)). The report shows
+  the `PASS` records only, and says how many others the file has. SNPs in inverted repeats are missing, as in
+  the distances, and so are SNPs within about 30 bases of the ends of the reference (SKA2, with templated
+  assemblies: within 15 bases).
 
 `N` is never an allele: a genome's `N` gives `.`. Positions where no genome has an alternate allele (a deletion,
 missing data) are left out, and so are positions where the reference's own sequence is ambiguous (its split

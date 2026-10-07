@@ -2,10 +2,11 @@ import json
 import re
 
 from bacon.multiqc import distance_heatmap, reads_bargraph, sample_table
-from bacon.newick import parse
+from bacon.newick import ladderize, parse
 from bacon.report import (
     MAX_LABELLED_CELLS,
     Bar,
+    Snp,
     _fasta_samples,
     _tool,
     bar_chart,
@@ -459,7 +460,7 @@ def test_genome_map_without_any_n_base(tmp_path):
     vcf = out / "snps.vcf"
     vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\n"
                    "chr\t3\t.\tG\tT\t.\t.\t.\tGT\t1\n")
-    html_text, _ = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1)
+    html_text = _genome_map_section(out, vcf, reference, {"assembler": "samtools"}, _Figures(), 1).html
     assert "none of the 1 templated assemblies has an N base" in html_text and "N per" not in html_text
 
 
@@ -1220,8 +1221,179 @@ def test_caption_places_the_band_per_sequence(tmp_path):
     info["annotation"] = {"file": "/x/NC_1.gb", "format": "genbank", "copy": "annotation.gb", "transl_tables": [11]}
     (out / "run_info.json").write_text(json.dumps(info))
     page = build_report(out)
-    assert f"The band above the genes, or under the axis for sequences without annotation shows the " \
+    assert f"The band above the genes, or under the axis for sequences without annotation, shows the " \
            f"LSC/IRb/SSC/IRa regions from {DETECTED}." in page
     assert "with the gene, its context and the effect of the SNP, or the region alone on sequences without " \
            "annotation." in page
     assert "called in every genome. IRb</title>" in page  # c2's tick: the region alone
+    # The SNP table and the summary give c2's SNP its region, from the band drawn for c2
+    assert '<td class="" data-v="c2">c2</td><td class="num" data-v="12000">12,000</td><td class="" data-v="G&gt;A">' \
+           'G&gt;A</td><td class="" data-v="IRb">IRb</td>' in page
+    assert "1 SNP is on sequences without annotation (no gene, context or effect). By region: 1 in the LSC, 1 in " \
+           "IRb." in page
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Review fixes
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_methods_say_snp_effects_only_when_the_map_annotated_snps(tmp_path):
+    from bacon.report import MapGenes
+    info = {**BASE, "settings": SETTINGS,
+            "annotation": {"file": "/x/NC_1.gb", "copy": "annotation.gb", "transl_tables": [11]}}
+    assert "annotation" not in methods_text(info) and "translation table" not in methods_text(info)
+    assert "Genes were read from the annotation NC_1.gb." in methods_text(info, genes=MapGenes("NC_1.gb", False, []))
+    assert "derived by BACoN with translation tables 1 and 11." in methods_text(
+        info, genes=MapGenes("NC_1.gb", True, [1, 11]))
+    # Whole pages: the effects are said when the map annotated SNPs; not without a VCF, nor with an unusable
+    # annotation
+    out = _annotated_run(tmp_path / "a")
+    assert "the effect of each SNP on the coding sequences" in build_report(out)
+    (out / "4_compared" / "ska" / "snps.vcf").unlink()
+    page = build_report(out)
+    assert "Genes were read" not in page and "translation table" not in page
+    out = _annotated_run(tmp_path / "b")
+    (out / "annotation.gb").write_text("LOCUS       c1  4000 bp    DNA     circular PLN 01-JAN-2026\n"
+                                       "FEATURES             Location/Qualifiers\n//\n")  # No feature
+    page = build_report(out)
+    assert "Genes were read" not in page and "translation table" not in page
+
+
+def test_no_n_base_chart_for_de_novo_assemblies(tmp_path):
+    out = _full_run(tmp_path, assembler="flye")
+    (out / "summary.tsv").write_text("Sample\tStatus\tEst_depth\tN_bases\tAssembly_length\tNote\n"
+                                     "a\tok\t15.0\tNA\t1000\t\nb\tok\t80.0\tNA\t1000\t\n")
+    page = build_report(out)
+    assert "N bases per assembly" not in page
+    assert "No chart of N bases: they are counted for templated assemblies only." in page
+    assert "<b>Figure 2.</b> SKA2 SNPs" in page  # The tree is Figure 2
+    assert "N bases per assembly" in build_report(_full_run(tmp_path / "t"))
+
+
+def test_n_track_counts_the_assemblies_of_the_run_s_samples_only(tmp_path):
+    out = _full_run(tmp_path)
+    folder = out / "3_assembled" / "all_assemblies"
+    (folder / "removed.fasta").write_text(">removed_c1\n" + "N" * 50 + "ACGT" * 900 + "\n")  # No longer a sample
+    (out / "summary.tsv").write_text(
+        "Sample\tStatus\tEst_depth\tN_bases\tAssembly_length\tNote\na\tok\t15.0\t10\t1000\t\n"
+        "b\tok\t80.0\t0\t1000\t\nc\tfailed (assembly)\tNA\tNA\tNA\t\n")
+    (folder / "c.fasta").write_text(">c_c1\n" + "N" * 30 + "ACGT" * 900 + "\n")  # Left from a failed run
+    page = build_report(out)
+    assert "c1:1–1,000: 10 N bases summed over the assemblies" in page and "of the 2 templated assemblies" in page
+    (out / "summary.tsv").unlink()  # run_info.json's samples then say
+    info = json.loads((out / "run_info.json").read_text())
+    info["samples"] = {"a": {"files": [], "status": "ok"}, "c": {"files": [], "status": "ok"}}
+    (out / "run_info.json").write_text(json.dumps(info))
+    assert "c1:1–1,000: 40 N bases summed over the assemblies" in build_report(out)
+
+
+def test_parsnp_records_that_did_not_pass_are_not_shown(tmp_path):
+    out = _annotated_run(tmp_path)
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        "c1\t101\t.\tA\tG\t.\tPASS\t.\tGT\t1\t0\nc1\t102\t.\tC\tT\t.\tALN\t.\tGT\t1\t0\n"
+        "c1\t2500\t.\tT\tC\t.\tCID\t.\tGT\t1\t.\nc1\t2600\t.\tT\tC\t.\tALN\t.\tGT\t1\t1\n")
+    snps, _ = read_vcf(out / "4_compared" / "ska" / "snps.vcf")
+    assert [s.filter for s in snps] == ["PASS", "ALN", "CID", "ALN"] and [s.passed for s in snps] == [1, 0, 0, 0]
+    page = build_report(out)
+    assert "SNP positions along the reference (1 records of the VCF" in page
+    assert "3 records of the VCF that did not pass their filters (FILTER ALN 2, CID 1) are not shown" in page
+    assert "c1:2,500" not in page and 'data-v="2600"' not in page and 'data-v="101"' in page
+    assert "1 SNP on the annotated sequences" in page
+    # SKA2 writes FILTER '.': every record passes
+    assert Snp("c", 1, "A", "G", 1, 0, ".").passed and Snp("c", 1, "A", "G", 1, 0).passed
+
+
+def test_run_section_versions_and_small_texts(tmp_path):
+    from bacon import __version__
+    out = _full_run(tmp_path)
+    info = json.loads((out / "run_info.json").read_text())
+    info["reference"] = {"file": "/x/ref.fa", "sequences": 1, "md5": None, "length": 1000}
+    info["bacon_version"] = "0.0.1"
+    (out / "run_info.json").write_text(json.dumps(info))
+    page = build_report(out)
+    assert "MD5 None" not in page and "(1 sequence(s), MD5 ?)" in page
+    assert f"BACoN 0.0.1 (report built with BACoN {__version__})" in page
+    info["bacon_version"] = __version__
+    (out / "run_info.json").write_text(json.dumps(info))
+    assert "report built with" not in build_report(out)
+    text = _methods(settings={"assembler": "flye", "flye_iterations": 1})
+    assert "1 polishing iteration)" in text and "1 polishing iterations" not in text
+    assert "3 polishing iterations" in _methods(settings={"assembler": "flye", "flye_iterations": 3})
+
+
+def _contrast(fg: str, bg: str, alpha: float = 1.0) -> float:
+    def rgb(h):
+        return [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+
+    def luminance(c):
+        return sum(w * (v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4)
+                   for w, v in zip((0.2126, 0.7152, 0.0722), c))
+    mixed = [alpha * f + (1 - alpha) * b for f, b in zip(rgb(fg), rgb(bg))]
+    high, low = sorted((luminance(mixed), luminance(rgb(bg))), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def test_pseudogenes_have_a_3_to_1_contrast_in_dark_mode():
+    from bacon.report import CSS, TOKENS_DARK
+    tokens = dict(re.findall(r"--([\w-]+):([^;]+)", TOKENS_DARK))
+    assert ".gene-pseudo{fill:var(--s3);opacity:var(--pseudo-op)}" in CSS
+    assert _contrast(tokens["s3"], tokens["surface"], float(tokens["pseudo-op"])) >= 3
+    assert float(tokens["pseudo-op"]) < 1  # Still lighter than a coding gene
+
+
+def test_printed_figures_fit_a_page():
+    from bacon.report import CSS
+    printed = CSS[CSS.index("@media print"):]
+    assert "svg.fig{max-height:155mm;width:auto" in printed
+
+
+CATERPILLAR = "".join("(" for _ in range(999)) + "L0:1" + "".join(f",L{i}:1):1" for i in range(1, 1000)) + ";"
+
+
+def test_deep_trees_do_not_reach_the_recursion_limit(tmp_path):
+    from bacon.newick import midpoint_root, to_newick, to_svg
+    tree = parse(CATERPILLAR)
+    ladderize(tree)
+    assert len(tree.leaves()) == 1000 and to_newick(tree).count("(") == 999
+    assert to_svg(midpoint_root(tree)).count("<text") >= 1000
+    assert tree_svg(tree, {}).count('class="t-ink"') == 1000
+    dist = tmp_path / "d.tsv"
+    names = [f"L{i}" for i in range(1000)]
+    dist.write_text("snp-dists\t" + "\t".join(names) + "\n"
+                    + "".join(f"{n}\t" + "\t".join("0" for _ in names) + "\n" for n in names))
+    tree_file = tmp_path / "t.nwk"
+    tree_file.write_text(CATERPILLAR)
+    assert distance_heatmap(dist, tree_file)["xcats"][:2] == ["L0", "L1"]  # In tree order
+
+
+def test_multiqc_heatmap_falls_back_to_table_order_and_shows_integers(tmp_path):
+    dist = tmp_path / "d.tsv"
+    dist.write_text("snp-dists\tReference\ta\tb\nReference\t0\t1\t5\na\t1\t0\t4\nb\t5\t4\t0\n")
+    tree = tmp_path / "t.nwk"
+    tree.write_text("(b:1,(a:1,Reference:1):1)")  # Truncated: no final ';'
+    hm = distance_heatmap(dist, tree)
+    assert hm["xcats"] == ["Reference", "a", "b"] and "the order of the distance table" in hm["description"]
+    assert hm["pconfig"]["tt_decimals"] == 0
+
+
+def test_region_column_for_a_band_on_a_sequence_without_annotation_only(tmp_path):
+    # The annotated sequence has no inverted repeat (no region); the other, unannotated, is a plastome whose band
+    # is detected: the table still has a Region column, filled for the plastome's SNP
+    from tests.test_annotation import _random, make_plastome
+    out = _full_run(tmp_path)
+    s1, s2 = _random(4000, 7), make_plastome(seed=2)
+    (out / "reference.fasta").write_text(f">c1 a\n{s1}\n>c2 b\n{s2}\n")
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        f"c1\t150\t.\t{s1[149]}\t{'A' if s1[149] != 'A' else 'C'}\t.\t.\t.\tGT\t1\t0\n"
+        f"c2\t12000\t.\t{s2[11999]}\t{'A' if s2[11999] != 'A' else 'C'}\t.\t.\t.\tGT\t1\t0\n")
+    (out / "annotation.gb").write_text(_plastid_genbank(s1, (
+        "     gene            101..400\n                     /gene=\"psbA\"\n"
+        "     CDS             101..400\n                     /gene=\"psbA\"\n")))
+    info = json.loads((out / "run_info.json").read_text())
+    info["annotation"] = {"file": "/x/NC_1.gb", "format": "genbank", "copy": "annotation.gb", "transl_tables": [11]}
+    (out / "run_info.json").write_text(json.dumps(info))
+    page = build_report(out)
+    assert "<th class=\"\">Region</th>" in page and '<td class="" data-v="IRb">IRb</td>' in page
+    assert "By region: 1 in IRb." in page

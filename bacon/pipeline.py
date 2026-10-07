@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import logging
+import math
 import os
 import platform
 import re
@@ -97,6 +98,11 @@ class SampleState:
 # Checkpoints
 # ---------------------------------------------------------------------------------------------------------------
 
+def _md5(path: Path) -> str:
+    """The MD5 of a file, to recognise it (not for security: allowed on FIPS hosts, where MD5 otherwise fails)."""
+    return hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+
+
 def _fingerprint(previous: str, params: dict[str, object]) -> str:
     blob = json.dumps({"previous": previous, "params": params}, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
@@ -126,11 +132,18 @@ class Checkpoints:
         return data
 
     def save(self, step: str, fingerprint: str, results: dict) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
+        """Save a step's checkpoint; a failure (a full disk) is a BaconError, which stops the run (the programs
+        still running are killed): the progress could not be recorded."""
         tmp = self.path(step).with_suffix(".tmp")
-        tmp.write_text(json.dumps({"fingerprint": fingerprint, "root": self.root, "results": results}, indent=1,
-                                  default=str))
-        tmp.replace(self.path(step))
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps({"fingerprint": fingerprint, "root": self.root, "results": results},
+                                      indent=1, default=str))
+            tmp.replace(self.path(step))
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            raise BaconError(f"Could not save the checkpoint {self.path(step)}: {exc.strerror or exc} (is the "
+                             "disk full?); BACoN stopped") from None
 
     def clear(self, step: str) -> None:
         self.path(step).unlink(missing_ok=True)
@@ -193,6 +206,19 @@ def _size_only(signature: object) -> object:
 def _file_signature(path: Path) -> list[object]:
     st = path.stat()
     return [str(path.resolve()), st.st_size, int(st.st_mtime)]
+
+
+def _same_files(saved: object, current: list[list[object]]) -> bool:
+    """Whether a sample's input files (signatures of _file_signature) are those recorded: the same paths, sizes
+    and times; or the same names, sizes and times in another folder (a project moved with its reads, which keep
+    their times)."""
+    if saved == current:
+        return True
+    if not isinstance(saved, list) or len(saved) != len(current):
+        return False
+    return all(isinstance(old, list) and len(old) == 3 and isinstance(old[0], str)
+               and Path(old[0]).name == Path(new[0]).name and old[1:] == new[1:]  # type: ignore[arg-type]
+               for old, new in zip(saved, current))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -437,7 +463,7 @@ def _prepare_annotation(s: Settings, reference: Path) -> tuple[dict[str, object]
              len(annotation.sequences), len(sequences))
     return ({"file": str(source), "format": annotation.format, "copy": copy.name, "genes": annotation.genes,
              "sequences": len(annotation.sequences), "regions": annotation.has_regions,
-             "transl_tables": annotation.tables, "md5": hashlib.md5(source.read_bytes()).hexdigest()},
+             "transl_tables": annotation.tables, "md5": _md5(source)},
             _reference_regions(records, annotation))
 
 
@@ -459,7 +485,8 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
         _record_copy(s, "metadata", None)
         return None
     names = [x.name for x in samples]
-    added = [parts[0] for p in s.add_genomes if (parts := split_extension(p.name))]  # As _prepare_added_genomes
+    added = [] if s.snp_method == "none" else [parts[0] for p in s.add_genomes  # As _prepare_added_genomes
+                                                 if (parts := split_extension(p.name))]
     metadata, unmatched = md.restrict(merged, names + [a for a in added if a not in names])
     for warning in metadata.warnings:
         log.warning("%s", warning)
@@ -480,7 +507,7 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
     return {"file": str(s.metadata) if s.metadata else None, "copy": copy.name, "columns": metadata.columns,
             "sample_sheet_columns": sheet.columns if sheet else [], "matched": with_row,
             "samples_without_row": len(names) - with_row, "unmatched_rows": len(unmatched), "color_by": column,
-            "md5": hashlib.md5(s.metadata.read_bytes()).hexdigest() if s.metadata else None}
+            "md5": _md5(s.metadata) if s.metadata else None}
 
 
 def _add_notes(st: SampleState, genome_size: int) -> None:
@@ -535,9 +562,14 @@ def run(s: Settings) -> int:
     if s.input and s.input.is_dir() and (s.output == s.input or s.output.is_relative_to(s.input)):
         # Its files would be taken for a sample's reads on the next run
         raise BaconError(f"The output folder {s.output} cannot be the input folder or inside it")
-    s.output.mkdir(parents=True, exist_ok=True)
+    if s.output.exists() and not s.output.is_dir():
+        raise BaconError(f"The output folder {s.output} is a file")
+    try:
+        s.output.mkdir(parents=True, exist_ok=True)
+        lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
+    except OSError as exc:
+        raise BaconError(f"Cannot write to the output folder {s.output}: {exc.strerror or exc}") from None
     tools.allow_programs()  # After an interruption of an earlier run in this process
-    lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
@@ -575,6 +607,10 @@ def _run(s: Settings, started: float) -> int:
     log.info("BACoN %s", __version__)
     tools = require(needed_tools(s))
     samples = _load_samples(s)
+    if s.add_genomes and s.snp_method == "none":
+        log.warning("--add-genomes is ignored: there is no comparison with --snp-method none")
+    elif s.add_genomes:
+        _check_added_genomes(s, {x.name for x in samples})  # Before any step, not after the assembly
     metadata = _prepare_metadata(s, samples)  # Fails fast on a bad file or column; not part of any checkpoint
     reference, reference_length = _prepare_reference(s)
     genome_size = s.genome_size or reference_length
@@ -594,7 +630,7 @@ def _run(s: Settings, started: float) -> int:
     # reruns that sample only.
     inputs = {x.name: [_file_signature(f) for f in x.files] for x in samples}
     params = {
-        "bait": {"reference": hashlib.md5(reference.read_bytes()).hexdigest(),
+        "bait": {"reference": _md5(reference),
                  "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam,
                  **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},  # Same checkpoints as 0.3.2 for minimap2
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
@@ -652,12 +688,11 @@ def _run(s: Settings, started: float) -> int:
         # failed before, or whose input changed).
         results = {name: res for name, res in (saved or {}).get("results", {}).items()
                    if name in inputs and not res.get("failed") and name not in refreshed
-                   and (res.get("input") == inputs[name] if step == "bait"
+                   and (_same_files(res.get("input"), inputs[name]) if step == "bait"
                         else _same_input(res, upstream.get(name), reads.get(name), relocated))
                    and _outputs_exist({name: res})}
         for name, res in results.items():  # The input's signature, as it is here: a copy's files, earlier versions
-            if step != "bait":
-                res["upstream"] = upstream[name]
+            res["input" if step == "bait" else "upstream"] = upstream[name]
         todo = [st for st in states if not st.failed and st.sample.name not in results]
         if not todo:
             log.info("%s: already done, skipping", labels[step])
@@ -721,8 +756,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         return {"skipped": f"only {len(assemblies)} assemblies"}
     fingerprint = _fingerprint(fingerprint, {"method": s.snp_method, "tree": s.tree,
                                              "ska_min_freq": s.ska_min_freq, "assemblies": sorted(assemblies),
-                                             "added": {k: hashlib.md5(v.read_bytes()).hexdigest()
-                                                       for k, v in added.items()}})
+                                             "added": {k: _md5(v) for k, v in added.items()}})
     signatures = {k: _output_signature(v) for k, v in sorted(assemblies.items())}
     saved = None if force else checkpoints.load("compare", fingerprint)
     if saved is not None and not _same_assemblies(saved["results"].pop("inputs", None), signatures, assemblies,
@@ -818,17 +852,28 @@ def _write_vcf(s: Settings, reference: Path, out: Path, log_dir: Path, paths: di
     return str(vcf_path)
 
 
-def _prepare_added_genomes(s: Settings, root: Path, samples: set[str]) -> dict[str, Path]:
-    """Genomes given with --add-genomes, copied as plain fasta for the comparison, named after their files."""
+def _check_added_genomes(s: Settings, samples: set[str]) -> dict[str, Path]:
+    """The genomes given with --add-genomes, by the name they take (their file's): each must be a fasta file whose
+    name is valid and is not a sample's (`samples`: every sample, failed or not) or another added genome's."""
     added: dict[str, Path] = {}
     for path in s.add_genomes:
+        if not path.exists():
+            raise BaconError(f"--add-genomes: file not found: {path}")
         parts = split_extension(path.name)
         if not parts or not path.is_file() or sniff_format(path) != "fasta":
             raise BaconError(f"--add-genomes: not a fasta file: {path}")
         name = parts[0]
-        if not VALID_NAME.match(name) or name.lower() == "reference" or name in samples or name in added:
+        if not VALID_NAME.fullmatch(name) or name.lower() == "reference" or name in samples or name in added:
             raise BaconError(f"--add-genomes: the name {name!r} (from {path}) is invalid or already used; "
                              "rename the file")
+        added[name] = path
+    return added
+
+
+def _prepare_added_genomes(s: Settings, root: Path, samples: set[str]) -> dict[str, Path]:
+    """Genomes given with --add-genomes, copied as plain fasta for the comparison, named after their files."""
+    added: dict[str, Path] = {}
+    for name, path in _check_added_genomes(s, samples).items():
         target = root / "added_genomes" / f"{name}.fasta"
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".tmp")
@@ -899,23 +944,72 @@ def _reference_info(s: Settings, regions: dict[str, object] | None = None) -> di
     local = s.output / "reference.fasta"
     lengths = [len(r.seq) for r in read_records(local)] if local.exists() else []
     return {"file": str(s.reference), "sequences": len(lengths), "length": sum(lengths),
-            "md5": hashlib.md5(s.reference.read_bytes()).hexdigest() if s.reference.is_file() else None,
+            "md5": _md5(s.reference) if s.reference.is_file() else None,
             "regions": regions or {}}
 
 
-CGROUP_MEMORY_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")  # v2, v1
+PROC_CGROUP = "/proc/self/cgroup"  # This process's control groups
+CGROUP_ROOT = "/sys/fs/cgroup"  # Where the control-group hierarchies are mounted
 
 
-def _cgroup_memory_limit(files: tuple[str, ...] = CGROUP_MEMORY_FILES) -> int | None:
-    """The memory limit of this process's control group (a job scheduler's or a container's), in bytes."""
-    for path in files:
-        try:
-            value = Path(path).read_text().strip()
-        except OSError:
+def _cgroup_folders(controller: str, proc: str = PROC_CGROUP, root: str = CGROUP_ROOT) -> list[Path]:
+    """The folders of this process's control group for a controller ('memory' or 'cpu'), from its own up to the
+    root: cgroup v2 (the `0::<path>` line of /proc/self/cgroup, one hierarchy at `root`) and v1 (the line that
+    names the controller, a hierarchy at `root`/<controllers>). A job scheduler (SLURM) or systemd sets its limits
+    on a group below the root; a container sees its own group as the root. Folders that do not exist are left out
+    (a path of the host, seen from a container)."""
+    try:
+        lines = Path(proc).read_text().splitlines()
+    except OSError:  # No /proc (macOS): the root's files, if any
+        lines = ["0::/", f"0:{controller}:/"]
+    folders: list[Path] = []
+    for line in lines:
+        _, controllers, path = (line.split(":", 2) + ["", ""])[:3]
+        if not controllers:  # v2
+            base: Path | None = Path(root)
+        elif controller in controllers.split(","):  # v1: the hierarchy of the controller ("cpu,cpuacct")
+            base = next((b for b in (Path(root) / controllers, Path(root) / controller) if b.is_dir()), None)
+        else:
             continue
-        if value.isdigit() and int(value) < 1 << 60:  # "max" or a huge number: no limit
-            return int(value)
-    return None
+        if base is None:
+            continue
+        relative = Path(path.strip().lstrip("/"))
+        for folder in (base / relative, *(base / parent for parent in relative.parents)):
+            if folder.is_dir() and folder not in folders:
+                folders.append(folder)
+    return folders
+
+
+def _read_value(path: Path) -> str:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _cgroup_memory_limit(proc: str = PROC_CGROUP, root: str = CGROUP_ROOT) -> int | None:
+    """The memory limit of this process's control group (a job scheduler's or a container's), in bytes: the
+    smallest limit of its group and the groups above it (v2 memory.max, v1 memory.limit_in_bytes)."""
+    limits = []
+    for folder in _cgroup_folders("memory", proc, root):
+        for name in ("memory.max", "memory.limit_in_bytes"):
+            value = _read_value(folder / name)
+            if value.isdigit() and int(value) < 1 << 60:  # "max" or a huge number: no limit
+                limits.append(int(value))
+    return min(limits, default=None)
+
+
+def _cgroup_cpu_limit(proc: str = PROC_CGROUP, root: str = CGROUP_ROOT) -> int | None:
+    """The CPU quota of this process's control group, in CPUs (rounded up): the smallest quota of its group and the
+    groups above it (v2 cpu.max "<quota> <period>", v1 cpu.cfs_quota_us / cpu.cfs_period_us); None without one."""
+    limits = []
+    for folder in _cgroup_folders("cpu", proc, root):
+        quotas = [_read_value(folder / "cpu.max").split(),
+                  [_read_value(folder / "cpu.cfs_quota_us"), _read_value(folder / "cpu.cfs_period_us")]]
+        for quota in quotas:  # "max" or -1: no quota
+            if len(quota) == 2 and quota[0].isdigit() and quota[1].isdigit() and int(quota[1]) > 0:
+                limits.append(int(quota[0]) / int(quota[1]))
+    return max(1, math.ceil(min(limits))) if limits else None
 
 
 def default_memory_gb() -> int:
@@ -929,7 +1023,8 @@ def default_memory_gb() -> int:
 
 
 def usable_cpus() -> int:
-    """The CPUs BACoN may use: all of them, or those a job scheduler or `taskset` gave it."""
-    if hasattr(os, "sched_getaffinity"):
-        return len(os.sched_getaffinity(0)) or 1
-    return os.cpu_count() or 1  # pragma: no cover - macOS
+    """The CPUs BACoN may use: all of them, or those a job scheduler or `taskset` gave it (its CPU affinity), or
+    fewer under a CPU quota (a job scheduler's or a container's control group)."""
+    affinity = getattr(os, "sched_getaffinity", None)  # Not on macOS
+    cpus = (len(affinity(0)) if affinity else os.cpu_count()) or 1
+    return min(cpus, _cgroup_cpu_limit() or cpus)

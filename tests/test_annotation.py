@@ -11,6 +11,7 @@ from bacon.annotation import (
     annotate_snps,
     annotation_format,
     cds_effect,
+    cds_effects,
     derive_regions,
     genbank_fasta_records,
     genes_from_genbank,
@@ -211,12 +212,14 @@ def test_gff3_pseudogene_phase_and_parentless_cds(tmp_path):
 
 def test_gff3_parts_in_the_order_of_translation_like_genbank(tmp_path):
     # The same coding sequences as a GenBank location and as GFF3 lines (start, end, strand, phase[, part], in
-    # file order): a CDS trans-spliced across strands (a), three reverse-strand parts listed 5' to 3' out of
+    # file order): a CDS trans-spliced across strands listed 5' to 3' (a, h: the file lists the
+    # reverse-strand parts of e 5' to 3'), three reverse-strand parts listed 5' to 3' out of
     # coordinate order like the IRb copy of rps12 (b), a CDS across the origin (c), a reverse-strand spliced CDS
     # listed by ascending coordinate (d, Ensembl) and 5' to 3' (e, NCBI), and one across the origin on the
     # reverse strand with NCBI's `part=` numbers (f) or listed by ascending coordinate without them (g)
     cases = {
         "a": ("join(complement(10..18),30..38)", [(10, 18, "-", 0), (30, 38, "+", 0)]),
+        "h": ("join(30..38,complement(10..18))", [(30, 38, "+", 0), (10, 18, "-", 0)]),
         "b": ("complement(join(50..55,70..78,40..45))", [(40, 45, "-", 0), (70, 78, "-", 0), (50, 55, "-", 0)]),
         "c": ("join(110..120,1..9)", [(110, 120, "+", 0), (1, 9, "+", 1)]),
         "d": ("complement(join(70..75,77..84))", [(70, 75, "-", 1), (77, 84, "-", 0)]),
@@ -1480,3 +1483,205 @@ def test_diverged_stretches_are_aligned_in_reasonable_time():
     started = time.perf_counter()
     assert detect_inverted_repeat(make_plastome(ir=12000, edit=edit)) is None  # 380 differences in 12 kb
     assert time.perf_counter() - started < 3
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Review fixes: spliced RNAs, NCBI parts beyond the origin, slippage, default tables, unreadable locations
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_gff3_spliced_trna_has_its_intron_like_genbank(tmp_path):
+    # Like trnK of a plastome with matK in its intron: NCBI's GFF3 gives the tRNA as one line from its first base
+    # to its last, with exon children; the GenBank location joins the exons
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb("""
+    gene            complement(10..60)
+                    /gene="trnK"
+    tRNA            complement(join(10..20,50..60))
+                    /gene="trnK"
+                    /product="tRNA-Lys"
+    gene            complement(25..36)
+                    /gene="matK"
+    CDS             complement(25..36)
+                    /gene="matK"
+    """))
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tgene\t10\t60\t.\t-\t.\tID=gene-trnK;gene=trnK\n"
+                   "ref.1\tt\ttRNA\t10\t60\t.\t-\t.\tID=rna-trnK;Parent=gene-trnK;gene=trnK;product=tRNA-Lys\n"
+                   "ref.1\tt\texon\t50\t60\t.\t-\t.\tID=exon-trnK-1;Parent=rna-trnK\n"
+                   "ref.1\tt\texon\t10\t20\t.\t-\t.\tID=exon-trnK-2;Parent=rna-trnK\n"
+                   "ref.1\tt\tgene\t25\t36\t.\t-\t.\tID=gene-matK;gene=matK\n"
+                   "ref.1\tt\tCDS\t25\t36\t.\t-\t0\tID=cds-matK;Parent=gene-matK;gene=matK\n"
+                   # A parentless spliced tRNA: its exons are still its own
+                   "ref.1\tt\ttRNA\t70\t100\t.\t+\t.\tID=rna-trnA;product=tRNA-Ala\n"
+                   "ref.1\tt\texon\t70\t75\t.\t+\t.\tParent=rna-trnA\n"
+                   "ref.1\tt\texon\t95\t100\t.\t+\t.\tParent=rna-trnA\n")
+    anns = [load_annotation(path, [("ref.1", 120)]) for path in (gb, gff)]
+    trnk = [g for g in anns[1].sequences["ref.1"].genes if g.name == "trnK"][0]
+    assert trnk.exons == [(10, 20), (50, 60)]
+    contexts = [[annotate_snps(ann, [("ref.1", pos, SEQ[pos - 1], "A")], {"ref.1": SEQ})[("ref.1", pos)].context
+                 for pos in range(10, 61)] for ann in anns]
+    assert contexts[0] == contexts[1]
+    assert contexts[1][30 - 10] == "intron / CDS" and contexts[1][22 - 10] == "intron" and contexts[1][55 - 10] == "tRNA"
+    trna = [g for g in anns[1].sequences["ref.1"].genes if g.name == "tRNA-Ala"][0]
+    assert trna.exons == [(70, 75), (95, 100)] and trna.context(85) == "intron"
+
+
+def test_gff3_part_written_wholly_beyond_the_origin(tmp_path):
+    # NCBI writes the 5' part of Epifagus rps12 as 82777..82890 on a 70,028 bp sequence: 12749..12862
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tregion\t1\t120\t.\t+\t.\tID=ref.1;Is_circular=true\n"
+                   "ref.1\tt\tCDS\t230\t240\t.\t+\t0\tID=cds-w;gene=w;part=1\n"
+                   "ref.1\tt\tCDS\t1\t9\t.\t+\t1\tID=cds-w;gene=w;part=2\n")
+    ann = load_annotation(gff, [("ref.1", 120)])
+    assert not ann.warnings and not ann.skipped
+    cds = ann.sequences["ref.1"].genes[0].cds[0]
+    assert cds.parts == [(110, 120), (1, 9)] and cds.coding_sequence(SEQ) == SEQ[109:] + SEQ[:9]
+    assert _effects(ann, 1, "A", "G")[1] == [("w", "TTA>TTG", "L4L", "synonymous")]
+
+
+def test_gff3_origin_split_line_among_numbered_parts(tmp_path):
+    # A Bakta-style line across the origin (110..129 = 110..120 + 1..9) is two parts of one line: the parts of
+    # the other lines are not lost when they are put in the order of their part= numbers
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tregion\t1\t120\t.\t+\t.\tID=ref.1;Is_circular=true\n"
+                   "ref.1\tt\tCDS\t20\t30\t.\t+\t0\tID=cds-x;gene=x;part=2\n"
+                   "ref.1\tt\tCDS\t110\t129\t.\t+\t0\tID=cds-x;gene=x;part=1\n")
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb('CDS             join(110..120,1..9,20..30)\n                /gene="x"\n'))
+    parts = [load_annotation(path, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0].parts for path in (gff, gb)]
+    assert parts[0] == parts[1] == [(110, 120), (1, 9), (20, 30)]
+
+
+SLIP_SEQ = "ATGGCTAAC" + "GGTTCAAATAA" + "C" * 100  # join(1..9,9..20): ATG GCT AAC CGG TTC AAA TAA
+
+
+def test_ribosomal_slippage_changes_every_copy_of_the_base(tmp_path):
+    # Base 9 is read twice (the last of codon 3, the first of codon 4), as in join(66..327,327..1228) of an F
+    # plasmid transposase: a SNP there changes both codons
+    features = """
+    CDS             join(1..9,9..20)
+                    /gene="slip"
+                    /ribosomal_slippage
+    """
+    ann = _ann(tmp_path, features, SLIP_SEQ)
+    cds = ann.sequences["ref.1"].genes[0].cds[0]
+    assert cds.coding_sequence(SLIP_SEQ) == "ATGGCTAACCGGTTCAAATAA" and cds.indexes(9) == [(8, 1), (9, 1)]
+    assert _effects(ann, 9, "C", "T", SLIP_SEQ)[1] == [("slip", "AAC>AAT", "N3N", "synonymous"),
+                                                      ("slip", "CGG>TGG", "R4W", "missense")]
+    assert _effects(ann, 10, "G", "A", SLIP_SEQ)[1] == [("slip", "CGG>CAG", "R4Q", "missense")]  # In frame after
+    # Within one codon: both copies change the same codon (join(1..5,5..10): ATGGC CTAAC = ATG GCC TAA C)
+    one = Cds(1, [(1, 5), (5, 10)])
+    assert [(e.codons, e.change) for e in cds_effects(one, "g", 5, "C", "A", "ATGGCTAAC")] == [("GCC>GAA", "A2E")]
+
+
+def test_mitochondrion_default_table_and_unknown_tables(tmp_path):
+    # Plant mitochondrial records give no /transl_table: the INSDC default, table 1 (GTG is not a start codon)
+    features = """
+    source          1..120
+                    /organelle="mitochondrion"
+    CDS             join(1..9,22..30)
+                    /gene="abc"
+    """
+    ann = _ann(tmp_path / "mt", features)
+    assert ann.tables == [1] and _effects(ann, 1, "A", "G")[1] == [("abc", "ATG>GTG", "M1V", "start lost")]
+    plastid = _ann(tmp_path / "pt", features.replace("mitochondrion", "plastid:chloroplast"))
+    assert plastid.tables == [11] and _effects(plastid, 1, "A", "G")[1] == [("abc", "ATG>GTG", "M1M", "start retained")]
+    explicit = _ann(tmp_path / "ex", features + '                /transl_table=11\n')
+    assert explicit.tables == [11] and not explicit.warnings
+    unknown = _ann(tmp_path / "un", features + '                /transl_table=22\n')
+    assert unknown.tables == [22] and len(unknown.warnings) == 1 and "table(s) 22 not known" in unknown.warnings[0]
+    gff = tmp_path / "mt.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tregion\t1\t120\t.\t+\t.\tID=ref.1;genome=mitochondrion\n"
+                   "ref.1\tt\tCDS\t1\t9\t.\t+\t0\tID=c;gene=abc\nref.1\tt\tCDS\t22\t30\t.\t+\t0\tID=c;gene=abc\n")
+    assert load_annotation(gff, [("ref.1", 120)]).tables == [1]
+
+
+def test_cds_with_a_remote_part_gives_no_effects(tmp_path):
+    # join(X12345.1:1..100,22..30): the coding sequence starts on another sequence, the frame here is unknown
+    features = """
+    CDS             join(X12345.1:1..100,22..30)
+                    /gene="remote"
+    CDS             70..84
+                    /gene="split"
+                    /transl_except=(pos:join(72..72,80..81),aa:TERM)
+    """
+    assert parse_location("join(X12345.1:1..100,22..30)").dropped and not parse_location("22..30").dropped
+    ann = _ann(tmp_path, features)
+    genes = {g.name: g for g in ann.sequences["ref.1"].genes}
+    assert genes["remote"].cds[0].unreadable and any("remote" in w and "no SNP effects" in w for w in ann.warnings)
+    info, effects = _effects(ann, 25, SEQ[24], "A")
+    assert info.context == "CDS" and effects == []
+    from bacon.annotation import _transl_except
+    assert _transl_except("(pos:join(72..72,80..81),aa:TERM)") == [(72, 72), (80, 81)]
+    assert _transl_except("(pos:complement(join(5..6,9..9)),aa:TERM); (pos:7..9,aa:Sec)") == [(5, 6), (9, 9), (7, 9)]
+    assert genes["split"].cds[0].transl_except == [(72, 72), (80, 81)]
+    assert _effects(ann, 80, SEQ[79], "A")[1] == [] and _effects(ann, 76, SEQ[75], "A")[1] != []
+
+
+def test_sorted_gff3_trans_spliced_cds_without_part_numbers(tmp_path):
+    # Potato rps12 (LK299_pgp043): exon 1 at 71485, exons 2 and 3 at 99653 and 99091, all on the - strand. A sorted
+    # file (Ensembl) lists them by ascending coordinate without part= numbers: their order is unknown, so no
+    # effects (reversing them would read exon 3 first)
+    lines = ("ref.1\tt\tCDS\t10\t18\t.\t-\t0\tID=c;gene=ts;exception=trans-splicing\n"
+             "ref.1\tt\tCDS\t40\t45\t.\t-\t0\tID=c;gene=ts;exception=trans-splicing\n"
+             "ref.1\tt\tCDS\t70\t78\t.\t-\t0\tID=c;gene=ts;exception=trans-splicing\n")
+    gff = tmp_path / "sorted.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n" + lines)
+    ann = load_annotation(gff, [("ref.1", 120)])
+    cds = ann.sequences["ref.1"].genes[0].cds[0]
+    assert cds.unreadable and _effects(ann, 15, SEQ[14], "A")[1] == [] and _effects(ann, 15, SEQ[14], "A")[0].context == "CDS"
+    # A file listing the parts of its other reverse-strand features 5' to 3' (NCBI without part=): as listed
+    ncbi = tmp_path / "ncbi.gff3"
+    ncbi.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n" + lines
+                    + "ref.1\tt\tCDS\t100\t105\t.\t-\t0\tID=d;gene=other\nref.1\tt\tCDS\t90\t95\t.\t-\t0\tID=d;gene=other\n")
+    ann = load_annotation(ncbi, [("ref.1", 120)])
+    cds = [g for g in ann.sequences["ref.1"].genes if g.name == "ts"][0].cds[0]
+    assert not cds.unreadable and cds.parts == [(10, 18), (40, 45), (70, 78)]
+    # With part= numbers, any file
+    numbered = tmp_path / "numbered.gff3"
+    numbered.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n" + "".join(
+        line.replace("\n", f";part={n}\n") for line, n in zip(lines.splitlines(keepends=True), (1, 3, 2))))
+    cds = load_annotation(numbered, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0]
+    assert not cds.unreadable and cds.parts == [(10, 18), (70, 78), (40, 45)]
+
+
+def test_sorted_gff3_wide_reverse_strand_cds_is_read_downwards(tmp_path):
+    # Two reverse-strand parts spanning more than half the sequence without reaching both of its ends: not across
+    # the origin, still read from the high part down
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tCDS\t10\t18\t.\t-\t1\tID=c;gene=wide\nref.1\tt\tCDS\t80\t90\t.\t-\t0\tID=c;gene=wide\n")
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb('CDS             complement(join(10..18,80..90))\n                /gene="wide"\n'))
+    cds = [load_annotation(path, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0] for path in (gff, gb)]
+    assert cds[0].parts == cds[1].parts == [(80, 90), (10, 18)]
+    assert cds[0].coding_sequence(SEQ) == cds[1].coding_sequence(SEQ)
+
+
+def test_junction_marks_are_not_merged_into_the_inverted_repeats():
+    # Potato (NC_008096.2) marks each junction on 2 bp; written "IRB/SSC junction" or "IRA-SSC border", or a 1 bp
+    # feature named after a copy, or a longer stretch around a junction, they must not grow the copies (IRb stays
+    # 4001..6000, IRa 7001..9000)
+    features = _features("""
+    misc_feature    4001..6000
+                    /note="IRB"
+    misc_feature    7001..9000
+                    /note="IRA"
+    misc_feature    4000..4001
+                    /note="LSC/IRB junction"
+    misc_feature    6000..6001
+                    /note="IRB/SSC junction"
+    misc_feature    7000..7001
+                    /note="IRA-SSC border"
+    misc_feature    9001
+                    /note="IRA"
+    misc_feature    5971..6030
+                    /note="IRb-SSC junction region, sequenced twice"
+    """)
+    regions = derive_regions(features, 10000)
+    assert [(r.name, r.start, r.end) for r in regions] == [
+        ("IRb", 4001, 6000), ("SSC", 6001, 7000), ("IRa", 7001, 9000), ("LSC", 9001, 4000)]

@@ -74,11 +74,12 @@ def check(out: Path, method: str = "ska") -> list[str]:
               + ", ".join(f"{effects.count(k)} {k}" for k in dict.fromkeys(effects)) + ")")
 
     # 3. The report shows the annotation (regions, SNP table) and the metadata (the colour column)
+    before = len(failures)
     report = (out / "bacon" / "report.html").read_text(encoding="utf-8")
     for text, what in REPORT_TEXTS:
         if text not in report:
             failures.append(f"report.html lacks {what} ({text!r})")
-    if not failures:
+    if len(failures) == before:
         print(f"OK: report.html has the annotation and the metadata ({out / 'bacon' / 'report.html'})")
     return failures
 

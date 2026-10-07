@@ -42,6 +42,65 @@
   under the axis for the sequences without annotation, and the Methods paragraph describes the regions only when
   the report shows the band (not from `run_info.json` when no map was drawn).
 
+### Fixed
+- Paths with spaces (or other shell characters) anywhere (reads, reference, added genomes, output folder) made
+  SKA2 (`ska build`), Parsnp, BBDuk and Flye fail. SKA2 now reads paths relative to its folder; Parsnp runs on
+  links in `4_compared/.parsnp_work` (removed afterwards); BBDuk on links in `1_extracted`; Flye through links in
+  a temporary folder (TMPDIR must not contain spaces).
+- Moving a whole project (reads and output together) reran every step: an input file is now recognised by name,
+  size and time when only its folder changed.
+- Memory and CPU limits of cgroup v2 groups below the root (systemd, SLURM) and of cgroup v1 are detected; a CPU
+  quota (rounded up) now limits the default `--threads`, with the CPU affinity.
+- `--add-genomes` is checked before any step (a missing file says "file not found"; an invalid or used name is
+  reported at once); with `--snp-method none` it is ignored with a warning.
+- Metadata and sample sheets: UTF-16 with a byte order mark is read; a file that is not UTF-8 is read as
+  Windows-1252 with a warning; only LF, CRLF and CR end a line. CSV is parsed as in 0.3.5 again (`"s1" ,file`),
+  but an unclosed quote, also on the last line, is an error naming its line. Values in quotes keep their quotes in
+  `metadata.tsv`; an existing `metadata.tsv` in another encoding no longer stops the run.
+- An output path that is a file, or a folder that cannot be written, is a clear error; a checkpoint that cannot be
+  saved (full disk) stops the run cleanly. Sample and added-genome names ending in a line break are refused. MD5
+  works on FIPS hosts.
+- SNP effects, GFF3: a spliced tRNA or rRNA written as one line from its first base to its last with `exon`
+  children (NCBI: plastid *trnK*, *trnL*, *trnV*, *trnI*, *trnA*, *trnG*) has its exons only, so its intron is
+  `intron`, as from the GenBank record (*matK*, in the intron of *trnK*, was `CDS / tRNA`); a part written
+  wholly beyond the end of a circular sequence (the 5′ exon of *Epifagus* *rps12*, 82,777–82,890 on 70,028 bp)
+  is moved back by the length instead of dropping the whole CDS with a "beyond the end" warning; a line across
+  the origin among numbered parts no longer loses the other parts; a reverse-strand CDS listed by ascending
+  coordinate is read downwards even when it spans more than half the sequence; and a trans-spliced CDS listed by
+  ascending coordinate without `part=` numbers, in a sorted file (Ensembl), gives no effects, with a warning,
+  instead of being read in a guessed order (potato's IRb *rps12* read exon 3 first). On seven NCBI records with
+  both files (plastids, mitochondria), GenBank and GFF3 now give the same effects at every coding position and
+  the same context at every position (but for a tRNA product the two files of yeast's mitochondrion name
+  differently).
+- SNP effects: a base read twice through a −1 ribosomal frameshift (`join(66..327,327..1228)`, F plasmid
+  NC_002483.1; *E. coli* *dnaX*) changes every copy, one effect per codon (only the first copy was changed); a
+  CDS with a part on another sequence (`join(X12345.1:1..100,201..500)`) gives no effects instead of effects in
+  the wrong frame; a `/transl_except` codon split by an intron (`pos:join(...)`) is recognised; a sequence said
+  to be a mitochondrion (`/organelle`, GFF3 `genome=`) without `/transl_table` uses table 1, the INSDC default
+  (plant mitochondrial records give none), instead of 11; a translation table BACoN does not know (16, 21, 22,
+  23...) gives a warning.
+- Regions: a feature marking a junction or a border (`IRB/SSC junction`, `IRA-SSC border`), or any feature
+  shorter than 50 bp, is no longer merged into an inverted repeat (IRb grew by 1 bp).
+- Report: the Methods paragraph says that SNP effects were derived only when the genome map annotated SNPs (not
+  without a VCF, a failed or skipped comparison, or an annotation that could not be used); the N-bases chart is
+  replaced by a sentence for de novo runs (every bar was NA); the SNP table's Region column, and the summary's
+  counts per region, include the SNPs of sequences without annotation, from their detected band; the N track
+  sums the assemblies of the run's samples only (not those of removed or failed samples left in
+  `3_assembled/all_assemblies/`); the genome map and the SNP table show the VCF records that passed their
+  filters only (Parsnp writes the SNPs it left out of its alignment, and so of the distances, with `FILTER`
+  `ALN`, `CID`, `LCB`...), and the caption counts the others; a printed figure fits one page (the heatmap was
+  split); `MD5 ?` instead of `MD5 None`; the header says `report built with BACoN X` when that differs from the
+  version that ran; `1 polishing iteration`; pseudogenes have a 3:1 contrast in dark mode; a deep tree (a
+  caterpillar of 1,000 leaves) no longer exceeds Python's recursion limit in the report, `tree.svg` and the
+  MultiQC files (every walk of a tree is iterative, and the MultiQC heatmap falls back to the table's order
+  when the tree cannot be read); the MultiQC heatmap shows integers (`10`, not `10.00`).
+- Example: `check_example.py` prints the report check's OK line when that check passes, whatever the others.
+- Docs: Methods and Outputs say that SNPs within about 30 bases of the reference's ends are not compared by
+  Parsnp (15 by SKA2 with templated assemblies), what the `FILTER` values of a Parsnp VCF mean, and that the
+  report shows the `PASS` records; the Usage table lists `-v/--version` and `-h/--help`; `CITATION.cff`'s
+  top-level DOI is the concept DOI, so "Cite this repository" gives a DOI that resolves at any tag; the release
+  steps say to rename the changelog section (a test checks it) and to take the wiki's report images again.
+
 ## 0.3.6 (2026-10-07)
 
 ### Added

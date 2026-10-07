@@ -49,7 +49,7 @@ def test_empty_files_skipped_and_nothing_left_is_an_error(tmp_path):
         discover(tmp_path / "in")
 
 
-@pytest.mark.parametrize("name", ["bad name", "Reference", "all_assemblies"])
+@pytest.mark.parametrize("name", ["bad name", "Reference", "all_assemblies", "s1\n"])
 def test_invalid_or_reserved_names(tmp_path, fastq, name):
     fastq(f"{name}.fastq.gz", [("a", "ACGT")])
     with pytest.raises(BaconError, match="Invalid sample name|reserved"):
@@ -112,3 +112,24 @@ def test_sheets_are_read_as_0_3_5_read_them(tmp_path):
     sheet.write_text("sample\tfile\tnote\tnote\na\ta.fastq\tx\ty\n")  # Still an error, saying what to do
     with pytest.raises(BaconError, match="column name 'note' is used more than once .* give each column"):
         read_sample_sheet(sheet)
+
+
+def test_csv_sheets_are_read_as_0_3_5_read_them(tmp_path):
+    for name in ("s1", "s2", "a b"):
+        (tmp_path / f"{name}.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    sheet = tmp_path / "s.csv"
+    # 0.3.5 (csv module, not strict): a space after a closing quote is kept, then stripped
+    sheet.write_text('sample,file\n"s1" ,s1.fastq\ns2,"a b.fastq" \n')
+    assert [(s.name, [f.name for f in s.files]) for s in read_sample_sheet(sheet)] == [
+        ("s1", ["s1.fastq"]), ("s2", ["a b.fastq"])]
+    sheet.write_text('sample,file\ns1,"s1.fastq\ns2,s2.fastq\n')  # 0.3.5 swallowed s2 into s1's file name
+    with pytest.raises(BaconError, match="line 2: an unclosed quote"):
+        read_sample_sheet(sheet)
+
+
+def test_sample_sheet_in_windows_1252_is_read_with_a_warning(tmp_path, caplog):
+    (tmp_path / "\u00e9t\u00e9.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    sheet = tmp_path / "s.csv"
+    sheet.write_bytes("sample,file\ns1,\u00e9t\u00e9.fastq\n".encode("cp1252"))
+    assert [f.name for f in read_sample_sheet(sheet)[0].files] == ["\u00e9t\u00e9.fastq"]
+    assert f"Sample sheet {sheet} is not UTF-8" in caplog.text
