@@ -63,8 +63,9 @@ colours of the heatmap and of the highlighted cells are kept when printing):
 - **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf`, coloured by whether
   every genome has a call there; for templated assemblies (whose coordinates follow the reference), the `N`
   bases per kb (coarser bins above 1.5 Mb) summed over all assemblies, at approximate positions: the
-  insertions and deletions of a consensus shift the positions after them, so an assembly of another length
-  than the reference is rescaled to it. With an annotation (`--annotation`, or a GenBank reference), the
+  insertions and deletions of a consensus shift the positions after them, so an assembly whose length differs
+  from the reference's by up to 5% is rescaled to it (one differing by more is a partial consensus, counted at
+  its own positions). With an annotation (`--annotation`, or a GenBank reference), the
   map also shows: a band of the plastome regions (LSC, IRb, SSC, IRa) when the annotation has two inverted
   repeats of at least 500 bp (named as the annotation names them, otherwise by convention: the larger
   single-copy region is the LSC and the repeat after it IRb; the single-copy regions are the gaps between the
@@ -73,7 +74,9 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   its name, type and coordinates on hover; labels for the genes with two or more SNPs (at most 40, those with
   the most SNPs, on two rows); and, on each SNP's hover, its gene, context and effect. Above 1,500 genes
   (a bacterial genome), the gene rows only show where genes lie, merged per pixel, without names or labels.
-- **SNPs** (with an annotation): a sortable table with one row per SNP of the VCF: position, alleles, region,
+- **SNPs** (with an annotation): a summary (SNPs per region, per context and by effect, the genes with the most
+  SNPs, and the SNPs on sequences without annotation, if any) and a sortable table with one row per SNP of the
+  VCF: the sequence (when the reference has several), position, alleles, region,
   gene, context (`CDS`, `intron`, `tRNA`, `rRNA`, `pseudogene`, `UTR`, or `intergenic between X and Y`, the
   nearest genes on either side, around the origin of a circular sequence), the codon and amino-acid change and
   the effect (`synonymous`, `missense`, `nonsense`, `stop lost`, `stop retained` (a stop codon changed into another), `start lost`, `start retained`: a changed start

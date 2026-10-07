@@ -37,12 +37,14 @@ class Metadata:
         return [self.value(n, column) for n in names]
 
 
-def read_table(path: Path, what: str) -> tuple[list[str], list[dict[str, str]]]:
+def read_table(path: Path, what: str, comment_lines: bool = False) -> tuple[list[str], list[dict[str, str]]]:
     """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, LF or CRLF; blank lines are ignored, and
-    lines starting with '#' before the header are comments (after it, they are data). A tab in the header makes
-    it a TSV, in which quotes are ordinary characters; otherwise a CSV, whose quoted values may hold commas but
-    not line breaks. Names and values are stripped (names also lose their inner whitespace); columns with an
-    empty name (a trailing separator) are dropped, and two columns of the same name (any case) are an error."""
+    lines starting with '#' before the header are comments (after it, they are data, unless `comment_lines`: a
+    sample sheet). A tab in the header makes it a TSV: cells are split on tabs only (no quote can swallow a row),
+    and a cell entirely in quotes loses them (`""` inside is one quote); otherwise a CSV, whose quoted values may
+    hold commas but not line breaks. Names and values are stripped (names also lose their inner whitespace);
+    columns with an empty name (a trailing separator) are dropped, and two columns of the same name (any case)
+    are an error."""
     if not path.is_file():
         raise BaconError(f"{what} not found: {path}")
     try:
@@ -51,18 +53,20 @@ def read_table(path: Path, what: str) -> tuple[list[str], list[dict[str, str]]]:
         raise BaconError(f"{what} cannot be read: {path} ({exc.strerror})") from None
     lines: list[tuple[int, str]] = []  # (line number in the file, text)
     for number, line in enumerate(text.splitlines(), 1):
-        if not line.strip() or (not lines and line.lstrip().startswith("#")):
+        if not line.strip() or (line.lstrip().startswith("#") and (comment_lines or not lines)):
             continue
         lines.append((number, line))
     if not lines:
         raise BaconError(f"{what} is empty: {path}")
     tsv = "\t" in lines[0][1]
-    records = [line.split("\t") for _, line in lines] if tsv else _csv_records(lines, path, what)
+    records = ([[_unquoted(c) for c in line.split("\t")] for _, line in lines] if tsv
+               else _csv_records(lines, path, what))
     header = [_squash(c) for c in records[0]]
     lower = [c.lower() for c in header if c]
     duplicates = [c for c in dict.fromkeys(header) if c and lower.count(c.lower()) > 1]  # In header order
     if duplicates:
-        raise BaconError(f"{what} {path}: two columns have the same name: {', '.join(duplicates)}")
+        raise BaconError(f"{what} {path}: the column name {', '.join(repr(d) for d in duplicates)} is used more "
+                         "than once (names differing only in case are the same): give each column its own name")
     rows = []
     for cells in records[1:]:
         cells += [""] * (len(header) - len(cells))  # Fewer cells than names: empty; more: ignored
@@ -86,6 +90,15 @@ def _csv_records(lines: list[tuple[int, str]], path: Path, what: str) -> list[li
         if reader.line_num - start > 1:
             raise BaconError(f"{what} {path}, line {lines[start][0]}: a quoted value spans several lines")
         records.append(cells)
+
+
+def _unquoted(cell: str) -> str:
+    """A TSV cell without the pair of quotes around it, when it is entirely quoted (as a spreadsheet exports
+    it, and as 0.3.5 read it): `"abc"` is abc, `""` empty, `"a""b"` a"b; `5" tube` is left as it is."""
+    cell = cell.strip()
+    if len(cell) >= 2 and cell[0] == cell[-1] == '"':
+        return cell[1:-1].replace('""', '"')
+    return cell
 
 
 def _squash(value: str) -> str:
@@ -133,7 +146,7 @@ def read_metadata(path: Path) -> Metadata:
 def sheet_metadata(path: Path) -> Metadata | None:
     """The metadata in a sample sheet: its columns other than 'sample' and 'file'. A sample on several rows keeps
     the first value of each column; rows giving different values are reported."""
-    header, rows = read_table(path, "Sample sheet")
+    header, rows = read_table(path, "Sample sheet", comment_lines=True)
     key = _find(header, "sample")
     columns = [c for c in header if c.lower() not in KEY_COLUMNS]
     if key is None or not columns:

@@ -214,7 +214,7 @@ def test_gff3_parts_in_the_order_of_translation_like_genbank(tmp_path):
     # file order): a CDS trans-spliced across strands (a), three reverse-strand parts listed 5' to 3' out of
     # coordinate order like the IRb copy of rps12 (b), a CDS across the origin (c), a reverse-strand spliced CDS
     # listed by ascending coordinate (d, Ensembl) and 5' to 3' (e, NCBI), and one across the origin on the
-    # reverse strand with NCBI's `part=` numbers (f)
+    # reverse strand with NCBI's `part=` numbers (f) or listed by ascending coordinate without them (g)
     cases = {
         "a": ("join(complement(10..18),30..38)", [(10, 18, "-", 0), (30, 38, "+", 0)]),
         "b": ("complement(join(50..55,70..78,40..45))", [(40, 45, "-", 0), (70, 78, "-", 0), (50, 55, "-", 0)]),
@@ -222,6 +222,7 @@ def test_gff3_parts_in_the_order_of_translation_like_genbank(tmp_path):
         "d": ("complement(join(70..75,77..84))", [(70, 75, "-", 1), (77, 84, "-", 0)]),
         "e": ("complement(join(70..75,77..84))", [(77, 84, "-", 0), (70, 75, "-", 1)]),
         "f": ("complement(join(110..120,1..9))", [(110, 120, "-", 0, 2), (1, 9, "-", 0, 1)]),
+        "g": ("complement(join(110..120,1..9))", [(1, 9, "-", 0), (110, 120, "-", 0)]),  # f, Ensembl order
     }
     gb = tmp_path / "a.gb"
     gb.write_text(_gb("".join(f'CDS             {loc}\n                /gene="{name}"\n'
@@ -251,7 +252,8 @@ def test_gff3_parts_in_the_order_of_translation_like_genbank(tmp_path):
         assert effects[0] == effects[1] and effects[0], pos  # The same effects from both files
     # Across the origin: GGG CCC AAA TTA TGG... on the + strand, TTT AGC CAT AAT TTG... on the - strand
     assert _effects(anns[0], 1, "A", "G")[1] == _effects(anns[1], 1, "A", "G")[1] == [
-        ("c", "TTA>TTG", "L4L", "synonymous"), ("f", "CAT>CAC", "H3H", "synonymous")]
+        ("c", "TTA>TTG", "L4L", "synonymous"), ("f", "CAT>CAC", "H3H", "synonymous"),
+        ("g", "CAT>CAC", "H3H", "synonymous")]
 
 
 def test_feature_across_the_origin_without_gene_feature(tmp_path):
@@ -732,3 +734,99 @@ def test_inverted_repeat_across_the_origin():
         regions = derive_regions(_features(text), 10000)
         assert [(r.name, r.start, r.end, r.length) for r in regions] == expected
         assert regions[-1].contains(9800) and regions[-1].contains(100) and not regions[-1].contains(2000)
+
+
+def test_5_prime_partial_cds_starting_with_atg_has_no_start_codon():
+    cds = Cds(1, [(1, 12)], 1, 11, True, False)  # <1..12: the first codon is not the start
+    e = cds_effect(cds, "g", 2, "T", "C", "ATGGCTAAATGA")
+    assert (e.codons, e.change, e.kind) == ("ATG>ACG", "M1T", "missense")
+
+
+def test_region_mention_in_a_wide_feature_note_does_not_label_it():
+    from bacon.annotation import region_label
+    repeats = """
+    repeat_region   4001..4600
+                    /rpt_type=inverted
+                    /note="IRb"
+    repeat_region   5401..6000
+                    /rpt_type=inverted
+                    /note="IRa"
+    """
+    wide = """
+    misc_feature    1..9000
+                    /note="trans splicing 5'-rps12 and 3'-rps12 in IRA"
+    """
+    [feature] = _features(wide)
+    assert region_label(feature) is None
+
+    def band(text):
+        return [(r.name, r.start, r.end) for r in derive_regions(_features(text), 10000)]
+
+    assert band(repeats + wide) == band(repeats) and sorted(n for n, _, _ in band(repeats)) == ["IRa", "IRb", "LSC", "SSC"]
+
+
+def test_genbank_doubled_quotes_on_continuation_lines():
+    rec = read_genbank_text(_gb('''
+    CDS             1..9
+                    /note="first line
+                    a ""quoted"" word on the second, and one at its end: ""
+                    then ""one"" closing the value"""
+                    /gene="q"
+    '''))
+    q = rec.features[0].qualifiers
+    assert q["note"] == 'first line a "quoted" word on the second, and one at its end: " then "one" closing the value"'
+    assert q["gene"] == "q"
+
+
+WRAPPED_CDS = "ATG" + "GCTAAAGAATTTCCCGGTACTCATGCTAAAGAATTTCCCGGTACTCATGCTAAA" + "TAA"  # 60 bp, 20 codons
+WRAPPED_SEQ = WRAPPED_CDS[30:] + "A" * 60 + WRAPPED_CDS[:30]  # 120 bp: the CDS is 91..120 then 1..30 (+ strand)
+
+
+def _wrapped_coding(gff, sequences: list[tuple[str, int]], strand: str) -> str:
+    """The coding sequence read from the first gene of a GFF3 annotation, on the + strand of WRAPPED_SEQ or on
+    the - strand of its reverse complement (where the same CDS is at 1..30 read downwards, then 91..120)."""
+    from bacon.annotation import reverse_complement
+    ann = load_annotation(gff, sequences)
+    [sequence] = ann.sequences.values()
+    [gene] = sequence.genes
+    assert gene.extent == [(1, 30), (91, 120)]
+    return gene.cds[0].coding_sequence(WRAPPED_SEQ if strand == "+" else reverse_complement(WRAPPED_SEQ))
+
+
+def test_gff3_cds_across_the_origin_listed_by_coordinate(tmp_path):
+    # A sorted GFF3 lists the parts of a CDS across the origin by ascending coordinate: the sequence length (from
+    # ##sequence-region, else from the reference) tells them from a spliced CDS, on both strands
+    for strand in "+-":
+        lines = [f"chr\t.\tCDS\t1\t30\t.\t{strand}\t0\tID=c1;gene=wrap\n",
+                 f"chr\t.\tCDS\t91\t120\t.\t{strand}\t0\tID=c1;gene=wrap\n"]
+        gff = tmp_path / f"region{strand}.gff3"
+        gff.write_text("##gff-version 3\n##sequence-region chr 1 120\n" + "".join(lines))
+        assert _wrapped_coding(gff, [("chr", 120)], strand) == WRAPPED_CDS
+        gff = tmp_path / f"noregion{strand}.gff3"
+        gff.write_text("##gff-version 3\n" + "".join(lines))
+        assert _wrapped_coding(gff, [("chr", 120)], strand) == WRAPPED_CDS  # The reference's length
+        # Neither (the annotated sequence is taken for the reference by its length... which is unknown): the parts
+        # are read in coordinate order, as documented
+        assert _wrapped_coding(gff, [("other", 120)], strand) == WRAPPED_CDS[30:] + WRAPPED_CDS[:30]
+    # Three parts: the groups either side of the origin are split at the widest gap
+    gff = tmp_path / "three.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region chr 1 120\n"
+                   "chr\t.\tCDS\t1\t30\t.\t+\t0\tID=c1\nchr\t.\tCDS\t80\t84\t.\t+\t0\tID=c1\n"
+                   "chr\t.\tCDS\t91\t120\t.\t+\t0\tID=c1\n")
+    ann = load_annotation(gff, [("chr", 120)])
+    assert ann.sequences["chr"].genes[0].cds[0].parts == [(80, 84), (91, 120), (1, 30)]
+
+
+def test_gff3_single_line_feature_across_the_origin(tmp_path):
+    # Bakta writes a feature across the origin of a circular contig as one line whose end is beyond the length
+    # (end = its end + the length): split into its two parts, in the order of translation
+    for strand in "+-":
+        gff = tmp_path / f"bakta{strand}.gff3"
+        gff.write_text("##gff-version 3\n##sequence-region chr 1 120\n"
+                       "chr\tBakta\tregion\t1\t120\t.\t+\t.\tID=chr;Name=chr;Is_circular=true\n"
+                       f"chr\tBakta\tCDS\t91\t150\t.\t{strand}\t0\tID=c1;gene=wrap\n")
+        assert _wrapped_coding(gff, [("chr", 120)], strand) == WRAPPED_CDS
+    gff = tmp_path / "linear.gff3"  # Not flagged circular: beyond the end of the sequence, as before
+    gff.write_text("##gff-version 3\n##sequence-region chr 1 120\nchr\tx\tCDS\t91\t150\t.\t+\t0\tID=c1;gene=wrap\n")
+    ann = load_annotation(gff, [("chr", 120)])
+    assert not ann.sequences and any("beyond the end" in w for w in ann.warnings)

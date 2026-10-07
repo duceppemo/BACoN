@@ -313,29 +313,45 @@ def genbank_fasta_records(path: Path) -> list[Record]:
 def _order_parts(loc: Location, numbers: list[int | None], length: int) -> None:
     """Put the parts of a multi-line GFF3 feature in the order of translation: by their `part=` numbers (NCBI)
     when every line has one, else as listed (NCBI lists them 5' to 3', which puts a trans-spliced CDS, or one
-    across the origin, out of coordinate order), except that the parts of a reverse-strand feature listed by
-    ascending coordinate (Ensembl) are read in descending order, unless they span more than half the sequence (a
-    CDS across the origin, listed 5' to 3'). The strand of the feature is that of most of its bases."""
+    across the origin, out of coordinate order), except for parts listed by ascending coordinate (Ensembl, a
+    sorted file): those of a reverse-strand feature are read in descending order, and those of a feature across
+    the origin (spanning more than half the sequence, from its first base to its last) start at the high part on
+    the + strand and at the low parts, read downwards, on the - strand. Without the sequence's length (no
+    ##sequence-region, and no reference sequence of that name) a feature across the origin cannot be told apart.
+    The strand of the feature is that of most of its bases."""
     listed = loc.listed or []
+    strands = {strand for _, _, strand in listed}
     if all(n is not None for n in numbers) and len(set(numbers)) == len(numbers):
         listed = [part for _, part in sorted(zip(numbers, listed))]
-    elif ({strand for _, _, strand in listed} == {-1} and listed == sorted(listed)
-          and not (length and listed[-1][1] - listed[0][0] + 1 > length / 2)):
-        listed = listed[::-1]
+    elif len(strands) == 1 and listed == sorted(listed):
+        strand = strands.pop()
+        across = bool(length) and listed[-1][1] - listed[0][0] + 1 > length / 2
+        if across and listed[0][0] == 1 and listed[-1][1] == length:
+            # The parts either side of the origin are either side of the widest gap
+            k = max(range(1, len(listed)), key=lambda i: listed[i][0] - listed[i - 1][1])
+            low, high = listed[:k], listed[k:]
+            listed = high + low if strand > 0 else low[::-1] + high[::-1]
+        elif strand < 0 and not across:
+            listed = listed[::-1]
     loc.listed = listed
     loc.strand = 1 if sum((e - s + 1) * strand for s, e, strand in listed) >= 0 else -1
 
 
-def read_gff3(path: Path) -> tuple[list[RawFeature], dict[str, int], set[str]]:
+def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
+              ) -> tuple[list[RawFeature], dict[str, int], set[str]]:
     """The features of a GFF3 file (gzipped or not; a ##FASTA section is ignored), the sequence lengths given by
-    ##sequence-region lines, and the names of the sequences flagged circular. Multi-line features (the parts of
-    a CDS, sharing an ID, or CDS lines without an ID sharing a Parent) are merged, their parts kept in the order
-    of translation (`Location.listed`). Attribute keys are lower-cased."""
+    ##sequence-region lines, and the names of the sequences flagged circular (`Is_circular=true`). Multi-line
+    features (the parts of a CDS, sharing an ID, or CDS lines without an ID sharing a Parent) are merged, their
+    parts kept in the order of translation (`Location.listed`); a line of a circular sequence ending beyond its
+    length (Bakta writes a feature across the origin so, with end = its end + the length) is split into its two
+    parts. The lengths come from the file, else from `known_lengths` (the reference's). Attribute keys are
+    lower-cased."""
     features: dict[str, RawFeature] = {}  # By ID (a CDS without one: by sequence and Parent)
     part_numbers: dict[str, list[int | None]] = {}  # The `part=` attribute of each line of a merged feature
     order: list[RawFeature] = []
     lengths: dict[str, int] = {}
     circular: set[str] = set()
+    known_lengths = known_lengths or {}
     try:
         with open_text(path) as fh:
             for line in fh:
@@ -370,20 +386,27 @@ def read_gff3(path: Path) -> tuple[list[RawFeature], dict[str, int], set[str]]:
                 partial_high = "end_range" in attributes
                 part = attributes.get("part", "")
                 number = int(part) if part.isdigit() else None
+                length = lengths.get(cols[0]) or known_lengths.get(cols[0], 0)
+                pieces = [(start, end)]  # In the order of translation
+                if length and end > length >= start and end - length < start and cols[0] in circular:
+                    pieces = [(start, length), (1, end - length)]  # Across the origin, as Bakta writes it
+                    if strand < 0:
+                        pieces.reverse()
                 same = features.get(key) if key else None
                 if same is not None and same.type == cols[2] and same.seq == cols[0]:  # Another part
-                    same.location.listed = [*(same.location.listed or []), (start, end, strand)]
-                    same.location.parts = sorted(same.location.parts + [(start, end)])
+                    same.location.listed = [*(same.location.listed or []), *((s, e, strand) for s, e in pieces)]
+                    same.location.parts = sorted(same.location.parts + pieces)
                     same.location.partial_low |= partial_low
                     same.location.partial_high |= partial_high
                     if phase is not None:
-                        same.phases[start] = phase
+                        same.phases[pieces[0][0]] = phase
                     part_numbers[key].append(number)
                     continue
-                location = Location(strand, [(start, end)], partial_low, partial_high, [(start, end, strand)])
+                location = Location(strand, sorted(pieces), partial_low, partial_high,
+                                    [(s, e, strand) for s, e in pieces])
                 feature = RawFeature(cols[2], cols[0], location, attributes, ident, parents)
                 if phase is not None:
-                    feature.phases[start] = phase
+                    feature.phases[pieces[0][0]] = phase
                 if key and key not in features:
                     features[key] = feature
                     part_numbers[key] = [number]
@@ -392,7 +415,8 @@ def read_gff3(path: Path) -> tuple[list[RawFeature], dict[str, int], set[str]]:
         raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
     for key, numbers in part_numbers.items():
         if len(numbers) > 1:
-            _order_parts(features[key].location, numbers, lengths.get(features[key].seq, 0))
+            seq = features[key].seq
+            _order_parts(features[key].location, numbers, lengths.get(seq) or known_lengths.get(seq, 0))
     return order, lengths, circular
 
 
@@ -881,7 +905,7 @@ def load_annotation(path: Path, sequences: list[tuple[str, int]],
         circular = {r.name for r in records if r.circular}
         skipped = sum(r.skipped for r in records)
     else:
-        features, lengths, circular = read_gff3(path)
+        features, lengths, circular = read_gff3(path, dict(sequences))
         if not features:
             raise BaconError(f"{path}: no feature (not a GFF3 file?)")
     annotated = list(dict.fromkeys([*lengths, *(f.seq for f in features)]))

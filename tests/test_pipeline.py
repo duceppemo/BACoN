@@ -170,6 +170,11 @@ def calls(log: Path) -> list[str]:
     return log.read_text().split() if log.exists() else []
 
 
+def step_checkpoints(out: Path) -> list[Path]:
+    """The checkpoint of each step (not .checkpoints/copies.json, the record of the copies written)."""
+    return [p for p in sorted((out / ".checkpoints").glob("*.json")) if p.name != "copies.json"]
+
+
 def summary(out: Path) -> dict[str, dict[str, str]]:
     lines = (out / "summary.tsv").read_text().splitlines()
     header = lines[0].split("\t")
@@ -814,7 +819,7 @@ def test_a_moved_folder_of_0_3_3_resumes_with_its_own_files(stubs, dataset, tmp_
     ref, reads = dataset
     out, moved = tmp_path / "out", tmp_path / "moved"
     run(settings(ref, reads, out))
-    for checkpoint in (out / ".checkpoints").glob("*.json"):  # As written by BACoN 0.3.3: no root
+    for checkpoint in step_checkpoints(out):  # As written by BACoN 0.3.3: no root
         data = json.loads(checkpoint.read_text())
         del data["root"]
         checkpoint.write_text(json.dumps(data))
@@ -895,7 +900,7 @@ def test_guess_root_takes_the_last_bacon_folder_in_the_path():
 
 def _as_0_3_3(out: Path) -> None:
     """Rewrite the checkpoints of a run as BACoN 0.3.3 wrote them: no folder, no input signatures."""
-    for checkpoint in (out / ".checkpoints").glob("*.json"):
+    for checkpoint in step_checkpoints(out):
         data = json.loads(checkpoint.read_text())
         data.pop("root", None)
         data["results"].pop("inputs", None)
@@ -1036,14 +1041,14 @@ def test_genbank_reference_gives_the_same_reference_and_reruns_nothing(stubs, da
     out = tmp_path / "out"
     run(settings(ref, reads, out))
     before = (out / "reference.fasta").read_bytes()
-    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")}
+    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)}
     gb = tmp_path / "ref.gb"
     gb.write_text(_genbank_of(ref))
     stubs.unlink()
     assert run(settings(gb, reads, out)) == 0
     assert calls(stubs) == ["minimap2"]  # Only the sample that failed before: no step ran again
     assert (out / "reference.fasta").read_bytes() == before
-    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")} == \
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)} == \
         checkpoints
     info = json.loads((out / "run_info.json").read_text())
     assert info["reference"]["md5"] == hashlib.md5(gb.read_bytes()).hexdigest()  # The file given
@@ -1150,12 +1155,12 @@ def test_metadata_is_not_in_the_checkpoints_and_is_copied(stubs, dataset, tmp_pa
     ref, reads = dataset
     out = tmp_path / "out"
     run(settings(ref, reads, out))
-    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")}
+    checkpoints = {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)}
     meta = _metadata_file(tmp_path)
     stubs.unlink()
     assert run(settings(ref, reads, out, metadata=meta)) == 0
     assert calls(stubs) == ["minimap2"]  # Only the sample that failed before is retried: nothing reran
-    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in (out / ".checkpoints").glob("*.json")} == \
+    assert {p.name: json.loads(p.read_text())["fingerprint"] for p in step_checkpoints(out)} == \
         checkpoints
     assert "1 row(s) match no sample: zz" in caplog.text and "colours by group" in caplog.text
     copy = out / "metadata.tsv"
@@ -1283,3 +1288,58 @@ def test_copies_not_written_by_bacon_are_kept(stubs, dataset, tmp_path, caplog):
     assert run(settings(ref, reads, out, snp_method="none")) == 0
     assert not (out / "metadata.tsv").exists() and not (out / "annotation.gff3").exists()
     assert "not written by BACoN" not in caplog.text
+
+
+def test_a_copied_output_folder_without_the_files_times_resumes(stubs, dataset, tmp_path):
+    import shutil
+    ref, reads = dataset
+    out, copy = tmp_path / "out", tmp_path / "copy"
+    run(settings(ref, reads, out))
+    shutil.copytree(out, copy, copy_function=shutil.copyfile)  # cp -r, scp, unzip: the files get new times
+    stubs.unlink()
+    assert run(settings(ref, reads, copy)) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the failed sample is retried: the sizes say nothing changed
+    stubs.unlink()
+    assert run(settings(ref, reads, copy)) == 0 and calls(stubs) == ["minimap2"]  # The copy's own signatures
+    with gzip.open(copy / "1_extracted" / "s1.fastq.gz", "at") as fh:  # An input that changed still reruns its step
+        fh.write("@on3\nACGT\n+\nIIII\n")
+    stubs.unlink()
+    assert run(settings(ref, reads, copy)) == 0
+    made = calls(stubs)
+    assert made.count("filtlong") == 1 and made.count("flye") == 1 and "ska" in made
+
+
+def test_copies_of_an_interrupted_first_run_are_known_as_bacons(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    ref, reads = dataset
+    out = tmp_path / "out"
+    gb = tmp_path / "ann.gb"
+    gb.write_text(_genbank_of(ref))
+    meta = _metadata_file(tmp_path)
+    restore = _interrupt(monkeypatch, bacon.steps, "bait_minimap2", "s2")  # Before any run_info.json
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out, annotation=gb, metadata=meta, parallel=1))
+    restore()
+    assert (out / "annotation.gb").exists() and (out / "metadata.tsv").exists()
+    assert not (out / "run_info.json").exists()
+    assert run(settings(ref, reads, out)) == 0  # Resumed without them: BACoN's copies go, as hand-made ones would not
+    assert not (out / "annotation.gb").exists() and not (out / "metadata.tsv").exists()
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["annotation"] is None and info["metadata"] is None
+    assert "Metadata from" not in (out / "report.html").read_text()
+
+
+def test_annotation_copy_keeps_its_bytes(stubs, dataset, tmp_path):
+    import gzip
+    ref, reads = dataset
+    features = ('     misc_feature    1..30\n                     /note="café – naïve"\n'
+                '     CDS             1..30\n                     /gene="orfA"\n')
+    gb = tmp_path / "ann.gb"
+    gb.write_bytes(_genbank_of(ref, features=features).encode("utf-8"))
+    run(settings(ref, reads, tmp_path / "out", annotation=gb, snp_method="none"))
+    assert (tmp_path / "out" / "annotation.gb").read_bytes() == gb.read_bytes()  # Not "caf? ? na?ve"
+    gz = tmp_path / "ann.gb.gz"
+    with gzip.open(gz, "wb") as fh:
+        fh.write(gb.read_bytes())
+    run(settings(ref, reads, tmp_path / "out2", annotation=gz, snp_method="none"))
+    assert (tmp_path / "out2" / "annotation.gb").read_bytes() == gb.read_bytes()

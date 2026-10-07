@@ -46,13 +46,17 @@ is shown as `Status (metadata)`. A sample listed twice keeps its first row (warn
 the run are reported; samples without a row get blank cells. Genomes given with `--add-genomes` may have a row
 too, under their file name. BACoN writes the merged table, limited to the run's samples and added genomes, to
 `OUTPUT/metadata.tsv`, so that the report can be rebuilt after the folder is moved; a later run without metadata
-removes that copy (a `metadata.tsv` that BACoN did not write is kept, and the report uses it).
+removes that copy (a `metadata.tsv` that BACoN did not write is kept, and the report uses it, saying that it was
+found in the folder and not given to the run; `run_info.json` and the MultiQC table do not have it).
 
-The file format is the same for a metadata file and a sample sheet: blank lines are ignored, and lines starting
-with `#` *before the header* are comments (after the header, a line starting with `#` is a row, so a value such
-as `#FF0000` may come first). A tab in the header makes the file a TSV, in which quotes are ordinary characters;
-otherwise it is a CSV, whose quoted values may contain commas but not line breaks (an unclosed quote is an
-error naming the line, not a value that silently swallows the following rows).
+The file format is the same for a metadata file and a sample sheet, with one difference: blank lines are
+ignored, and lines starting with `#` before the header are comments; after the header, a line starting with `#`
+is a comment in a sample sheet too (a sample is left out by commenting its line) but a row in a metadata file
+(so a value such as `#FF0000` may come first). A tab in the header makes the file a TSV: a tab always separates
+cells, a cell entirely in quotes loses them (`"abc"` is `abc`, and `""` inside such a cell is one quote, as a
+spreadsheet exports them) and other quotes are ordinary characters (`5" tube`); otherwise it is a CSV, whose
+quoted values may contain commas but not line breaks (an unclosed quote is an error naming the line, not a value
+that silently swallows the following rows).
 
 ```
 sample      group      year  comment
@@ -78,7 +82,7 @@ without `.gz`). Three ways to give them:
 |---|---|
 | `-i sample.fastq.gz` | one sample, named after the file (`sample`) |
 | `-i folder/` | each sequence file directly in the folder is a sample named after the file; each subfolder is a sample named after the subfolder, made of all the sequence files it contains, in any depth. MinKNOW's `fastq_pass/` works as is (`barcode01/`, `barcode02/`, ...); `unclassified/` and `mixed/` are skipped |
-| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; blank lines, and lines starting with `#` before the header, are ignored; any other column is sample metadata (above) |
+| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; blank lines and lines starting with `#` are ignored; any other column is sample metadata (above) |
 
 Sample names may contain letters, digits and `.` `_` `+` `-`. Two inputs giving the same sample name, or a
 sample mixing fasta and fastq files, are errors. Symbolic links are a quick way to rename samples.
@@ -141,9 +145,9 @@ the programs it started; each sample finished before the interruption is recorde
 the samples that were still running. A run started with `nohup` keeps running when the terminal is closed. Two
 runs cannot use the same output folder at the same time: the second one stops with an error.
 
-An output folder can be moved or copied and resumed from its new place. A copy that does not keep the files'
-times (`cp -r` without `-a`, `rsync` without `-t`) keeps the baiting, but filtering, assembly and comparison
-run again: BACoN recognizes each step's input by its size and time.
+An output folder can be moved or copied and resumed from its new place, whether or not the copy kept the files'
+times (`cp -r`, `scp`, `rsync` without `-t`, an archive): BACoN recognizes each step's input by its size and
+time in the folder where it was made, and by its size alone in a moved or copied folder.
 
 ## Performance
 

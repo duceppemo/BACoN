@@ -48,8 +48,18 @@ def test_read_table_refuses_unclosed_quotes_and_quoted_line_breaks(tmp_path):
         read_table(csv, "Metadata file")
     tsv = tmp_path / "m.tsv"
     tsv.write_text('sample\tsize\tgroup\ns1\t"5 inch\tA\ns2\t3\tB\ns3\t2\tB\n')
-    assert [r["sample"] for r in read_table(tsv, "x")[1]] == ["s1", "s2", "s3"]  # In a TSV a quote is a character
-    assert read_table(tsv, "x")[1][0]["size"] == '"5 inch'
+    assert [r["sample"] for r in read_table(tsv, "x")[1]] == ["s1", "s2", "s3"]  # In a TSV a tab always splits
+    assert read_table(tsv, "x")[1][0]["size"] == '"5 inch'  # Not entirely quoted: kept as written
+
+
+def test_tsv_cells_entirely_in_quotes_lose_them(tmp_path):
+    # As a spreadsheet exports them, and as 0.3.5 read them (through the csv module); "" inside is one quote
+    tsv = tmp_path / "m.tsv"
+    tsv.write_text('"sample"\t"colour"\t"note"\n"s1"\t"#FF0000"\t"a ""b"" c"\ns2\t""\t5" tube\n')
+    header, rows = read_table(tsv, "x")
+    assert header == ["sample", "colour", "note"]
+    assert rows == [{"sample": "s1", "colour": "#FF0000", "note": 'a "b" c'},
+                    {"sample": "s2", "colour": "", "note": '5" tube'}]
 
 
 def test_read_table_strips_and_only_metadata_values_lose_inner_whitespace(tmp_path):
@@ -69,18 +79,19 @@ def test_comment_lines_count_only_before_the_header(tmp_path):
     assert read_metadata(path).rows == {"s1": {"colour": "#FF0000"}, "s2": {"colour": "#00FF00"}}
     path.write_text("sample,g\ns1,A\n# not a comment\n")
     assert list(read_metadata(path).rows) == ["s1", "# not a comment"]
+    assert [r["sample"] for r in read_table(path, "Sample sheet", comment_lines=True)[1]] == ["s1"]  # A sheet
 
 
 def test_duplicate_column_names_are_an_error(tmp_path):
     path = tmp_path / "m.csv"
     path.write_text("sample,Group,group,g\ns1,A,B,C\n")
-    with pytest.raises(BaconError, match="two columns have the same name: Group, group"):
+    with pytest.raises(BaconError, match="column name 'Group', 'group' is used more than once .*its own name"):
         read_metadata(path)
     path.write_text("sample,g,Sample\ns1,A,B\n")  # A second 'sample' column, whatever its case
-    with pytest.raises(BaconError, match="same name: sample, Sample"):
+    with pytest.raises(BaconError, match="column name 'sample', 'Sample' is used more than once"):
         read_metadata(path)
     path.write_text("sample,file,File\ns1,a.fq,b.fq\n")
-    with pytest.raises(BaconError, match="Sample sheet .*same name: file, File"):
+    with pytest.raises(BaconError, match="Sample sheet .*column name 'file', 'File' is used more than once"):
         sheet_metadata(path)
     path.write_text("sample,g,,\ns1,A,,\n")  # Several empty names are not duplicates
     assert read_metadata(path).columns == ["g"]
@@ -151,6 +162,7 @@ def test_unusable_reason():
     assert unusable_reason(["", "", ""]) == "no value"
     assert "9 distinct" in unusable_reason([str(i) for i in range(9)])
     assert unusable_reason(["A"] * 9 + ["B"]) is None
+    assert unusable_reason([str(i) for i in range(8)]) is None  # 8 distinct values: the palette's size
     assert "free text" in unusable_reason([f"v{i % 6}" for i in range(10)])  # 6 distinct among 10
     assert unusable_reason([f"v{i % 5}" for i in range(10)]) is None  # 5 of 10 is still a category
     assert unusable_reason([f"v{i}" for i in range(6)]) is None  # Below 10 samples, up to 8 distinct is fine
@@ -163,6 +175,9 @@ def test_choose_colour_column():
                                                        "Group": "A" if i % 2 else "B", "n": str(i)}
                                              for i in range(12)})
     assert choose_colour_column(m, None) == ("Group", None)
+    two = Metadata(["Group", "site"], {k: {"Group": v["Group"], "site": "x" if k < "s5" else "y"}
+                                       for k, v in m.rows.items()})
+    assert choose_colour_column(two, None) == ("Group", None)  # The first usable column, not the last
     assert choose_colour_column(m, "group") == ("Group", None)  # Any case
     assert choose_colour_column(m, "NONE") == (None, None)
     column, why = choose_colour_column(m, "n")

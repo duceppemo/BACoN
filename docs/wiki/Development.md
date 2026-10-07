@@ -71,8 +71,11 @@ paths removed from `run_info.json` first.
 
 1. Update `version` in `pyproject.toml`, `__version__` in `bacon/__init__.py`, `CITATION.cff` (version and
    date), `CHANGELOG.md`, the citation and the example's download line in `README.md`, and the download and
-   `pip install` lines of `docs/wiki/Installation.md` (`tests/test_cli.py` checks that they agree); rebuild the
-   reports of `docs/reports/`.
+   `pip install` lines of `docs/wiki/Installation.md` (`tests/test_cli.py` checks that they agree). Then
+   rebuild the reports of `docs/reports/`: they show the BACoN version of `run_info.json`, so run the example
+   (`bash example/run_example.sh`) and the tutorial's command again with the bumped version (a resume reruns
+   nothing; the report is rebuilt) before copying their `report.html`, with the local paths removed from
+   `run_info.json` first (`tests/test_cli.py` checks that the published reports name the current version).
 2. Commit, tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` checks the versions, builds the
    package and creates the GitHub release with the changelog section.
 3. Zenodo archives the release and mints a version DOI: add it to `CITATION.cff` (`doi` and `identifiers`).

@@ -91,7 +91,7 @@ OK: the 20 SNPs are annotated as planted (12 coding changes: 5 synonymous, 6 mis
 OK: report.html has the annotation and the metadata (example_output/bacon/report.html)
 ```
 
-The whole script takes about 10 seconds with 8 threads (7 of them to simulate the reads).
+The whole script takes about 7 seconds with 8 threads (5 of them to simulate the reads).
 
 ## The report
 

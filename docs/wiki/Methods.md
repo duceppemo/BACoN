@@ -110,9 +110,15 @@ and `biotype` attributes, `transl_except`); a CDS or RNA feature belongs to the 
 that overlaps it, or is a gene of its own. A gene is named after its `gene` qualifier, else `locus_tag`,
 `product` or `ID`. The parts of a CDS are read in the order of translation: as the GenBank location lists them,
 and for the lines of a GFF3 CDS (sharing an `ID`, or without one, a `Parent`) by their `part=` numbers (NCBI)
-when given, else in file order (NCBI lists them 5′ to 3′), except that the lines of a −-strand CDS listed by
-ascending coordinate (Ensembl) are read in descending order unless they span more than half the sequence (a CDS
-across the origin). So the trans-spliced plastid *rps12*, whose 5′ exon lies in the LSC on the other strand, and
+when given, else in file order (NCBI lists them 5′ to 3′), except for lines listed by ascending coordinate
+(Ensembl, a sorted file): those of a −-strand CDS are read in descending order, and those of a CDS across the
+origin (spanning more than half the sequence, from its first base to its last) start at the high part on the +
+strand and at the low part, read downwards, on the − strand. The sequence length comes from `##sequence-region`,
+else from the reference; without either (an annotated sequence matched to the reference by nothing but being
+the only one), a CDS across the origin listed by coordinate is read in coordinate order. A single line ending
+beyond the length of a sequence flagged `Is_circular=true` (Bakta writes a feature across the origin so, with
+end = its end + the length) is split into its two parts. So the trans-spliced plastid *rps12*, whose 5′ exon
+lies in the LSC on the other strand, and
 a gene across the origin of a circular sequence are translated correctly from either format; a CDS or RNA
 feature across the origin (or trans-spliced) without a gene feature is a gene made of its parts, not of the
 whole sequence between them.

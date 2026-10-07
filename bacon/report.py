@@ -672,7 +672,8 @@ def read_vcf(path: Path) -> tuple[list[Snp], int]:
             if len(fields) < 8 or not fields[1].isdigit():
                 continue
             missing = alt = 0
-            for gt, count in Counter(fields[9:]).items():  # Few distinct values per record, each classed once
+            # Few distinct genotypes per record, each classed once (the fields after the GT are per sample)
+            for gt, count in Counter(f.partition(":")[0] for f in fields[9:]).items():
                 if gt not in kinds:
                     kinds[gt] = _call_kind(gt)
                 if kinds[gt] == "missing":
@@ -702,8 +703,9 @@ def _call_kind(sample: str) -> str:
 def n_per_bin(assemblies: list[Path], sequences: list[tuple[str, int]], bin_bp: int) -> dict[str, list[int]]:
     """N bases per bin of `bin_bp` along each reference sequence, summed over the assemblies (templated assemblies:
     a record named <sample>_<sequence> follows the coordinates of that reference sequence, approximately: its
-    insertions and deletions shift the positions after them, so a record of another length than the reference is
-    rescaled to the reference length)."""
+    insertions and deletions shift the positions after them, so a record whose length differs from the
+    reference's by up to RESCALE_WITHIN is rescaled to the reference length; one differing by more is not a
+    consensus along the whole sequence, and is counted at its own positions)."""
     lengths = dict(sequences)
     counts = {name: [0] * (length // bin_bp + 1) for name, length in sequences}
     for path in assemblies:
@@ -713,14 +715,20 @@ def n_per_bin(assemblies: list[Path], sequences: list[tuple[str, int]], bin_bp: 
             if name not in lengths:
                 continue
             track = counts[name]
-            if len(rec.seq) == lengths[name] or not rec.seq:
-                for i in range(len(track)):
-                    track[i] += rec.seq.count("N", i * bin_bp, (i + 1) * bin_bp)
+            difference = abs(len(rec.seq) - lengths[name])
+            if difference and difference <= RESCALE_WITHIN * lengths[name]:
+                factor = lengths[name] / len(rec.seq)
+                for m in re.finditer("N+", rec.seq):
+                    _add_run(track, m.start() * factor, m.end() * factor, m.end() - m.start(), bin_bp)
                 continue
-            factor = lengths[name] / len(rec.seq)
-            for m in re.finditer("N+", rec.seq):
-                _add_run(track, m.start() * factor, m.end() * factor, m.end() - m.start(), bin_bp)
+            for i in range(len(track)):
+                track[i] += rec.seq.count("N", i * bin_bp, (i + 1) * bin_bp)
     return counts
+
+
+# A templated record's length may differ from the reference's by this fraction (indels) and still be placed on the
+# reference by rescaling; beyond that it is a partial record, counted where it is.
+RESCALE_WITHIN = 0.05
 
 
 def _add_run(track: list[int], start: float, end: float, count: int, bin_bp: int) -> None:
@@ -1287,19 +1295,26 @@ def build_report(output: Path) -> str:
     notes: list[str] = []
 
     def located(key: str) -> Path | None:
-        """A file of the comparison: relative paths start from the output folder; an absolute path that no
-        longer exists (the folder was moved) is looked up under 4_compared/ of this folder."""
+        """A file of the comparison, in this folder: a relative path starts from it, and an absolute one (the
+        run's folder, which may be elsewhere when this folder is a copy) is looked up by its part under the run's
+        output folder, or from 4_compared/ on; the absolute path itself is read only when it cannot be mapped
+        into this folder (a file missing from a copy is missing, not the original's)."""
         if not comparison.get(key):
             return None
-        path = output / comparison[key]
-        if not path.exists():
-            parts = Path(comparison[key]).parts
-            if "4_compared" in parts:
-                moved = output.joinpath(*parts[parts.index("4_compared"):])
-                if moved.exists():
-                    return moved
-            notes.append(f"{comparison[key]} was not found")
-        return path
+        recorded = Path(comparison[key])
+        candidates = [output / recorded] if not recorded.is_absolute() else []
+        if recorded.is_absolute():
+            root = str(settings.get("output") or "")
+            if root and recorded.is_relative_to(root):
+                candidates.append(output / recorded.relative_to(root))
+            if "4_compared" in recorded.parts:
+                candidates.append(output.joinpath(*recorded.parts[recorded.parts.index("4_compared"):]))
+        candidates = candidates or [recorded]
+        for path in candidates:
+            if path.exists():
+                return path
+        notes.append(f"{comparison[key]} was not found")
+        return candidates[0]
 
     # The comparison's files, read before the page so that the overview can count the distinct genomes
     distances = located("distances")
@@ -1355,11 +1370,14 @@ def build_report(output: Path) -> str:
         tiles.append(tile(f"{core_snps:,}" if isinstance(core_snps, int) else "–", "SNP sites"))
     out.append(f'<div class="tiles">{"".join(tiles)}</div>')
     if metadata is not None:
-        recorded = info.get("metadata") if isinstance(info.get("metadata"), dict) else {}
-        sources = ([Path(str(recorded["file"])).name] if recorded.get("file") else []) \
-            + (["the sample sheet"] if recorded.get("sample_sheet_columns") else [])
+        recorded = info.get("metadata") if isinstance(info.get("metadata"), dict) else None
+        sources = ([Path(str(recorded["file"])).name] if recorded and recorded.get("file") else []) \
+            + (["the sample sheet"] if recorded and recorded.get("sample_sheet_columns") else [])
         with_row = sum(1 for r in rows if any(metadata.value(r.get("Sample", ""), c) for c in metadata.columns))
-        text = (f"Metadata from <b>{esc(' and '.join(sources) or COPY_NAME)}</b>: {len(metadata.columns)} "
+        origin = (f"<b>{esc(' and '.join(sources) or COPY_NAME)}</b>" if recorded else
+                  f"<b>{COPY_NAME}</b> (found in the output folder; not given to this run, so run_info.json and "
+                  "the MultiQC table do not have it)")
+        text = (f"Metadata from {origin}: {len(metadata.columns)} "
                 f"column{'s' if len(metadata.columns) != 1 else ''} ({esc(', '.join(metadata.columns))}); "
                 f"{with_row} of {len(rows)} samples have a value. ")
         text += (f"The tree and the heatmap are coloured by <b>{esc(column)}</b>." if colours else
@@ -1510,8 +1528,12 @@ def snp_summary(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], ann
     """One paragraph: SNPs per region, per context, the effects, and the genes with the most SNPs."""
     annotated = [info[(s.chrom, s.pos)] for s in snps if (s.chrom, s.pos) in info]
     sentences = [f"{len(annotated):,} SNP{'s' if len(annotated) != 1 else ''} on the annotated sequences"]
+    elsewhere = len(snps) - len(annotated)
+    if elsewhere:
+        sentences.append(f"{elsewhere:,} SNP{'s are' if elsewhere != 1 else ' is'} on sequences without "
+                         "annotation (no gene, context or effect)")
     if not annotated:
-        return sentences[0] + "."
+        return ". ".join(sentences) + "."
     regions = [r.name for a in annotation.sequences.values() for r in a.regions]
     if regions:
         counts = {name: sum(1 for a in annotated if a.region == name) for name in dict.fromkeys(regions)}
@@ -1540,18 +1562,19 @@ def snp_summary(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], ann
 
 
 def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genomes: int,
-              regions: bool = True) -> str:
-    """One row per SNP of the VCF: position, alleles, region (when there is a region band), gene, context, codon
-    and amino-acid change, effect, genomes with the alternate allele and genomes without a call. Sortable."""
-    columns = [("Position", "num"), ("REF>ALT", ""), *([("Region", "")] if regions else []), ("Gene", "gene"),
-               ("Context", "ctx"), ("Codon", ""), ("Amino acid", ""), ("Effect", "ctx"), ("ALT genomes", "num"),
-               ("Missing", "num")]
+              regions: bool = True, sequences: bool = False) -> str:
+    """One row per SNP of the VCF: sequence (when the reference has several), position, alleles, region (when
+    there is a region band), gene, context, codon and amino-acid change, effect, genomes with the alternate allele
+    and genomes without a call. Sortable."""
+    columns = [*([("Sequence", "")] if sequences else []), ("Position", "num"), ("REF>ALT", ""),
+               *([("Region", "")] if regions else []), ("Gene", "gene"), ("Context", "ctx"), ("Codon", ""),
+               ("Amino acid", ""), ("Effect", "ctx"), ("ALT genomes", "num"), ("Missing", "num")]
     out = ['<div class="tablewrap tall"><table class="snps sortable"><thead><tr>'
            + "".join(f'<th class="{cls}">{esc(label)}</th>' for label, cls in columns) + "</tr></thead><tbody>"]
     for s in snps[:MAX_SNP_ROWS]:
         a = info.get((s.chrom, s.pos))
         if a is None:
-            cells = [""] * (len(columns) - 4)
+            cells = [""] * (5 + regions)  # Region, gene, context, codon, amino acid, effect
         else:
             several = len({e.gene for e in a.effects}) > 1 or len({e.alt for e in a.effects}) > 1
             prefix = (lambda e: f"{e.gene} {e.alt}: ") if several else (lambda e: "")
@@ -1559,7 +1582,8 @@ def snp_table(snps: list[Snp], info: dict[tuple[str, int], SnpAnnotation], genom
                      a.context, "; ".join(prefix(e) + e.codons for e in a.effects),
                      "; ".join(prefix(e) + e.change for e in a.effects),
                      "; ".join(prefix(e) + e.kind for e in a.effects)]
-        values = [(str(s.pos), f"{s.pos:,}"), (f"{s.ref}>{s.alt}", f"{s.ref}>{s.alt}"), *((c, c) for c in cells),
+        values = [*([(s.chrom, s.chrom)] if sequences else []), (str(s.pos), f"{s.pos:,}"),
+                  (f"{s.ref}>{s.alt}", f"{s.ref}>{s.alt}"), *((c, c) for c in cells),
                   (str(s.alt_count), f"{s.alt_count}"), (str(s.missing), f"{s.missing}")]
         out.append("<tr>" + "".join(f'<td class="{cls}" data-v="{esc(v)}">{esc(shown) or "–"}</td>'
                                     for (_, cls), (v, shown) in zip(columns, values)) + "</tr>")
@@ -1624,7 +1648,8 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
             n_text = (f" The N track sums the N bases of the {len(assemblies)} templated assemblies per "
                       f"{n_bin / 1000:g} kb (log scale). Positions are approximate: the consensus follows the "
                       "reference coordinates, but its insertions and deletions shift the positions after them (an "
-                      "assembly of another length than the reference is rescaled to it).")
+                      f"assembly whose length differs from the reference's by up to {RESCALE_WITHIN:.0%} is "
+                      "rescaled to it; one differing by more is counted at its own positions).")
     else:
         n_text = (f" No N track: {assembler or 'the'} assemblies are de novo, so their coordinates do not follow "
                   "the reference.")
@@ -1659,7 +1684,7 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
     if annotation is not None and annotation.sequences and snps:
         out.append(f'<h3>SNPs</h3><p class="meta">{snp_summary(snps, snp_info, annotation)} Click a column to '
                    "sort.</p>")
-        out.append(snp_table(snps, snp_info, columns or genomes, annotation.has_regions))
+        out.append(snp_table(snps, snp_info, columns or genomes, annotation.has_regions, len(sequences) > 1))
     return "".join(out)
 
 
@@ -1674,6 +1699,9 @@ def write_report(output: Path) -> Path:
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("Usage: python -m bacon.report OUTPUT_FOLDER")
-    if not (Path(sys.argv[1]) / "run_info.json").is_file():
+    folder = Path(sys.argv[1])
+    if not (folder / "run_info.json").is_file():
+        if (folder / "bacon.log").is_file() or (folder / ".checkpoints").is_dir():  # run_info.json ends a run
+            sys.exit(f"{sys.argv[1]}: the run did not finish: resume it to get a report")
         sys.exit(f"{sys.argv[1]}: no run_info.json (not a BACoN output folder)")
-    print(write_report(Path(sys.argv[1])))
+    print(write_report(folder))

@@ -173,6 +173,9 @@ def test_n_per_bin_matches_records_to_reference_sequences(tmp_path):
     (tmp_path / "s2.fasta").write_text(">s2_c1\n" + "A" * 4 + "N" * 6 + "\n")
     counts = n_per_bin([tmp_path / "s1.fasta", tmp_path / "s2.fasta"], [("c1", 10), ("c2", 4)], 4)
     assert counts == {"c1": [0, 8, 2], "c2": [2, 0]}  # s1_other is not a reference sequence
+    (tmp_path / "my_sample_2.fasta").write_text(">my_sample_2_c1\nNNNNACGTAC\n")  # "_" in the sample name
+    counts = n_per_bin([tmp_path / "my_sample_2.fasta"], [("c1", 10), ("c2", 4)], 4)
+    assert counts == {"c1": [4, 0, 0], "c2": [0, 0]}
 
 
 def test_tool_version_number_only():
@@ -360,6 +363,9 @@ def test_report_command_on_a_folder_that_is_not_bacon(tmp_path):
     import sys
     done = subprocess.run([sys.executable, "-m", "bacon.report", str(tmp_path)], capture_output=True, text=True)
     assert done.returncode == 1 and "not a BACoN output folder" in done.stderr and "Traceback" not in done.stderr
+    (tmp_path / "bacon.log").write_text("2026-10-07 [INFO] BACoN\n")  # A run that did not finish (no run_info)
+    done = subprocess.run([sys.executable, "-m", "bacon.report", str(tmp_path)], capture_output=True, text=True)
+    assert done.returncode == 1 and "the run did not finish: resume it to get a report" in done.stderr
 
 
 TREE = "((a:0.001,Reference:0.0005)0.9:0.002,b:0.003);\n"
@@ -698,7 +704,9 @@ def test_report_metadata_without_colours_and_fallbacks(tmp_path):
     assert '<table class="cross">' not in page and '<th class="md">group</th>' in page
     # No record in run_info (a hand-made copy): the first usable column
     out = _metadata_run(tmp_path / "x", "sample\tgroup\na\tx\nb\ty\n", record=False)
-    assert "coloured by <b>group</b>" in build_report(out) and "Metadata from <b>metadata.tsv</b>" in build_report(out)
+    page = build_report(out)
+    assert "coloured by <b>group</b>" in page and "Metadata from <b>metadata.tsv</b> (found in the output folder; " \
+        "not given to this run, so run_info.json and the MultiQC table do not have it): 1 column" in page
     # A recorded column missing from the copy: no colours; an unreadable copy: a note
     out = _metadata_run(tmp_path / "y", "sample\tother\na\tx\nb\ty\n", color_by="group")
     assert "No column colours the figures" in build_report(out)
@@ -792,7 +800,8 @@ def test_metadata_columns_named_like_the_tables_own_are_marked(tmp_path):
         ["Status (metadata)", "Depth (metadata)", "sample (metadata)", "site"]
 
 
-def test_print_stylesheet_unrolls_tall_tables_and_wraps_cells():
+def test_print_stylesheet_unrolls_tall_tables_and_wraps_cells(tmp_path):
+    assert '<div class="tablewrap tall"><table class="snps' in build_report(_annotated_run(tmp_path))
     from bacon.report import CSS
     print_css = CSS.split("@media print{", 1)[1]
     assert ".tablewrap.tall{max-height:none;overflow:visible}" in print_css  # Every SNP row is printed
@@ -849,16 +858,22 @@ def test_bar_chart_of_zeros_has_no_made_up_scale():
 
 
 def test_n_per_bin_rescales_an_assembly_of_another_length(tmp_path):
-    # A 600-bp insertion before a run of N shifts it in the consensus; a 500-bp deletion pulls it forward
-    (tmp_path / "ins.fasta").write_text(">ins_chr1\n" + "A" * 2600 + "N" * 100 + "A" * 400 + "\n")  # 3,100 bp
-    (tmp_path / "del.fasta").write_text(">del_chr1\n" + "A" * 800 + "N" * 100 + "A" * 1100 + "\n")  # 2,000 bp
+    # A 100-bp insertion before a run of N shifts it in the consensus; a 100-bp deletion pulls it forward
+    (tmp_path / "ins.fasta").write_text(">ins_chr1\n" + "A" * 2100 + "N" * 100 + "A" * 400 + "\n")  # 2,600 bp
+    (tmp_path / "del.fasta").write_text(">del_chr1\n" + "A" * 1000 + "N" * 100 + "A" * 1300 + "\n")  # 2,400 bp
     (tmp_path / "edge.fasta").write_text(">edge_chr1\n" + "A" * 450 + "N" * 100 + "A" * 450 + "\n")  # 1,000 bp
     assert n_per_bin([tmp_path / "ins.fasta"], [("chr1", 2500)], 500) == {"chr1": [0, 0, 0, 0, 100, 0]}
     assert n_per_bin([tmp_path / "del.fasta"], [("chr1", 2500)], 500) == {"chr1": [0, 0, 100, 0, 0, 0]}
-    # 2,601–2,700 x 2500/3100 = 2,097–2,177 (the fifth bin); 801–900 x 1.25 = 1,001–1,125 (the third)
-    assert n_per_bin([tmp_path / "edge.fasta"], [("chr1", 2000)], 1000) == {"chr1": [50, 50, 0]}  # Split, same sum
+    # 2,101–2,200 x 2500/2600 = 2,020–2,115 (the fifth bin); 1,001–1,100 x 2500/2400 = 1,042–1,146 (the third)
+    assert n_per_bin([tmp_path / "edge.fasta"], [("chr1", 1040)], 520) == {"chr1": [50, 50, 0]}  # Split, same sum
     both = n_per_bin([tmp_path / "ins.fasta", tmp_path / "del.fasta"], [("chr1", 2500)], 500)
     assert sum(both["chr1"]) == 200
+    # Rescaling is for indels: up to 5% of the length. A record of another length is a partial consensus, counted
+    # at its own positions (rescaled, the half-length record's N run would land in the last bin)
+    (tmp_path / "near.fasta").write_text(">near_chr1\n" + "A" * 890 + "N" * 10 + "A" * 60 + "\n")  # 960 bp: 4%
+    assert n_per_bin([tmp_path / "near.fasta"], [("chr1", 1000)], 100)["chr1"][8:10] == [0, 10]  # 891–900 x 1.04
+    (tmp_path / "half.fasta").write_text(">half_chr1\n" + "A" * 490 + "N" * 10 + "\n")  # 500 bp of 1,000
+    assert n_per_bin([tmp_path / "half.fasta"], [("chr1", 1000)], 100) == {"chr1": [0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0]}
 
 
 def test_read_vcf_classes_every_genotype_form(tmp_path):
@@ -926,3 +941,67 @@ def test_gene_title_map_and_labels_use_the_ranges_of_a_gene_in_pieces():
     placed, _ = place_labels([wrapped, spliced], 0, 2000, 1.0)
     centres = {g.name: x for x, _, g in placed}
     assert centres["psbA"] <= 40 and 1540 <= centres["rps12"] <= 1560  # On the largest piece, not the hull's middle
+
+
+def test_heatmap_classes_at_the_upper_edge_of_each_bin():
+    import re
+
+    from bacon.report import distance_bins, heatmap
+    bins = distance_bins(118)
+    assert bins == [(0, 0), (1, 3), (4, 10), (11, 30), (31, 118)]
+    names = ["Reference", "a", "b", "c", "d"]
+    pairs = {("a", "b"): 3, ("a", "c"): 10, ("a", "d"): 30, ("b", "c"): 118}
+    matrix = {x: {y: 0 for y in names} for x in names}
+    for (x, y), d in pairs.items():
+        matrix[x][y] = matrix[y][x] = d
+    page = heatmap(names, matrix)
+    groups: dict[str, str] = {}
+    for cls, content in re.findall(r'<g class="(q\d)"[^>]*>(.*?)</g>', page, re.S):  # Cells (and legend swatches)
+        groups[cls] = groups.get(cls, "") + content
+    for (x, y), d, cls in [(("a", "b"), 3, "q1"), (("a", "c"), 10, "q2"), (("a", "d"), 30, "q3")]:
+        assert f"{x} – {y}: {d} SNPs" in groups[cls], (d, cls)
+
+
+def test_snp_table_names_the_sequence_when_the_reference_has_several(tmp_path):
+    out = _annotated_run(tmp_path)
+    page = build_report(out)
+    assert '<th class="">Sequence</th>' not in page and "on sequences without annotation" not in page
+    (out / "reference.fasta").write_text(">c1 some description\n" + "ACGT" * 1000 + "\n>c2\n" + "ACGT" * 100 + "\n")
+    (out / "4_compared" / "ska" / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+        "c1\t101\t.\tA\tG\t.\t.\t.\tGT\t1\t0\nc1\t2500\t.\tT\tC\t.\t.\t.\tGT\t1\t.\n"
+        "c2\t50\t.\tG\tA\t.\t.\t.\tGT\t1\t0\n")
+    page = build_report(out)
+    assert '<th class="">Sequence</th><th class="num">Position</th>' in page
+    assert '<tr><td class="" data-v="c2">c2</td><td class="num" data-v="50">50</td>' in page
+    assert "2 SNPs on the annotated sequences: 1 in IRa, 1 in the LSC. 1 SNP is on sequences without annotation " \
+        "(no gene, context or effect). 1 in coding sequences" in page
+
+
+def test_report_of_a_copied_folder_reads_its_own_files(tmp_path):
+    import shutil
+    out = _full_run(tmp_path)
+    info = json.loads((out / "run_info.json").read_text())
+    info["settings"]["output"] = str(out)  # As a run records them: absolute paths in the run's folder
+    info["comparison"] = {k: str(out / v) if isinstance(v, str) and v.startswith("4_compared") else v
+                          for k, v in info["comparison"].items()}
+    (out / "run_info.json").write_text(json.dumps(info))
+    copy = shutil.copytree(out, tmp_path / "copy")
+    (copy / "4_compared" / "ska" / "snps.vcf").unlink()
+    page = build_report(copy)
+    assert "snps.vcf was not found" in page and "Genome map" not in page  # Not the original folder's file
+    assert "SNP distances" in page and "not found" not in page.split("snps.vcf was not found")[0]
+    assert "Genome map" in build_report(out)
+
+
+def test_read_vcf_classes_each_genotype_once_whatever_the_other_fields(tmp_path, monkeypatch):
+    import bacon.report as report_module
+    classed = []
+    real = report_module._call_kind
+    monkeypatch.setattr(report_module, "_call_kind", lambda gt: classed.append(gt) or real(gt))
+    header = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\tc\n"
+    rows = "".join(f"c1\t{pos}\t.\tA\tG\t.\t.\t.\tGT:DP\t1:{pos}\t0:{pos + 1}\t.:{pos + 2}\n" for pos in (10, 20, 30))
+    (tmp_path / "s.vcf").write_text("##fileformat=VCFv4.2\n" + header + rows)
+    snps, genomes = read_vcf(tmp_path / "s.vcf")
+    assert genomes == 3 and [(s.alt_count, s.missing) for s in snps] == [(1, 1)] * 3
+    assert sorted(classed) == [".", "0", "1"]  # Not once per distinct sample column (nine here)

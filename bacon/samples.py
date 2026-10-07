@@ -90,9 +90,10 @@ def read_sample_sheet(path: Path) -> list[Sample]:
     """Samples from a TSV or CSV file with the columns 'sample' and 'file' (files separated by ';').
 
     Several rows may share a sample name; their files are merged. Relative paths are resolved from the
-    sheet's folder. The other columns are metadata (bacon.metadata.sheet_metadata).
+    sheet's folder. Lines starting with '#' are comments, before or after the header (a sample can be left out
+    by commenting its line). The other columns are metadata (bacon.metadata.sheet_metadata).
     """
-    header, rows = read_table(path, "Sample sheet")
+    header, rows = read_table(path, "Sample sheet", comment_lines=True)
     columns = {c.lower(): c for c in header}
     if "sample" not in columns or "file" not in columns:
         raise BaconError(f"Sample sheet {path} needs the columns 'sample' and 'file' (found: {header})")

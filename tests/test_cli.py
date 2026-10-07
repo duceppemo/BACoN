@@ -15,9 +15,13 @@ def test_version_matches_pyproject():
     v = bacon.__version__
     assert f"\nversion: {v}\n" in (root / "CITATION.cff").read_text()
     assert f"Nanopore reads (v{v})." in (root / "README.md").read_text()
-    for doc in (root / "README.md", root / "docs" / "wiki" / "Installation.md"):  # The example's download line
+    for doc in (root / "README.md", root / "docs" / "wiki" / "Installation.md"):  # Download and pip lines
         text = doc.read_text()
-        assert f"archive/refs/tags/v{v}.tar.gz" in text and f"BACoN-{v}/example" in text, doc
+        assert set(re.findall(r"refs/tags/v([\d.]+)\.tar\.gz", text)) == {v}, doc
+        assert set(re.findall(r"BACoN-([\d.]+)/example", text)) == {v}, doc
+    for report in (root / "docs" / "reports").glob("*.html"):  # Published reports made with this version
+        text = report.read_text()
+        assert f"BACoN {v}" in text and not set(re.findall(r"BACoN (\d+\.\d+\.\d+)", text)) - {v}, report
 
 
 def test_version_flag(capsys):

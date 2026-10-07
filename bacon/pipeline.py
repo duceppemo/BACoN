@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import gzip
 import hashlib
 import json
 import logging
@@ -28,7 +29,6 @@ from bacon.seqio import (
     Record,
     acgtn,
     check_reference,
-    open_text,
     read_records,
     sniff_format,
     split_extension,
@@ -122,7 +122,7 @@ class Checkpoints:
             return None
         root = data.get("root") or _guess_root(data.get("results"))  # No root before 0.3.4
         if root and root != self.root:  # A moved or copied output folder: its own files
-            data = _moved(data, root, self.root)
+            data = {**_moved(data, root, self.root), "relocated": True}
         return data
 
     def save(self, step: str, fingerprint: str, results: dict) -> None:
@@ -160,12 +160,13 @@ def _moved(data: object, old: str, new: str) -> object:
     return data
 
 
-def _same_input(res: dict, upstream: object, reads: Path | None) -> bool:
+def _same_input(res: dict, upstream: object, reads: Path | None, relocated: bool = False) -> bool:
     """Whether a sample's saved result was made from its current input (`upstream`: the signature of the
-    previous step's output). A result of BACoN < 0.3.5 may have no signature: it must then be newer than its
-    input (an input made again after it, by a run interrupted before this step, is newer)."""
+    previous step's output; in a moved or copied folder, `relocated`, the sizes alone: a copy may not keep the
+    files' times). A result of BACoN < 0.3.5 may have no signature: it must then be newer than its input (an
+    input made again after it, by a run interrupted before this step, is newer)."""
     if "upstream" in res:
-        return res["upstream"] == upstream
+        return res["upstream"] == upstream or (relocated and _size_only(res["upstream"]) == _size_only(upstream))
     if reads is None or not res.get("output"):
         return True
     try:
@@ -181,6 +182,12 @@ def _output_signature(path: Path | None) -> list[object] | None:
         return None
     st = path.stat()
     return [st.st_size, st.st_mtime_ns]
+
+
+def _size_only(signature: object) -> object:
+    """The size of an output signature ([size, mtime_ns], or None): all that a copy of the output folder made
+    without the files' times (cp -r, scp, an archive) keeps."""
+    return signature[0] if isinstance(signature, list) and signature else signature
 
 
 def _file_signature(path: Path) -> list[object]:
@@ -327,15 +334,45 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
 ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")
 
 
+def _open_bytes(path: Path):
+    """The file's bytes, decompressed when it is gzipped (detected from its content)."""
+    with open(path, "rb") as fh:
+        magic = fh.read(2)
+    return gzip.open(path, "rb") if magic == b"\x1f\x8b" else open(path, "rb")
+
+
+def _record_copy(s: Settings, key: str, name: str | None) -> None:
+    """Record in .checkpoints/copies.json the copy (of the annotation or of the metadata) this run writes, or
+    None when it has none, as soon as it is written: run_info.json records it too, but only at the end of the
+    run, and an interrupted first run would leave BACoN's own copies looking hand-made."""
+    path = s.output / ".checkpoints" / "copies.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data = {**data, key: name} if isinstance(data, dict) else {key: name}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1))
+    tmp.replace(path)
+
+
 def _recorded_copy(s: Settings, key: str) -> str | None:
     """The name of the copy (of the annotation or of the metadata) that the previous run of this folder recorded
-    in run_info.json as its own, or None: a file BACoN did not write (hand-made, or from another tool) is kept."""
-    try:
-        info = json.loads((s.output / "run_info.json").read_text())
-    except (OSError, ValueError):
-        return None
-    recorded = info.get(key) if isinstance(info, dict) else None
-    return recorded.get("copy") if isinstance(recorded, dict) else None
+    as its own, in .checkpoints/copies.json or, for a folder of an earlier version, in run_info.json; None when
+    there is none: a file BACoN did not write (hand-made, or from another tool) is kept."""
+    for file in (s.output / ".checkpoints" / "copies.json", s.output / "run_info.json"):
+        try:
+            info = json.loads(file.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(info, dict) or key not in info:
+            continue
+        recorded = info[key]
+        if file.name == "copies.json":
+            return recorded if isinstance(recorded, str) else None
+        return recorded.get("copy") if isinstance(recorded, dict) else None
+    return None
 
 
 def _remove_copy(s: Settings, path: Path, recorded: str | None, what: str) -> None:
@@ -357,6 +394,7 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
     if source is None:
         for name in ANNOTATION_COPIES:
             _remove_copy(s, s.output / name, recorded, "Annotation")
+        _record_copy(s, "annotation", None)
         return None
     sequences = [(r.name, len(r.seq)) for r in read_records(reference)]
     annotation = load_annotation(source, sequences)
@@ -367,13 +405,14 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
         if name != copy.name:
             _remove_copy(s, s.output / name, recorded, "Annotation")
     tmp = copy.with_suffix(".tmp")
-    with open_text(source) as src, open(tmp, "w", encoding="ascii", errors="replace") as dst:
-        for line in src:
-            dst.write(line)
+    with _open_bytes(source) as src, open(tmp, "wb") as dst:  # The bytes as they are (non-ASCII text included)
+        for chunk in iter(lambda: src.read(1 << 20), b""):
+            dst.write(chunk)
     if copy.exists() and copy.read_bytes() == tmp.read_bytes():
         tmp.unlink()
     else:
         tmp.replace(copy)
+    _record_copy(s, "annotation", copy.name)
     log.info("Annotation %s: %d gene(s) on %d of the reference's %d sequence(s)%s", source.name, annotation.genes,
              len(annotation.sequences), len(sequences),
              "; LSC/IR/SSC regions" if annotation.has_regions else "")
@@ -397,6 +436,7 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
             raise BaconError(f"--color-by {s.color_by!r}: no metadata (give --metadata, or a sample sheet with "
                              "columns besides 'sample' and 'file')")
         _remove_copy(s, copy, _recorded_copy(s, "metadata"), "Metadata")
+        _record_copy(s, "metadata", None)
         return None
     names = [x.name for x in samples]
     added = [parts[0] for p in s.add_genomes if (parts := split_extension(p.name))]  # As _prepare_added_genomes
@@ -410,6 +450,7 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
     if why_not:
         log.warning("Metadata: %s", why_not)
     md.write_copy(copy, metadata)
+    _record_copy(s, "metadata", copy.name)
     with_row = sum(1 for n in names if n in merged.rows)
     added_with_row = sum(1 for n in added if n in merged.rows)
     log.info("Metadata: %d column(s) (%s); %d of %d samples have a row%s; %s", len(metadata.columns),
@@ -582,6 +623,7 @@ def _run(s: Settings, started: float) -> int:
     for i, step in enumerate(STEPS[:-1]):
         fingerprint = _fingerprint(fingerprint, params[step])
         saved = None if i >= redo_from else checkpoints.load(step, fingerprint)
+        relocated = bool(saved and saved.get("relocated"))  # A moved or copied folder: sizes alone are compared
         # What each sample's step reads: its input files (bait), or the output of the previous step.
         upstream = {st.sample.name: inputs[st.sample.name] if step == "bait" else _output_signature(st.reads)
                     for st in states}
@@ -591,11 +633,11 @@ def _run(s: Settings, started: float) -> int:
         results = {name: res for name, res in (saved or {}).get("results", {}).items()
                    if name in inputs and not res.get("failed") and name not in refreshed
                    and (res.get("input") == inputs[name] if step == "bait"
-                        else _same_input(res, upstream.get(name), reads.get(name)))
+                        else _same_input(res, upstream.get(name), reads.get(name), relocated))
                    and _outputs_exist({name: res})}
-        for name, res in results.items():  # Results of earlier versions get their input's signature
+        for name, res in results.items():  # The input's signature, as it is here: a copy's files, earlier versions
             if step != "bait":
-                res.setdefault("upstream", upstream[name])
+                res["upstream"] = upstream[name]
         todo = [st for st in states if not st.failed and st.sample.name not in results]
         if not todo:
             log.info("%s: already done, skipping", labels[step])
@@ -664,7 +706,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     signatures = {k: _output_signature(v) for k, v in sorted(assemblies.items())}
     saved = None if force else checkpoints.load("compare", fingerprint)
     if saved is not None and not _same_assemblies(saved["results"].pop("inputs", None), signatures, assemblies,
-                                                  saved["results"].get("distances")):
+                                                  saved["results"].get("distances"), bool(saved.get("relocated"))):
         saved = None  # An assembly changed since (made again, then interrupted before the comparison)
     if saved is not None and Path(saved["results"].get("distances", "")).is_file():
         log.info("Comparison with %s: already done, skipping", s.snp_method)
@@ -712,11 +754,13 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
 
 
 def _same_assemblies(saved: dict | None, signatures: dict, assemblies: dict[str, Path | None],
-                     distances: str | None) -> bool:
-    """Whether a saved comparison was made from the current assemblies. A comparison of BACoN < 0.3.4 has no
-    signatures: it must then be newer than every assembly."""
+                     distances: str | None, relocated: bool = False) -> bool:
+    """Whether a saved comparison was made from the current assemblies (in a moved or copied folder,
+    `relocated`, by their sizes alone). A comparison of BACoN < 0.3.4 has no signatures: it must then be newer
+    than every assembly."""
     if saved is not None:
-        return saved == signatures
+        return saved == signatures or (relocated and {k: _size_only(v) for k, v in saved.items()}
+                                       == {k: _size_only(v) for k, v in signatures.items()})
     try:
         made = Path(distances or "").stat().st_mtime_ns
         return all(p is None or p.stat().st_mtime_ns <= made for p in assemblies.values())

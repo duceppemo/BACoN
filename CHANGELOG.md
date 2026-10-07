@@ -35,16 +35,46 @@
   the report. The published reports and the wiki pictures were rebuilt with all the features.
 - The report's page is wider (1,440 px at most), so that a samples table with metadata columns fits; printed,
   its tables are complete (landscape, cells wrap).
-- Sample sheets are read strictly: an unclosed quote in a CSV, or a quoted value over several lines, is an error
-  naming the line; quotes in a TSV are kept as written; two columns with the same name are an error; lines
-  starting with `#` are comments only before the header.
+- Sample sheets and metadata files are read strictly where it matters: an unclosed quote in a CSV, or a quoted
+  value over several lines, is an error naming the line; a TSV's cells are split on tabs only (a cell entirely
+  in quotes loses them, as before; other quotes are kept as written); two columns with the same name are an
+  error saying so. In a sample sheet, lines starting with `#` are comments before and after the header, as
+  before; in a metadata file, only before it (so a value such as `#FF0000` may come first).
+- A moved or copied output folder resumes without rerunning anything, even when the copy did not keep the files'
+  times (`cp -r` without `-a`, `scp`, an archive): in such a folder, the input of each step and of the
+  comparison is recognized by its size (0.3.5 ran filtering, assembly and comparison again).
+- The report's SNP table has a `Sequence` column when the reference has several sequences, and its summary
+  counts the SNPs on sequences without annotation. The N track rescales a templated assembly to the reference
+  only when their lengths differ by 5% or less (indels); a shorter or longer record is counted at its own
+  positions. A `metadata.tsv` found in the output folder but not given to the run is said to be so in the
+  report's metadata line (`run_info.json` and the MultiQC table do not have it).
+- GFF3 annotations: the lines of a CDS across the origin listed by ascending coordinate (a sorted file) are read
+  in the order of translation on both strands, with the sequence length from `##sequence-region` or, without
+  it, from the reference; a single line ending beyond the length of a sequence flagged `Is_circular=true`
+  (Bakta's way of writing a feature across the origin) is split into its two parts instead of being ignored.
 
 ### Fixed
 - An unclosed quote in a sample sheet silently swallowed the rows after it (their samples were not run).
+- A first run interrupted before its end left its copies `annotation.gb` (or `.gff3`) and `metadata.tsv`
+  looking hand-made to the next run, which kept them when it had no annotation or metadata: the copies are now
+  recorded in `.checkpoints/copies.json` as they are written, not only in `run_info.json` at the end.
+- The annotation copy replaced non-ASCII characters with `?`; the file's bytes are copied as they are
+  (decompressed when gzipped).
+- `python -m bacon.report` on a copied output folder read the comparison files of the original folder through
+  the absolute paths of `run_info.json`; it reads the folder's own files, and notes a missing one. On a run that
+  did not finish, it says so (resume it to get a report) instead of "not a BACoN output folder".
+- The report's VCF reader classed each distinct sample column instead of each distinct genotype, which was slow
+  with per-sample fields (`GT:DP`...).
 - The report: the VCF is read about 25 times faster for large runs; the support of a branch at the root could be
   drawn outside the tree; heatmap group labels overlapped with many small groups; long sample names were cut in
   the bar charts; the small grey text, the "no value" markers and the numbers in some heatmap cells had too
   little contrast.
+
+### Upgrading to 0.3.6
+- Sample sheets of 0.3.5 are read as before (quoted TSV cells, lines starting with `#` after the header), except
+  that an unclosed quote in a CSV is an error instead of silently losing the rows after it.
+- Output folders of 0.3.2 to 0.3.5 resume as they are; nothing runs again. A copy made without the files' times
+  no longer reruns filtering, assembly and comparison.
 
 ## 0.3.5 (2026-10-02)
 

@@ -116,8 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
                           "the reference, shows structure; myloasm keeps linear tandem arrays linear). "
                           "Default: %(default)s")
     asm.add_argument("--template-gaps", choices=["n", "reference"], default="n",
-                     help="samtools: reference positions that no read covers are N, or at the sequence ends only, "
-                          "copied from the reference. Default: %(default)s")
+                     help="samtools: reference positions covered by fewer than three reads are N, or, at the "
+                          "sequence ends only, copied from the reference. Default: %(default)s")
     asm.add_argument("--read-type", choices=["nano-hq", "nano-raw", "nano-corr"], default="nano-hq",
                      help="Flye read type: nano-hq for Guppy5+/Dorado reads (<5%% error), nano-raw for older "
                           "reads. Default: %(default)s")

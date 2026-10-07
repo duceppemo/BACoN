@@ -93,3 +93,22 @@ def test_files_in_hidden_subfolders_are_ignored(tmp_path, fastq):
         (tmp_path / path).write_text("@r\nACGT\n+\nIIII\n")
     [sample] = discover(tmp_path / "in")
     assert [f.name for f in sample.files] == ["a.fastq"]
+
+
+def test_sheets_are_read_as_0_3_5_read_them(tmp_path):
+    from bacon.metadata import sheet_metadata
+    for name in ("a.fastq", "a b.fastq"):
+        (tmp_path / name).write_text("@r\nACGT\n+\nIIII\n")
+    sheet = tmp_path / "s.tsv"
+    # Cells entirely in quotes (a spreadsheet's TSV export) lose them, in the header too, and "" inside is a quote;
+    # a line starting with # after the header is a comment (a sample left out), for the sheet's metadata too
+    sheet.write_text('"sample"\t"file"\t"note"\n"a"\t"a.fastq"\t""\n"b"\t"a b.fastq"\t"5"" tube, ""fine"""\n'
+                     "#c\ta.fastq\tx\n")
+    samples = read_sample_sheet(sheet)
+    assert [(s.name, [f.name for f in s.files]) for s in samples] == [("a", ["a.fastq"]), ("b", ["a b.fastq"])]
+    assert sheet_metadata(sheet).rows == {"a": {"note": ""}, "b": {"note": '5" tube, "fine"'}}
+    sheet.write_text("sample\tfile\na\ta.fastq\n# b\ta b.fastq\n")
+    assert [s.name for s in read_sample_sheet(sheet)] == ["a"]
+    sheet.write_text("sample\tfile\tnote\tnote\na\ta.fastq\tx\ty\n")  # Still an error, saying what to do
+    with pytest.raises(BaconError, match="column name 'note' is used more than once .* give each column"):
+        read_sample_sheet(sheet)
