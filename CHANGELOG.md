@@ -8,8 +8,10 @@
   The report's genome map then shows the genes of each strand, the LSC/IRb/SSC/IRa regions of a plastome
   derived from its inverted repeats, and labels for the genes with the most SNPs, and a new sortable table
   gives each SNP's region, gene, context and effect on the coding sequence (codon and amino-acid change,
-  synonymous/missense/nonsense/stop lost or retained/start lost or retained; translation table 11 unless the annotation
-  says otherwise). The annotation is for the report only: it is not part of any checkpoint, so adding it to a
+  synonymous/missense/nonsense/stop lost or retained/start lost or retained; translation table 11 unless the
+  annotation says otherwise, tables 1–5, 9, 11, 13 and 14 known; no effect at a `transl_except` codon). Genes
+  in several pieces (trans-spliced, or across the origin of a circular sequence) are read from either format
+  in their order of translation. The annotation is for the report only: it is not part of any checkpoint, so adding it to a
   finished run reruns nothing; it is copied to `OUTPUT/annotation.gb` or `.gff3` and recorded in
   `run_info.json`. `snps.vcf` is unchanged.
 - Sample metadata: `--metadata FILE` (TSV or CSV with a `sample` column and any other columns), and the columns
@@ -23,14 +25,26 @@
 ### Changed
 - `report.html` has a new look (light and dark themes, numbered figures) and new figures: bar charts of the
   depth and of the `N` bases of each sample; the tree drawn with a coloured square for each group of identical
-  genomes, the supports and a scale bar in SNPs; a heatmap of the distances with colour classes fitted to their
-  range and the groups of identical genomes as coloured bands; and a genome map with the positions of the VCF's
-  SNPs and, for templated assemblies, the `N` bases along the reference.
+  genomes, the supports and a scale bar in substitutions per site with its equivalent in SNPs; a heatmap of the
+  distances with colour classes fitted to their range and the groups of identical genomes as coloured bands;
+  and a genome map with the positions of the VCF's SNPs and, for templated assemblies, the `N` bases along the
+  reference.
 - The bundled example is an annotated, plastid-like reference (LSC, IRb, SSC, IRa; 23 synthetic genes, as
   GenBank and fasta) with a sample metadata file; its 20 SNPs fall in chosen genes and contexts, and
   `example/run_example.sh` checks their effects as well as the distances, so the example shows every feature of
   the report. The published reports and the wiki pictures were rebuilt with all the features.
-- The report's page is wider (1,440 px at most), so that a samples table with metadata columns fits.
+- The report's page is wider (1,440 px at most), so that a samples table with metadata columns fits; printed,
+  its tables are complete (landscape, cells wrap).
+- Sample sheets are read strictly: an unclosed quote in a CSV, or a quoted value over several lines, is an error
+  naming the line; quotes in a TSV are kept as written; two columns with the same name are an error; lines
+  starting with `#` are comments only before the header.
+
+### Fixed
+- An unclosed quote in a sample sheet silently swallowed the rows after it (their samples were not run).
+- The report: the VCF is read about 25 times faster for large runs; the support of a branch at the root could be
+  drawn outside the tree; heatmap group labels overlapped with many small groups; long sample names were cut in
+  the bar charts; the small grey text, the "no value" markers and the numbers in some heatmap cells had too
+  little contrast.
 
 ## 0.3.5 (2026-10-02)
 

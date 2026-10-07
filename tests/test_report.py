@@ -1,4 +1,5 @@
 import json
+import re
 
 from bacon.multiqc import distance_heatmap, reads_bargraph, sample_table
 from bacon.newick import parse
@@ -611,7 +612,7 @@ def _colouring(values: dict[str, str], column="group"):
 def test_colouring_orders_values_and_colours_them():
     c = _colouring({"a": "10", "b": "9", "c": "", "d": "9"})
     assert c.values == ["9", "10"] and c.slot("b") == 0 and c.slot("a") == 1 and c.slot("c") is None
-    assert c.colour("b") == "var(--s1)" and c.colour("c") == "var(--axis)" and c.colour("zz") == "var(--axis)"
+    assert c.colour("b") == "var(--s1)" and c.colour("c") == "var(--muted)" and c.colour("zz") == "var(--muted)"
     assert c.title("a") == "a: group 10" and c.title("c") == "c: no group"
 
 
@@ -623,7 +624,7 @@ def test_heatmap_second_band_and_legend():
     colours = _colouring({"a": "x<1", "b": "y", "c": "x<1", "<d>": ""}, column="Site<s>")
     out = heatmap(names, m, groups, colours)
     assert out.count("<title>a: Site&lt;s&gt; x&lt;1</title>") == 2 and out.count("<title>a: group 1</title>") == 2
-    assert out.count("<title>&lt;d&gt;: no Site&lt;s&gt;</title>") == 2 and 'fill="var(--axis)"' in out
+    assert out.count("<title>&lt;d&gt;: no Site&lt;s&gt;</title>") == 2 and 'fill="var(--muted)"' in out
     assert "Site&lt;s&gt;:</text>" in out and "x&lt;1 (2)</text>" in out and "y (1)</text>" in out
     assert "no value (1)</text>" in out and "<d>" not in out and "x<1" not in out
     plain = heatmap(names, m, groups)
@@ -638,7 +639,7 @@ def test_tree_svg_with_values():
     colours = _colouring({"a": "x", "b": "y", "<c>": "<v>"})
     out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100, colours)
     assert out.count("<circle") == 4 and 'r="4" fill="var(--s2)"><title>a: group x</title>' in out  # <v>, x, y
-    assert 'fill="none" stroke="var(--axis)"><title>Reference: no group</title>' in out  # Hollow: no value
+    assert 'fill="none" stroke="var(--muted)"><title>Reference: no group</title>' in out  # Hollow: no value
     assert '>a <tspan class="t-muted" font-weight="400">x</tspan></text>' in out
     assert '>&lt;c&gt; <tspan class="t-muted" font-weight="400">&lt;v&gt;</tspan>' in out and "<v>" not in out
     assert "Reference <tspan" in out and "ref.fa" in out
@@ -752,3 +753,176 @@ def test_grey_group_bands_alternate_along_the_axes():
     page = heatmap(names, matrix, [["c", "d"], ["a", "b"]], colours)  # Group 2 comes first on the axes
     assert 'fill="var(--ink2)"><title>a: group 2</title>' in page
     assert 'fill="var(--muted)"><title>c: group 1</title>' in page  # Adjacent groups differ
+
+
+def test_grey_group_bands_alternate_per_run_along_the_axes():
+    from bacon.report import Colouring, heatmap
+    names = ["a", "b", "c", "d", "e", "f"]
+    groups = [["a", "c"], ["b", "e"], ["d", "f"]]  # Every group is split by the order of the axes
+    matrix = {x: {y: (0 if any({x, y} <= set(g) for g in groups) or x == y else 4) for y in names} for x in names}
+    colours = Colouring("group", ["A"], {n: "A" for n in names})
+    page = heatmap(names, matrix, groups, colours)
+    fills = [re.search(rf'fill="(var\(--\w+\))"><title>{n}: group \d</title>', page).group(1) for n in names]
+    assert fills == ["var(--ink2)", "var(--muted)"] * 3  # Adjacent runs never share a grey (d after c)
+    blocks = re.findall(r'width="4" height="\d+" fill="(var\(--\w+\))"><title>', page)  # The blocks on the right
+    assert blocks == fills
+
+
+def test_cross_table_columns_only_for_values_of_the_genomes_shown():
+    from bacon.report import cross_table
+    colours = _colouring({"a": "A", "b": "B", "z": "Z"})  # z failed: it is in no figure
+    out = cross_table([["a", "b"]], ["Reference", "a", "b"], colours)
+    head = out.split("</thead>")[0]
+    assert "Z</th>" not in head and "A</th>" in head and "B</th>" in head and "no value</th>" in head
+    assert 'style="background:var(--s2)"></span>B</th>' in head  # B keeps its slot colour of the legend
+    assert out.split("<tr>")[2].count("<td") == 5  # group 1: A, B, no value, Total
+
+
+def test_metadata_columns_named_like_the_tables_own_are_marked(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tStatus\tnote\tsite\ta\tfine\thello\tnorth\nb\tbad\t\tsouth\n".replace(
+        "site\ta", "site\na"), color_by="site")
+    page = build_report(out)
+    head = page.split("<table class=\"samples sortable\">")[1].split("</thead>")[0]
+    assert re.findall(r"<th[^>]*>([^<]*)</th>", head)[:5] == ["Sample", "Status (metadata)", "note (metadata)",
+                                                              "site", "Status"]
+    assert "Metadata from <b>meta &lt;m&gt;.tsv</b>: 3 columns (Status, note, site)" in page  # The file's names
+    from bacon.metadata import Metadata
+    table = sample_table(ROWS, "run", Metadata(["Status", "Depth", "sample", "site"], {}))
+    assert [h["title"] for h in list(table["headers"].values())[:4]] == \
+        ["Status (metadata)", "Depth (metadata)", "sample (metadata)", "site"]
+
+
+def test_print_stylesheet_unrolls_tall_tables_and_wraps_cells():
+    from bacon.report import CSS
+    print_css = CSS.split("@media print{", 1)[1]
+    assert ".tablewrap.tall{max-height:none;overflow:visible}" in print_css  # Every SNP row is printed
+    assert "th,td{white-space:normal" in print_css and "th{position:static}" in print_css  # Wide tables wrap
+
+
+def test_tree_svg_keeps_the_support_of_a_root_child_inside():
+    from bacon.newick import midpoint_root
+    from bacon.report import _text_px
+    out = tree_svg(midpoint_root(parse("(((A:1,B:1)0.9:1,C:1)0.8:1,D:1,E:1);")), {}, "", None)
+    supports = re.findall(r'<text x="([-\d.]+)" y="[-\d.]+" text-anchor="end" class="t-tiny t-muted">([^<]+)<', out)
+    assert {s for _, s in supports} == {"0.9", "0.8"}
+    assert all(float(x) - _text_px(s, 9.5) >= 0 for x, s in supports)  # Not off the left edge
+    assert float(re.search(r'<path d="M([\d.]+),', out).group(1)) >= 16
+
+
+def _blocky_matrix():
+    """150 genomes at cell size 10: ten groups of 12 whose members alternate (blocks of one row), an eleventh with
+    eleven members in a row and one at the end, and 18 singletons."""
+    names = [f"n{i:03d}" for i in range(150)]
+    group = {names[p]: p % 10 for p in range(120)}
+    group.update({names[p]: 10 for p in range(120, 131)})
+    group[names[149]] = 10
+    matrix = {a: {b: 0 if a == b or group.get(a, -1) == group.get(b, -2) else 5 for b in names} for a in names}
+    return names, matrix
+
+
+def test_heatmap_labels_only_the_tall_blocks_and_fits_the_longest_label():
+    from bacon.report import _text_px
+    names, matrix = _blocky_matrix()
+    groups = identical_groups(names, matrix)
+    assert len(groups) == 11 and groups[10][0] == "n120"
+    out = heatmap(names, matrix, groups)
+    labels = re.findall(r'<text x="(\d+)" y="\d+" class="t-small t-ink">([^<]+)</text>', out)
+    assert [label for _, label in labels] == ["group 11 (11 of 12)"]  # The one block of 12 px or more
+    assert out.count("<title>group ") == 122  # Every block has its bar, with the label on hover
+    width = float(re.search(r'viewBox="0 0 (\d+)', out).group(1))
+    assert width - float(labels[0][0]) >= _text_px(labels[0][1], 11)
+
+
+def test_bar_chart_cuts_long_names_and_keeps_them_on_hover():
+    name = "sample_" + "x" * 53  # 60 characters
+    out = bar_chart([Bar(name, 5, "h"), Bar("short", 3, "h")], "t")
+    assert f">{name}</text>" not in out and f"…<title>{name}</title></text>" in out and ">short</text>" in out
+    label = re.search(r'text-anchor="end" class="t-small t-ink2">([^<]*)…', out).group(1)
+    assert name.startswith(label) and 0.58 * 11 * (len(label) + 1) <= 220 - 16
+
+
+def test_bar_chart_of_zeros_has_no_made_up_scale():
+    rows = [{"Sample": "a", "Status": "ok", "N_bases": "0"}, {"Sample": "b", "Status": "ok", "N_bases": "0"}]
+    out = bar_chart(n_bars(rows), "N bases", integers=True)
+    ticks = re.findall(r'text-anchor="middle" class="t-tiny t-muted">([^<]*)</text>', out)
+    assert ticks == ["0"] and out.count('class="bar0"') == 2
+
+
+def test_n_per_bin_rescales_an_assembly_of_another_length(tmp_path):
+    # A 600-bp insertion before a run of N shifts it in the consensus; a 500-bp deletion pulls it forward
+    (tmp_path / "ins.fasta").write_text(">ins_chr1\n" + "A" * 2600 + "N" * 100 + "A" * 400 + "\n")  # 3,100 bp
+    (tmp_path / "del.fasta").write_text(">del_chr1\n" + "A" * 800 + "N" * 100 + "A" * 1100 + "\n")  # 2,000 bp
+    (tmp_path / "edge.fasta").write_text(">edge_chr1\n" + "A" * 450 + "N" * 100 + "A" * 450 + "\n")  # 1,000 bp
+    assert n_per_bin([tmp_path / "ins.fasta"], [("chr1", 2500)], 500) == {"chr1": [0, 0, 0, 0, 100, 0]}
+    assert n_per_bin([tmp_path / "del.fasta"], [("chr1", 2500)], 500) == {"chr1": [0, 0, 100, 0, 0, 0]}
+    # 2,601–2,700 x 2500/3100 = 2,097–2,177 (the fifth bin); 801–900 x 1.25 = 1,001–1,125 (the third)
+    assert n_per_bin([tmp_path / "edge.fasta"], [("chr1", 2000)], 1000) == {"chr1": [50, 50, 0]}  # Split, same sum
+    both = n_per_bin([tmp_path / "ins.fasta", tmp_path / "del.fasta"], [("chr1", 2500)], 500)
+    assert sum(both["chr1"]) == 200
+
+
+def test_read_vcf_classes_every_genotype_form(tmp_path):
+    forms = ["0/1", "1|0", "./.", "0:35", ".", "2", "0", "1", "1:12:3", ".:0", "0/0", "", "10", "0|.", "./1", "1/."]
+    genomes = [f"g{i}" for i in range(len(forms))]
+    (tmp_path / "m.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(genomes)
+        + "\nc\t5\t.\tA\tG,T\t.\t.\t.\tGT:DP\t" + "\t".join(forms) + "\nc\t9\t.\tA\tG\t.\t.\t.\tGT\t"
+        + "\t".join("0" for _ in forms) + "\n")
+    snps, count = read_vcf(tmp_path / "m.vcf")
+    assert count == 16 and [(s.alt_count, s.missing) for s in snps] == [(8, 4), (0, 0)]
+
+    def slow(gt):  # The one-regex-per-call classification
+        alleles = re.split(r"[/|]", gt.split(":")[0])
+        return ("missing" if all(x in (".", "") for x in alleles)
+                else "alt" if any(x.isdigit() and int(x) > 0 for x in alleles) else "ref")
+
+    from bacon.report import _call_kind
+    assert [_call_kind(gt) for gt in forms] == [slow(gt) for gt in forms]
+
+
+def test_report_tile_has_a_thousands_separator(tmp_path):
+    out = _folder(tmp_path, {"method": "ska", "core_snps": 12345, "distances": "4_compared/ska/snp_distances.tsv"})
+    assert '<div class="tile-v">12,345</div>' in build_report(out)
+
+
+def test_genome_map_axis_in_mb_for_long_sequences():
+    out = genome_map([("c", 5_000_000)], [], 2)
+    ticks = re.findall(r'text-anchor="middle" class="t-tiny t-muted">([^<]*)</text>', out)
+    assert ticks[:2] == ["0 Mb", "0.5 Mb"] and ticks[-1] == "5 Mb"
+    assert "20 kb" in genome_map([("c", 200_000)], [], 2)
+
+
+def _wcag(a, b):
+    def lum(h):
+        h = h if len(h) == 7 else "#" + "".join(c * 2 for c in h[1:])
+        r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        f = (lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def test_small_text_and_in_cell_text_reach_wcag_contrast():
+    from bacon.report import MISSING_COLOUR, TOKENS_DARK, TOKENS_LIGHT
+    missing = re.fullmatch(r"var\(--(\w+)\)", MISSING_COLOUR).group(1)
+    for tokens in (TOKENS_LIGHT, TOKENS_DARK):
+        t = dict(re.findall(r"--([\w-]+):(#[0-9a-fA-F]{3,6})", tokens))
+        assert _wcag(t["muted"], t["surface"]) >= 4.5 and _wcag(t["muted"], t["bg"]) >= 4.5  # Small muted text
+        assert all(_wcag(t[f"qt{q}"], t[f"q{q}"]) >= 4.5 for q in range(5))  # Distances written in the cells
+        assert _wcag(t[missing], t["surface"]) >= 3  # The "no value" band, hollow circle and swatch
+
+
+def test_gene_title_map_and_labels_use_the_ranges_of_a_gene_in_pieces():
+    from bacon.annotation import Gene, SequenceAnnotation
+    from bacon.report import _gene_rows, _gene_title, place_labels
+    wrapped = Gene("c", "psbA", "CDS", 1, [(1, 33), (1990, 2000)], snps=2)  # join(1990..2000,1..33), 2,000 bp
+    spliced = Gene("c", "rps12", "CDS", -1, [(100, 130), (1500, 1600)], snps=2)  # Trans-spliced
+    assert "1–33 + 1,990–2,000 (44 bp)" in _gene_title(wrapped) and "1–2,000" not in _gene_title(wrapped)
+    assert "100–130 + 1,500–1,600 (132 bp)" in _gene_title(spliced)
+    seq_ann = SequenceAnnotation("c", 2000, [wrapped, spliced], [], True)
+    dense = "".join(_gene_rows(seq_ann, 0, 2000, 1.0, 0, True))
+    boxes = [(int(x), int(w)) for x, w in re.findall(r'<rect x="(\d+)\.0" y="\d+" width="(\d+)"', dense)]
+    assert all(w <= 110 for _, w in boxes) and len(boxes) == 4  # The pieces, not the hull of each gene
+    placed, _ = place_labels([wrapped, spliced], 0, 2000, 1.0)
+    centres = {g.name: x for x, _, g in placed}
+    assert centres["psbA"] <= 40 and 1540 <= centres["rps12"] <= 1560  # On the largest piece, not the hull's middle

@@ -327,14 +327,36 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
 ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")
 
 
+def _recorded_copy(s: Settings, key: str) -> str | None:
+    """The name of the copy (of the annotation or of the metadata) that the previous run of this folder recorded
+    in run_info.json as its own, or None: a file BACoN did not write (hand-made, or from another tool) is kept."""
+    try:
+        info = json.loads((s.output / "run_info.json").read_text())
+    except (OSError, ValueError):
+        return None
+    recorded = info.get(key) if isinstance(info, dict) else None
+    return recorded.get("copy") if isinstance(recorded, dict) else None
+
+
+def _remove_copy(s: Settings, path: Path, recorded: str | None, what: str) -> None:
+    """Remove the copy of an earlier run when it was BACoN's; otherwise leave it and say so."""
+    if not path.exists():
+        return
+    if path.name == recorded:
+        path.unlink()
+    else:
+        log.info("%s %s was not written by BACoN: kept (the report uses it; delete it if it is stale)", what, path)
+
+
 def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | None:
     """Validate the annotation (--annotation, or the GenBank reference itself) against the reference's sequences
-    and copy it, uncompressed, to OUTPUT/annotation.gb or annotation.gff3 for the report; a copy left by an earlier
-    run is removed when this run has no annotation."""
+    and copy it, uncompressed, to OUTPUT/annotation.gb or annotation.gff3 for the report; the copy left by an
+    earlier run is removed when this run has no annotation (a file BACoN did not write is kept)."""
     source = s.annotation or (s.reference if annotation_format(s.reference) == "genbank" else None)
+    recorded = _recorded_copy(s, "annotation")
     if source is None:
         for name in ANNOTATION_COPIES:
-            (s.output / name).unlink(missing_ok=True)
+            _remove_copy(s, s.output / name, recorded, "Annotation")
         return None
     sequences = [(r.name, len(r.seq)) for r in read_records(reference)]
     annotation = load_annotation(source, sequences)
@@ -343,7 +365,7 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
     copy = s.output / ("annotation.gb" if annotation.format == "genbank" else "annotation.gff3")
     for name in ANNOTATION_COPIES:
         if name != copy.name:
-            (s.output / name).unlink(missing_ok=True)
+            _remove_copy(s, s.output / name, recorded, "Annotation")
     tmp = copy.with_suffix(".tmp")
     with open_text(source) as src, open(tmp, "w", encoding="ascii", errors="replace") as dst:
         for line in src:
@@ -362,9 +384,10 @@ def _prepare_annotation(s: Settings, reference: Path) -> dict[str, object] | Non
 
 def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] | None:
     """Read the metadata (--metadata, and the extra columns of the sample sheet, which --metadata overrides column
-    by column), match it to the samples, choose the column that colours the report, and write the normalised copy
-    OUTPUT/metadata.tsv for the report; a copy left by an earlier run is removed when this run has no metadata.
-    Fails before any step on an unreadable file, a missing 'sample' column or an unknown --color-by column."""
+    by column), match it to the samples and to the added genomes, choose the column that colours the report, and
+    write the normalised copy OUTPUT/metadata.tsv for the report; the copy left by an earlier run is removed when
+    this run has no metadata (a metadata.tsv BACoN did not write is kept). Fails before any step on an unreadable
+    file, a missing 'sample' column or an unknown --color-by column."""
     given = md.read_metadata(s.metadata) if s.metadata else None
     sheet = md.sheet_metadata(s.sample_sheet) if s.sample_sheet else None
     merged = md.merge(given, sheet)
@@ -373,10 +396,11 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
         if s.color_by is not None and s.color_by.lower() != "none":
             raise BaconError(f"--color-by {s.color_by!r}: no metadata (give --metadata, or a sample sheet with "
                              "columns besides 'sample' and 'file')")
-        copy.unlink(missing_ok=True)
+        _remove_copy(s, copy, _recorded_copy(s, "metadata"), "Metadata")
         return None
     names = [x.name for x in samples]
-    metadata, unmatched = md.restrict(merged, names)
+    added = [parts[0] for p in s.add_genomes if (parts := split_extension(p.name))]  # As _prepare_added_genomes
+    metadata, unmatched = md.restrict(merged, names + [a for a in added if a not in names])
     for warning in metadata.warnings:
         log.warning("%s", warning)
     if unmatched:
@@ -387,8 +411,10 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
         log.warning("Metadata: %s", why_not)
     md.write_copy(copy, metadata)
     with_row = sum(1 for n in names if n in merged.rows)
-    log.info("Metadata: %d column(s) (%s); %d of %d samples have a row; %s", len(metadata.columns),
+    added_with_row = sum(1 for n in added if n in merged.rows)
+    log.info("Metadata: %d column(s) (%s); %d of %d samples have a row%s; %s", len(metadata.columns),
              ", ".join(metadata.columns), with_row, len(names),
+             f" (and {added_with_row} of {len(added)} added genomes)" if added else "",
              f"colours by {column}" if column else "no colour column")
     return {"file": str(s.metadata) if s.metadata else None, "copy": copy.name, "columns": metadata.columns,
             "sample_sheet_columns": sheet.columns if sheet else [], "matched": with_row,

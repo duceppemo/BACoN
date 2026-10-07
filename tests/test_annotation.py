@@ -195,12 +195,150 @@ def test_gff3_pseudogene_phase_and_parentless_cds(tmp_path):
                    "c\tx\tpseudogene\t1\t30\t.\t+\t.\tID=p1;gene=psA\n"
                    "c\tx\tCDS\t1\t30\t.\t+\t0\tID=cp1;Parent=p1;pseudo=true\n"
                    "c\tx\tCDS\t40\t60\t.\t-\t2\tID=c2;product=orphan\n"
-                   "c\tx\tgene\t70\t90\t.\t+\t.\tID=g3;gene_biotype=pseudogene;Name=g3\n")
+                   "c\tx\tgene\t70\t90\t.\t+\t.\tID=g3;gene_biotype=pseudogene;Name=g3\n"
+                   "c\tx\tgene\t100\t120\t.\t+\t.\tID=gene:E1;biotype=processed_pseudogene;Name=e1\n"  # Ensembl
+                   "c\tx\tgene\t130\t160\t.\t+\t.\tID=g5;Name=noid\n"
+                   "c\tx\tCDS\t130\t141\t.\t+\t0\tParent=g5\n"  # CDS lines without an ID: one CDS
+                   "c\tx\tCDS\t150\t160\t.\t+\t0\tParent=g5\n")
     features, _, _ = read_gff3(gff)
     genes = genes_from_gff3(features)
-    assert [(g.name, g.kind, g.strand) for g in genes] == [("psA", "pseudogene", 1), ("orphan", "CDS", -1),
-                                                           ("g3", "pseudogene", 1)]
+    assert [(g.name, g.kind, g.strand) for g in genes] == [
+        ("psA", "pseudogene", 1), ("orphan", "CDS", -1), ("g3", "pseudogene", 1), ("e1", "pseudogene", 1),
+        ("noid", "CDS", 1)]
     assert genes[1].cds[0].codon_start == 3  # Phase 2 on the first part
+    assert len(genes[4].cds) == 1 and genes[4].cds[0].parts == [(130, 141), (150, 160)]
+
+
+def test_gff3_parts_in_the_order_of_translation_like_genbank(tmp_path):
+    # The same coding sequences as a GenBank location and as GFF3 lines (start, end, strand, phase[, part], in
+    # file order): a CDS trans-spliced across strands (a), three reverse-strand parts listed 5' to 3' out of
+    # coordinate order like the IRb copy of rps12 (b), a CDS across the origin (c), a reverse-strand spliced CDS
+    # listed by ascending coordinate (d, Ensembl) and 5' to 3' (e, NCBI), and one across the origin on the
+    # reverse strand with NCBI's `part=` numbers (f)
+    cases = {
+        "a": ("join(complement(10..18),30..38)", [(10, 18, "-", 0), (30, 38, "+", 0)]),
+        "b": ("complement(join(50..55,70..78,40..45))", [(40, 45, "-", 0), (70, 78, "-", 0), (50, 55, "-", 0)]),
+        "c": ("join(110..120,1..9)", [(110, 120, "+", 0), (1, 9, "+", 1)]),
+        "d": ("complement(join(70..75,77..84))", [(70, 75, "-", 1), (77, 84, "-", 0)]),
+        "e": ("complement(join(70..75,77..84))", [(77, 84, "-", 0), (70, 75, "-", 1)]),
+        "f": ("complement(join(110..120,1..9))", [(110, 120, "-", 0, 2), (1, 9, "-", 0, 1)]),
+    }
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb("".join(f'CDS             {loc}\n                /gene="{name}"\n'
+                              for name, (loc, _) in cases.items())))
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n" + "".join(
+        f"ref.1\tt\tCDS\t{s}\t{e}\t.\t{strand}\t{phase}\tID=cds-{name};gene={name}"
+        + (f";part={rest[0]}" if rest else "") + "\n"
+        for name, (_, lines) in cases.items() for s, e, strand, phase, *rest in lines))
+    anns = [load_annotation(path, [("ref.1", 120)]) for path in (gb, gff)]
+    from_gb, from_gff = ({g.name: g for g in ann.sequences["ref.1"].genes} for ann in anns)
+
+    def same(g):
+        return g.extent, g.strand, [(c.parts, c.strands, c.codon_start, c.coding_sequence(SEQ)) for c in g.cds]
+
+    for name in cases:
+        assert same(from_gff[name]) == same(from_gb[name]), name
+    assert from_gb["a"].cds[0].parts == [(10, 18), (30, 38)] and from_gb["a"].cds[0].strands == [-1, 1]
+    assert from_gb["b"].cds[0].parts == [(40, 45), (70, 78), (50, 55)] and from_gb["b"].strand == -1
+    assert from_gb["c"].cds[0].parts == [(110, 120), (1, 9)] and from_gb["c"].extent == [(1, 9), (110, 120)]
+    assert from_gb["c"].cds[0].coding_sequence(SEQ) == SEQ[109:] + SEQ[:9]
+    assert from_gb["d"].cds[0].parts == [(77, 84), (70, 75)] == from_gb["e"].cds[0].parts
+    assert from_gb["f"].cds[0].parts == [(1, 9), (110, 120)] and from_gb["f"].strand == -1
+    for pos in (1, 5, 12, 42, 52, 72, 80, 115):
+        effects = [[(e.gene, e.codons, e.change, e.kind) for e in _effects(ann, pos, SEQ[pos - 1], "A")[0].effects]
+                   for ann in anns]
+        assert effects[0] == effects[1] and effects[0], pos  # The same effects from both files
+    # Across the origin: GGG CCC AAA TTA TGG... on the + strand, TTT AGC CAT AAT TTG... on the - strand
+    assert _effects(anns[0], 1, "A", "G")[1] == _effects(anns[1], 1, "A", "G")[1] == [
+        ("c", "TTA>TTG", "L4L", "synonymous"), ("f", "CAT>CAC", "H3H", "synonymous")]
+
+
+def test_feature_across_the_origin_without_gene_feature(tmp_path):
+    features = """
+    CDS             join(110..120,1..9)
+                    /gene="wrap"
+    tRNA            complement(join(100..120,1..3))
+                    /product="tRNA-Wrap"
+    CDS             join(20..30,70..80)
+                    /gene="wide"
+    """
+    ann = _ann(tmp_path, features)
+    genes = {g.name: g for g in ann.sequences["ref.1"].genes}
+    assert genes["wrap"].extent == [(1, 9), (110, 120)] and genes["wrap"].length == 20
+    assert genes["tRNA-Wrap"].extent == [(1, 3), (100, 120)] and genes["tRNA-Wrap"].strand == -1
+    assert genes["wide"].extent == [(20, 30), (70, 80)]  # Spanning more than half the sequence: across the origin
+    info, _ = _effects(ann, 50, SEQ[49], "A")
+    assert not info.genes and info.context.startswith("intergenic")
+    assert _effects(ann, 5, "C", "A")[0].context == "CDS" and _effects(ann, 115, SEQ[114], "A")[0].context == "CDS / tRNA"
+    # Without the sequence's length, only parts out of order tell: the wide CDS is then one stretch
+    genes = {g.name: g for g in genes_from_genbank(read_genbank_text(_gb(features)).features)}
+    assert genes["wide"].extent == [(20, 80)] and genes["wrap"].extent == [(1, 9), (110, 120)]
+
+
+def test_effect_through_a_shared_exon_given_once(tmp_path):
+    # Like the two rps12 genes of a plastome, whose 5' exon is one and the same stretch of the LSC
+    features = """
+    gene            join(1..9,22..32)
+                    /gene="rps12"
+                    /locus_tag="L1"
+    CDS             join(1..9,22..32)
+                    /gene="rps12"
+                    /locus_tag="L1"
+    gene            join(1..9,36..46)
+                    /gene="rps12"
+                    /locus_tag="L2"
+    CDS             join(1..9,36..46)
+                    /gene="rps12"
+                    /locus_tag="L2"
+    """
+    ann = _ann(tmp_path, features)
+    info, effects = _effects(ann, 5, "C", "A")
+    assert [g.name for g in info.genes] == ["rps12", "rps12"] and info.context == "CDS"
+    assert effects == [("rps12", "GCT>GAT", "A2D", "missense")]
+    assert _effects(ann, 23, "G", "A")[1] == [("rps12", "GGT>GAT", "G4D", "missense")]  # Exon 2 of L1 only
+    assert _effects(ann, 5, "C", "A,T")[1] == [("rps12", "GCT>GAT", "A2D", "missense"),
+                                              ("rps12", "GCT>GTT", "A2V", "missense")]
+
+
+def test_transl_except_codon_gives_no_effect(tmp_path):
+    from bacon.annotation import _transl_except
+    seq = "ATGGCTTGAAAATAG" + "C" * 105  # M A Sec K *
+    features = """
+    CDS             1..15
+                    /gene="sel"
+                    /transl_except=(pos:7..9,aa:Sec)
+    """
+    ann = _ann(tmp_path, features, seq)
+    assert ann.sequences["ref.1"].genes[0].cds[0].transl_except == [(7, 9)]
+    for pos, ref, alt in ((7, "T", "C"), (8, "G", "A"), (9, "A", "G")):
+        info, effects = _effects(ann, pos, ref, alt, seq)
+        assert info.context == "CDS" and effects == [], pos  # Neither stop lost nor stop retained
+    assert _effects(ann, 5, "C", "A", seq)[1] == [("sel", "GCT>GAT", "A2D", "missense")]
+    assert _effects(ann, 11, "A", "G", seq)[1] == [("sel", "AAA>AGA", "K4R", "missense")]
+    assert _transl_except("(pos:7..9,aa:Sec); (pos:complement(20..22),aa:TERM)") == [(7, 9), (20, 22)]
+    assert _transl_except("(pos:4299366,aa:TERM)") == [(4299366, 4299366)] and _transl_except("") == []
+    gff = tmp_path / "s.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tCDS\t1\t15\t.\t+\t0\tID=c;gene=sel;transl_except=(pos:7..9%2Caa:Sec)\n")
+    ann = load_annotation(gff, [("ref.1", 120)])
+    assert ann.sequences["ref.1"].genes[0].cds[0].transl_except == [(7, 9)]
+    assert _effects(ann, 8, "G", "A", seq)[1] == []
+
+
+def test_genbank_doubled_quotes():
+    rec = read_genbank_text(_gb('''
+    CDS             1..9
+                    /gene="q"
+                    /note="a ""quoted"" word; the line ends with ""
+                    still the note"
+                    /product="say ""hi"""
+                    /standard_name=""
+                    /db_xref="GeneID:1"
+    '''))
+    q = rec.features[0].qualifiers
+    assert q["note"] == 'a "quoted" word; the line ends with " still the note'
+    assert q["product"] == 'say "hi"' and q["standard_name"] == "" and q["db_xref"] == "GeneID:1"
 
 
 def test_gzipped_inputs_and_format_detection(tmp_path):
@@ -250,9 +388,15 @@ def test_load_annotation_matches_names_and_warns(tmp_path):
     # Different length: no match, a warning, no features
     ann = load_annotation(gb, [("chr", 121)])
     assert ann.sequences == {} and "match no reference sequence by name" in ann.warnings[0]
-    # Features beyond the end of the sequence are dropped with a warning
+    # A different length under the same name is said; features beyond the end of the sequence are dropped
     ann = load_annotation(gb, [("ref.1", 50)])
-    assert ann.genes == 1 and "5 feature(s) beyond the end" in ann.warnings[0] and ann.skipped == 5
+    assert ann.genes == 1 and ann.skipped == 5 and len(ann.warnings) == 2
+    assert "the annotation of ref.1 is 120 bp, the reference 50 bp: is it the annotation" in ann.warnings[0]
+    assert "5 feature(s) beyond the end" in ann.warnings[1]
+    gff = tmp_path / "a.gff3"
+    gff.write_text(GFF)
+    ann = load_annotation(gff, [("ref.1", 121)])  # The ##sequence-region length
+    assert ann.genes == 3 and "the annotation of ref.1 is 120 bp, the reference 121 bp" in ann.warnings[0]
 
 
 def test_load_annotation_errors(tmp_path):
@@ -360,6 +504,20 @@ def test_translation_tables():
     assert translate("GTG", 1, start=True) == "V" and translate("TGA", 4) == "W" and translate("TGA", 1) == "*"
     assert translate("ANN") == "X" and translate("TTA", 4, start=True) == "M"
     assert translate("GTG", 99, start=True) == "M"  # An unknown table: the standard code with table 11's starts
+    # Mitochondrial codes (NCBI): distinctive codons and start codons
+    assert [translate(c, 2) for c in ("AGA", "AGG", "ATA", "TGA", "AAA")] == ["*", "*", "M", "W", "K"]
+    assert translate("ATT", 2, start=True) == "M" and translate("ATT", 2) == "I" and translate("TTG", 2, start=True) == "L"
+    assert [translate(c, 3) for c in ("CTT", "CTC", "CTA", "CTG", "ATA", "TGA")] == ["T", "T", "T", "T", "M", "W"]
+    assert translate("CTG", 3, start=True) == "T" and translate("GTG", 3, start=True) == "M"
+    assert [translate(c, 5) for c in ("AGA", "AGG", "ATA", "TGA", "AAA")] == ["S", "S", "M", "W", "K"]
+    assert translate("TTG", 5, start=True) == "M" and translate("ATC", 5, start=True) == "M"
+    assert [translate(c, 9) for c in ("AAA", "AGA", "AGG", "TGA", "ATA")] == ["N", "S", "S", "W", "I"]
+    assert translate("GTG", 9, start=True) == "M" and translate("ATA", 9, start=True) == "I"
+    assert [translate(c, 13) for c in ("AGA", "AGG", "ATA", "TGA")] == ["G", "G", "M", "W"]
+    assert translate("TTG", 13, start=True) == "M" and translate("ATT", 13, start=True) == "I"
+    assert [translate(c, 14) for c in ("AAA", "AGA", "AGG", "TAA", "TGA", "TAG")] == ["N", "S", "S", "Y", "W", "*"]
+    assert translate("GTG", 14, start=True) == "V" and translate("ATG", 14, start=True) == "M"
+    assert translate("AGA", 4) == "R" and translate("AGA", 11) == "R"  # Unchanged in the other tables
 
 
 def _ann(tmp_path, features=FEATURES, seq=SEQ):
@@ -508,8 +666,69 @@ def test_gene_snp_counts(tmp_path):
 def test_inverted_repeat_copies_named_in_free_text():
     from bacon.annotation import _IR_COPY
     for text, copy in [("IRa", "a"), ("IRB", "b"), ("inverted repeat B", "b"), ("inverted repeat IRb", "b"),
-                       ("inverted repeat region IRa", "a"), ("Inverted Repeat A region", "a"), ("IR_A", "a")]:
-        match = _IR_COPY.search(text)
+                       ("inverted repeat region IRa", "a"), ("Inverted Repeat A region", "a"), ("IR_A", "a"),
+                       (" IRa (25,341 bp)", "a")]:
+        match = _IR_COPY.match(text)
         assert match and match.group(1).lower() == copy, text
-    for text in ("IRAK1 binding site", "inverted repeat", "spirAl", "LSC"):
-        assert not _IR_COPY.search(text), text
+    for text in ("IRAK1 binding site", "inverted repeat", "spirAl", "LSC", "junction LSC-IRB",
+                 "trans splicing 5'-rps12 and 3'-rps12 in IRA", "JLB"):
+        assert not _IR_COPY.match(text), text
+
+
+def test_regions_ignore_mentions_duplicates_and_other_inverted_repeats():
+    # A note mentioning a copy does not annotate it; both repeats annotated twice (repeat_region and
+    # misc_feature); a third inverted repeat (a transposon's) beside the two named ones; three unnamed ones
+    both = """
+    repeat_region   4001..6000
+                    /rpt_type=inverted
+                    /note="inverted repeat B"
+    misc_feature    4001..6000
+                    /note="IRB"
+    repeat_region   7001..9000
+                    /rpt_type=inverted
+                    /note="inverted repeat A"
+    misc_feature    7001..9000
+                    /note="IRA"
+    misc_feature    1001..2000
+                    /note="trans splicing 5'-rps12 and 3'-rps12 in IRA"
+    misc_feature    4000..4001
+                    /note="JLB; junction LSC-IRB"
+    """
+    transposon = """
+    repeat_region   100..700
+                    /rpt_type=inverted
+                    /note="terminal inverted repeat of a transposon"
+    """
+    unnamed = """
+    repeat_region   4001..6000
+                    /rpt_type=inverted
+    repeat_region   7001..9000
+                    /rpt_type=inverted
+    """
+    expected = [("IRb", 4001, 6000, 2000), ("SSC", 6001, 7000, 1000), ("IRa", 7001, 9000, 2000),
+                ("LSC", 9001, 4000, 5000)]
+    for text in (both, both + transposon, unnamed + transposon):
+        assert [(r.name, r.start, r.end, r.length) for r in derive_regions(_features(text), 10000)] == expected
+
+
+def test_inverted_repeat_across_the_origin():
+    expected = [("SSC", 1701, 3000, 1300), ("IRa", 3001, 5000, 2000), ("LSC", 5001, 9700, 4700),
+                ("IRb", 9701, 1700, 2000)]
+    joined = """
+    repeat_region   3001..5000
+                    /rpt_type=inverted
+    repeat_region   join(9701..10000,1..1700)
+                    /rpt_type=inverted
+    """
+    in_two = """
+    repeat_region   3001..5000
+                    /note="IRa"
+    repeat_region   9701..10000
+                    /note="IRb"
+    repeat_region   1..1700
+                    /note="IRb"
+    """
+    for text in (joined, in_two):
+        regions = derive_regions(_features(text), 10000)
+        assert [(r.name, r.start, r.end, r.length) for r in regions] == expected
+        assert regions[-1].contains(9800) and regions[-1].contains(100) and not regions[-1].contains(2000)

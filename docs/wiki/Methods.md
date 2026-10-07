@@ -104,21 +104,36 @@ example with fragmented assemblies), the distances are written but no tree is bu
 With an annotation of the reference (`--annotation`, or a GenBank reference), the report places each SNP of
 `snps.vcf` on the reference's genes. BACoN reads GenBank feature tables (`gene`, `CDS`, `tRNA`, `rRNA`, their
 locations with `join`, `complement`, `order`, partial ends and trans-splicing, `/codon_start`,
-`/transl_table`, `/pseudo`) and GFF3 (features linked by `ID` and `Parent`, the phase column, `pseudogene`
-features); a CDS or RNA feature belongs to the gene feature of the same name that overlaps it, or is a gene of
-its own. A gene is named after its `gene` qualifier, else `locus_tag`, `product` or `ID`.
+`/transl_table`, `/transl_except`, `/pseudo`, quoted values spanning lines with `""` for a quote) and GFF3
+(features linked by `ID` and `Parent`, the phase column, `pseudogene` features and the `pseudo`, `gene_biotype`
+and `biotype` attributes, `transl_except`); a CDS or RNA feature belongs to the gene feature of the same name
+that overlaps it, or is a gene of its own. A gene is named after its `gene` qualifier, else `locus_tag`,
+`product` or `ID`. The parts of a CDS are read in the order of translation: as the GenBank location lists them,
+and for the lines of a GFF3 CDS (sharing an `ID`, or without one, a `Parent`) by their `part=` numbers (NCBI)
+when given, else in file order (NCBI lists them 5′ to 3′), except that the lines of a −-strand CDS listed by
+ascending coordinate (Ensembl) are read in descending order unless they span more than half the sequence (a CDS
+across the origin). So the trans-spliced plastid *rps12*, whose 5′ exon lies in the LSC on the other strand, and
+a gene across the origin of a circular sequence are translated correctly from either format; a CDS or RNA
+feature across the origin (or trans-spliced) without a gene feature is a gene made of its parts, not of the
+whole sequence between them.
 
 For a SNP inside a coding sequence, BACoN rebuilds the coding sequence from the reference (the exons in the
 order of translation, reverse-complemented on the − strand, from the base given by `codon_start`), finds the
 codon containing the SNP, substitutes the alternate allele (complemented on the − strand) and translates both
 codons with the CDS's translation table (`/transl_table`, otherwise table 11, the bacterial and plastid code;
-tables 1, 4 and 11 are known, others use the standard code with table 11's start codons). The effect is
-`synonymous`, `missense`, `nonsense` (a stop codon gained), `stop lost`, `stop retained` (a stop codon changed into another), and for the initiation codon of a
-complete CDS `start lost` or `start retained` (the new codon is another start codon of the table, such as GTG
-in table 11). No effect is given when the codon is incomplete (a partial CDS), contains `N`, or when the VCF's
-reference allele does not match the reference. RNA editing (plastid ACG start codons, for example) is not
-modelled. Pseudogenes get no effect. Each alternate allele, and each of two overlapping coding sequences, gets
-an effect of its own.
+tables 1, 2, 3, 4, 5, 9, 11, 13 and 14 are known, as [NCBI defines
+them](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi), the standard code with ATG as its only start
+codon; others use the standard code with table 11's start codons). The effect is `synonymous`, `missense`,
+`nonsense` (a stop codon gained), `stop lost`, `stop retained` (a stop codon changed into another), and for the
+initiation codon of a complete CDS `start lost` or `start retained` (the new codon is another start codon of
+the table, such as GTG in table 11). No effect is given when the codon is incomplete (a partial CDS), contains
+`N`, or when the VCF's reference allele does not match the reference, nor for a codon with a translational
+exception (`/transl_except`: a selenocysteine or pyrrolysine codon, an edited codon, a stop codon completed by
+polyadenylation), which is not a stop codon although the table says so: the SNP is still reported in the CDS,
+without an effect. RNA editing (plastid ACG start codons, for example) is not modelled. Pseudogenes get no
+effect. Each alternate allele, and each of two overlapping coding sequences, gets an effect of its own, but the
+same effect through two coding sequences of a gene (the 5′ exon shared by the two *rps12* of a plastome, the
+two products of a ribosomal frameshift) is given once.
 
 Outside coding sequences, the context is the gene's type (tRNA, rRNA), `intron` when the position lies
 between two exons of a gene, or `intergenic between X and Y`, the nearest genes on either side (around the
@@ -126,10 +141,15 @@ origin when the annotation says the sequence is circular). A trans-spliced gene 
 intron between its distant parts.
 
 The LSC/IRb/SSC/IRa band of a plastome is derived from the annotated inverted repeats (`repeat_region` with
-`/rpt_type=inverted`, or any region feature whose note names an inverted repeat, IRa or IRb), when there are
-exactly two of at least 500 bp: the single-copy regions are the gaps between them, the larger one being the
-LSC, and the repeat following the LSC is IRb unless the annotation names them; one region may span the origin.
-Without annotated inverted repeats, there is no band.
+`/rpt_type=inverted`, or any region feature whose note starts by naming an inverted repeat, IRa or IRb, such
+as `IRb`, `inverted repeat A` or `inverted repeat region IRa`; a note merely mentioning a copy, `... in IRA`
+or `junction LSC-IRB`, does not annotate it), when there are two of at least 500 bp: the single-copy regions
+are the gaps between them, the larger one being the LSC, and the repeat following the LSC is IRb unless the
+annotation names them; one region may span the origin, a repeat too (`join(x..length,1..y)`, or two features
+named alike meeting at the origin). A repeat annotated twice (a `repeat_region` and a `misc_feature` over the
+same stretch) counts once; with more than two repeats annotated, BACoN takes the two `repeat_region` with
+`/rpt_type=inverted`, else the pair named IRa and IRb, else the two longest. Without two annotated inverted
+repeats, there is no band: BACoN does not look for the repeats in the sequence.
 
 ## Choices that changed in 0.3
 

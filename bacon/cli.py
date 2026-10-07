@@ -164,7 +164,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("give exactly one of -i/--input or --sample-sheet")
     if args.keep_bam and args.baiting_method != "minimap2":
         parser.error("--keep-bam only applies to --baiting-method minimap2")
-    if args.color_by is not None and args.metadata is None and args.sample_sheet is None:
+    if args.color_by is not None and args.color_by.lower() != "none" and args.metadata is None \
+            and args.sample_sheet is None:
         parser.error("--color-by needs --metadata or a sample sheet with metadata columns")
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,

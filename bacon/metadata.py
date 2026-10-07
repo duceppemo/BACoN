@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,36 +38,64 @@ class Metadata:
 
 
 def read_table(path: Path, what: str) -> tuple[list[str], list[dict[str, str]]]:
-    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, LF or CRLF, lines starting with '#' and
-    blank lines ignored; a tab in the header makes it a TSV, otherwise a CSV. Names and values are stripped;
-    columns with an empty name (a trailing separator) are dropped."""
+    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, LF or CRLF; blank lines are ignored, and
+    lines starting with '#' before the header are comments (after it, they are data). A tab in the header makes
+    it a TSV, in which quotes are ordinary characters; otherwise a CSV, whose quoted values may hold commas but
+    not line breaks. Names and values are stripped (names also lose their inner whitespace); columns with an
+    empty name (a trailing separator) are dropped, and two columns of the same name (any case) are an error."""
     if not path.is_file():
         raise BaconError(f"{what} not found: {path}")
     try:
         text = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise BaconError(f"{what} cannot be read: {path} ({exc.strerror})") from None
-    lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    lines: list[tuple[int, str]] = []  # (line number in the file, text)
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip() or (not lines and line.lstrip().startswith("#")):
+            continue
+        lines.append((number, line))
     if not lines:
         raise BaconError(f"{what} is empty: {path}")
-    delimiter = "\t" if "\t" in lines[0] else ","
-    reader = csv.DictReader(lines, delimiter=delimiter)
-    header = [c.strip() for c in reader.fieldnames or []]
+    tsv = "\t" in lines[0][1]
+    records = [line.split("\t") for _, line in lines] if tsv else _csv_records(lines, path, what)
+    header = [_squash(c) for c in records[0]]
+    lower = [c.lower() for c in header if c]
+    duplicates = [c for c in dict.fromkeys(header) if c and lower.count(c.lower()) > 1]  # In header order
+    if duplicates:
+        raise BaconError(f"{what} {path}: two columns have the same name: {', '.join(duplicates)}")
     rows = []
-    for raw in reader:
-        row = {}
-        for key, value in raw.items():
-            if key is None:  # More cells than header names
-                continue
-            if isinstance(value, list):  # pragma: no cover - csv gives a list for the restkey only
-                value = value[0] if value else ""
-            row[key.strip()] = " ".join((value or "").split())  # Tabs or line breaks would break the copy
-        rows.append(row)
+    for cells in records[1:]:
+        cells += [""] * (len(header) - len(cells))  # Fewer cells than names: empty; more: ignored
+        rows.append({name: value.strip() for name, value in zip(header, cells) if name})
     return [c for c in header if c], rows
 
 
+def _csv_records(lines: list[tuple[int, str]], path: Path, what: str) -> list[list[str]]:
+    """The cells of each line of a CSV, strictly: an unclosed quote or a quoted line break is an error naming the
+    line (the value would otherwise swallow the following rows, or break the copy)."""
+    reader = csv.reader((line for _, line in lines), strict=True)
+    records = []
+    while True:
+        start = reader.line_num
+        try:
+            cells = next(reader)
+        except StopIteration:
+            return records
+        except csv.Error as exc:
+            raise BaconError(f"{what} {path}, line {lines[start][0]}: {exc} (an unclosed quote?)") from None
+        if reader.line_num - start > 1:
+            raise BaconError(f"{what} {path}, line {lines[start][0]}: a quoted value spans several lines")
+        records.append(cells)
+
+
+def _squash(value: str) -> str:
+    """Stripped, inner runs of whitespace (tabs, line breaks) as one space: safe in the TSV copy."""
+    return " ".join(value.split())
+
+
 def _clean(value: str) -> str:
-    return "" if value in MISSING_VALUES else value
+    """A metadata value: missing values as "", the others without stray whitespace."""
+    return "" if value in MISSING_VALUES else _squash(value)
 
 
 def _find(header: list[str], name: str) -> str | None:
@@ -131,10 +161,11 @@ def sheet_metadata(path: Path) -> Metadata | None:
 
 def merge(first: Metadata | None, second: Metadata | None) -> Metadata | None:
     """One table from two: the columns of `first` (all its values), then the columns of `second` that `first`
-    lacks."""
+    lacks; names differing only in case are the same column (under the first's name)."""
     if first is None or second is None:
         return first or second
-    columns = first.columns + [c for c in second.columns if c not in first.columns]
+    taken = {c.lower() for c in first.columns}
+    columns = first.columns + [c for c in second.columns if c.lower() not in taken]
     rows = {}
     for name in dict.fromkeys([*first.rows, *second.rows]):
         rows[name] = {c: (first.value(name, c) if c in first.columns else second.value(name, c)) for c in columns}
@@ -185,23 +216,28 @@ def choose_colour_column(metadata: Metadata, requested: str | None) -> tuple[str
         f"{c}: {unusable_reason(metadata.values(c))}" for c in metadata.columns)
 
 
+NUMBER = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$", re.ASCII)  # What the page's parseFloat reads whole
+_CHUNKS = re.compile(r"(\d+)", re.ASCII)
+
+
 def sort_key(value: str) -> tuple:
-    """Values in numeric order when they are numbers, otherwise alphabetical without regard to case."""
-    try:
+    """Values in numeric order when they are numbers, otherwise in natural order (v2 before v10) without regard to
+    case, as the report's table sorts them."""
+    if NUMBER.match(value):
         return (0, float(value), value)
-    except ValueError:
-        return (1, value.lower(), value)
+    natural = tuple((0, int(p), "") if p.isdigit() else (1, 0, p.lower()) for p in _CHUNKS.split(value) if p)
+    return (1, natural, value)
 
 
 def is_numeric(values: list[str]) -> bool:
-    """Whether every present value is a number (and there is one)."""
+    """Whether every present value is a plain number (digits, a decimal point, an exponent; and there is one)."""
     present = [v for v in values if v]
-    if not present:
-        return False
-    try:
-        return all(f == f for f in map(float, present))  # not NaN
-    except ValueError:
-        return False
+    return bool(present) and all(NUMBER.match(v) for v in present)
+
+
+def shown_name(column: str, taken: Iterable[str]) -> str:
+    """The column's name in a table that has columns of its own: 'NAME (metadata)' when it is one of theirs."""
+    return f"{column} (metadata)" if column.lower() in {t.lower() for t in taken} else column
 
 
 def write_copy(path: Path, metadata: Metadata) -> None:

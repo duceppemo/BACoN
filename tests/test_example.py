@@ -135,3 +135,78 @@ def test_metadata_has_the_samples_and_a_colour_column(example, reference):
     assert choose_colour_column(metadata, None) == ("group", None)
     assert metadata.value("delta", "group") == ""  # NA
     assert unusable_reason(metadata.values("note")) is not None  # Free text
+
+
+CHECK = EXAMPLE.with_name("check_example.py")
+
+
+@pytest.fixture(scope="module")
+def checker(example):
+    spec = importlib.util.spec_from_file_location("check_example", CHECK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _fake_run(example, reference, where):
+    """An output folder of a perfect run: the truth's distances, a VCF of the planted SNPs and a report with the
+    texts the check looks for."""
+    out, ref = reference
+    (where / "data").mkdir(parents=True)
+    for name in ("reference.gb", "planted_effects.tsv"):
+        (where / "data" / name).write_bytes((out / name).read_bytes())
+    compared = where / "bacon" / "4_compared" / "ska"
+    compared.mkdir(parents=True)
+    (where / "bacon" / "reference.fasta").write_bytes((out / "reference.fasta").read_bytes())
+    names = ["Reference", *example.SAMPLES]
+    distances = {("Reference", s): d for (a, s), d in example.EXPECTED_DISTANCES.items() if a == "alpha"}
+    distances.update({**example.EXPECTED_DISTANCES, ("Reference", "alpha"): 0})  # alpha is the reference
+    distances.update({(b, a): d for (a, b), d in distances.items()})
+    (compared / "snp_distances.tsv").write_text("snp-dists\t" + "\t".join(names) + "\n" + "".join(
+        a + "".join(f"\t{0 if a == b else distances[(a, b)]}" for b in names) + "\n" for a in names))
+    carried = {name: {c for k in keys for c in ref.snp_sets()[k]} for name, keys in example.SAMPLES.items()}
+    (compared / "snps.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(example.SAMPLES)
+        + "\n" + "".join(f"organelle\t{s.position}\t.\t{s.ref}\t{s.alt}\t.\t.\t.\tGT\t" + "\t".join(
+            "1" if (s.position, s.alt) in carried[name] else "0" for name in example.SAMPLES) + "\n"
+            for s in ref.snps))
+    (where / "bacon" / "report.html").write_text(" ".join(text for text, _ in [
+        ('<table class="snps', ""), ("in the LSC", ""), ("coloured by <b>group</b>", ""), ("site 2", "")]))
+    return where
+
+
+def test_check_passes_a_perfect_run(example, reference, checker, tmp_path, capsys):
+    run = _fake_run(example, reference, tmp_path / "run")
+    assert checker.check(run) == []
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 3 and all(line.startswith("OK: ") for line in lines)
+    assert lines[1].startswith("OK: the 20 SNPs are annotated as planted (12 coding changes: ")
+
+
+def test_check_fails_a_snp_on_another_sequence_or_a_wrong_effect(example, reference, checker, tmp_path, capsys):
+    run = _fake_run(example, reference, tmp_path / "run")
+    vcf = run / "bacon" / "4_compared" / "ska" / "snps.vcf"
+    lines = vcf.read_text().splitlines()
+    first = next(i for i, line in enumerate(lines) if not line.startswith("#"))
+    lines[first] = "plasmid" + lines[first][len("organelle"):]  # The CHROM of one record
+    vcf.write_text("\n".join(lines) + "\n")
+    failures = checker.check(run)
+    assert len(failures) == 1 and failures[0].startswith("VCF sites: ") and "('plasmid', " in failures[0]
+    assert capsys.readouterr().out.count("OK: ") == 1  # The distances only
+    # A wrong truth row: the annotation check names the SNP
+    effects = run / "data" / "planted_effects.tsv"
+    rows = effects.read_text().splitlines()
+    cells = rows[2].split("\t")  # Not the first SNP, whose record is on the other sequence now
+    cells[9] = "nonsense" if cells[9] != "nonsense" else "missense"
+    rows[2] = "\t".join(cells)
+    effects.write_text("\n".join(rows) + "\n")
+    assert any(f.startswith(f"SNP {cells[0]}: ") for f in checker.check(run))
+
+
+def test_check_main_exits_with_the_failures(example, reference, checker, tmp_path):
+    run = _fake_run(example, reference, tmp_path / "run")
+    (run / "bacon" / "report.html").write_text("nothing")
+    with pytest.raises(SystemExit) as exc:
+        checker.main(["check_example.py", str(run)])
+    assert str(exc.value).startswith("FAILED: report.html lacks the SNP table")
+    checker.main(["check_example.py", str(_fake_run(example, reference, tmp_path / "good"))])

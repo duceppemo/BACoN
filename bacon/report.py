@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from bacon.metadata import (
     choose_colour_column,
     is_numeric,
     read_metadata,
+    shown_name,
     sort_key,
 )
 from bacon.newick import Node, ladderize, parse
@@ -45,6 +47,8 @@ MAX_HEATMAP_GENOMES = 150  # Above this, no inline heatmap (the page would be te
 MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longest ones)
 GROUP_COLOURS = 8  # Groups of identical genomes with a colour of their own (--s1 to --s8); the others share grey
 N_LABELS = 5  # Bars labelled in the N-bases chart (the largest values)
+MAX_NAME_GUTTER = 220  # Room for the sample names of the bar charts, in px; longer names are cut
+MIN_LABELLED_RUN = 12  # A block of identical genomes on the heatmap's right is labelled from this height, in px
 FIG_WIDTH = 1120
 MAX_GENE_RECTS = 1500  # Above this many genes in the map, the gene rows are merged per pixel, without names
 MAX_GENE_LABELS = 40  # Genes labelled in the map: those with the most SNPs (at least MIN_LABEL_SNPS)
@@ -142,7 +146,7 @@ def slot_colour(slot: int) -> str:
     return f"var(--s{slot + 1})" if slot < GROUP_COLOURS else "var(--muted)"
 
 
-MISSING_COLOUR = "var(--axis)"  # A genome without a value of the colour column
+MISSING_COLOUR = "var(--muted)"  # A genome without a value of the colour column (3:1 or more on both surfaces)
 
 
 def group_colour(slot: int, neutral: bool = False) -> str:
@@ -244,6 +248,15 @@ def _g(x: float) -> str:
     return f"{x:g}"
 
 
+def _shortened(name: str, room: float, size: float) -> str:
+    """A name escaped for an SVG text, cut with an ellipsis when it does not fit in `room` px (the full name is
+    then on hover)."""
+    fit = int(room / (0.58 * size))
+    if _text_px(name, size) <= room or fit < 2:
+        return esc(name)
+    return f"{esc(name[:fit - 1])}…<title>{esc(name)}</title>"
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Figure 1 and 2: per-sample bars
 # ---------------------------------------------------------------------------------------------------------------
@@ -263,7 +276,7 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
     bars = (sorted((b for b in bars if b.value is not None and not b.failed), key=lambda b: -b.value)
             + [b for b in bars if b.value is None and not b.failed] + [b for b in bars if b.failed])
     row, size = 16, 11
-    left = min(220, 16 + _text_px(max((b.name for b in bars), key=len, default=""), size))
+    left = min(MAX_NAME_GUTTER, 16 + _text_px(max((b.name for b in bars), key=len, default=""), size))
     plot = width - left - 80
     top = 26
     values = [b.value for b in bars if b.value is not None]
@@ -272,7 +285,9 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
     sx = plot / x_max
     height = top + len(bars) * row + (34 if threshold else 16)
     parts = [_svg(width, height, title)]
-    for t in _ticks(x_max, minimum_step=1.0 if integers else 0.0):
+    ticks = _ticks(x_max, minimum_step=1.0 if integers else 0.0) if max(values, default=0) > 0 or threshold \
+        else [0.0]  # Every value 0 (or none): no made-up scale
+    for t in ticks:
         x = left + t * sx
         parts.append(f'<line x1="{x:.1f}" y1="{top - 4}" x2="{x:.1f}" y2="{top + len(bars) * row}" '
                      'class="grid"/>')
@@ -287,7 +302,7 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
     for i, b in enumerate(bars):
         y = top + i * row
         parts.append(f'<text x="{left - 6}" y="{y + row - 4}" text-anchor="end" class="t-small t-ink2">'
-                     f'{esc(b.name)}</text>')
+                     f'{_shortened(b.name, left - 16, size)}</text>')
         if b.failed:
             parts.append(f'<text x="{left}" y="{y + row - 4}" class="t-tiny t-muted"><tspan fill="var(--crit)">'
                          f'&#9632;</tspan> {esc(b.failed)}<title>{esc(b.hover)}</title></text>')
@@ -353,15 +368,21 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
     row, size = (18, 12) if len(leaves) <= 80 else (14, 10.5)
     left, top, plot = 16.0, 14.0, 560.0
     depth: dict[int, float] = {}
+    nodes: list[Node] = []
 
     def assign_x(n: Node, d: float) -> None:
         depth[id(n)] = d
+        nodes.append(n)
         for c in n.children:
             assign_x(c, d + max(c.length, 0.0))
 
     assign_x(root, 0.0)
     max_depth = max(depth.values())
     sx = plot / max_depth if max_depth > 0 else 0.0
+    # Supports sit left of their node: room for those near the root (a zero-length child of the root is at x 0)
+    overhang = max((_text_px(n.name, 9.5) + 3 - depth[id(n)] * sx for n in nodes
+                    if n.children and n.name and n.parent is not None), default=0.0)
+    left += max(0.0, overhang)
     y: dict[int, float] = {id(leaf): top + i * row + row / 2 for i, leaf in enumerate(leaves)}
 
     def assign_y(n: Node) -> float:
@@ -485,7 +506,21 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
     band = (14 if slots else 0) + (14 if colours else 0)  # The group band inside, the value band outside
     left = 24 + name_px + band
     top = 24 + name_px * 0.87 + band
-    right = 130 if slots else 20
+    # Blocks of identical genomes on the right: (first row, last row, group, label), labelled when tall enough
+    blocks: list[tuple[int, int, int, str]] = []
+    i = 0
+    while i < n:
+        slot = slots.get(names[i])
+        j = i
+        while j + 1 < n and slots.get(names[j + 1]) == slot:
+            j += 1
+        if slot is not None:
+            size = len(groups[slot]) if groups else j - i + 1
+            count = f"{j - i + 1}" if j - i + 1 == size else f"{j - i + 1} of {size}"
+            blocks.append((i, j, slot, f"group {slot + 1} ({count})"))
+        i = j + 1
+    tall = {k for k, (i, j, _, _) in enumerate(blocks) if (j - i + 1) * cell >= MIN_LABELLED_RUN}
+    right = 24 + max((_text_px(blocks[k][3], 11) for k in tall), default=0) if slots else 20
     labels = [f"{lo}" if lo == hi else f"{lo}–{hi}" for lo, hi in bins]
     legend_px = 44 + sum(16 + _text_px(label, 11) + 18 for label in labels)
     counts: dict[str, int] = {}
@@ -500,16 +535,23 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
     width = max(left + n * cell + right, left + legend_px + 12)
     height = top + n * cell + 44 + (18 if colours else 0)
     parts = [_svg(width, height, "Pairwise SNP distances")]
-    # With a colour column the groups are grey, alternating in their order along the axes
-    shade = {slot: k for k, slot in enumerate(dict.fromkeys(slots[a] for a in names if a in slots))}
+    # With a colour column the groups are grey: each run of one group along the axes takes the other grey than
+    # the run before it (a group split by the tree's order gives several runs)
+    shade: dict[str, int] = {}
+    runs, previous = -1, None
+    for a in names:
+        if a in slots:
+            if slots[a] != previous:
+                runs, previous = runs + 1, slots[a]
+            shade[a] = runs
 
-    def group_fill(slot: int) -> str:
-        return group_colour(shade[slot], True) if colours is not None else slot_colour(slot)
+    def group_fill(name: str) -> str:
+        return group_colour(shade[name], True) if colours is not None else slot_colour(slots[name])
 
     for i, a in enumerate(names):
         x, y = left + i * cell, top + i * cell
         if a in slots:
-            colour, title = group_fill(slots[a]), f"{esc(a)}: group {slots[a] + 1}"
+            colour, title = group_fill(a), f"{esc(a)}: group {slots[a] + 1}"
             parts.append(f'<rect x="{left - 14:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" fill="{colour}">'
                          f'<title>{title}</title></rect>')
             parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
@@ -537,20 +579,13 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
                 items.append(f'<text x="{x + (cell - 1) / 2:.1f}" y="{y + cell / 2 + font * 0.35:.1f}">{d}</text>')
     for c, items in by_class.items():
         parts.append(f'<g class="{c}" text-anchor="middle" font-size="{font:.1f}">{"".join(items)}</g>')
-    i = 0  # Blocks of identical genomes on the right
-    while i < n:
-        slot = slots.get(names[i])
-        j = i
-        while j + 1 < n and slots.get(names[j + 1]) == slot:
-            j += 1
-        if slot is not None:
-            size = len(groups[slot]) if groups else j - i + 1
-            count = f"{j - i + 1}" if j - i + 1 == size else f"{j - i + 1} of {size}"
-            parts.append(f'<rect x="{left + n * cell + 8:.0f}" y="{top + i * cell:.0f}" width="4" '
-                         f'height="{(j - i + 1) * cell - 1}" fill="{group_fill(slot)}"/>')
+    for k, (i, j, _, label) in enumerate(blocks):  # A bar per block, labelled when the block is tall enough
+        parts.append(f'<rect x="{left + n * cell + 8:.0f}" y="{top + i * cell:.0f}" width="4" '
+                     f'height="{(j - i + 1) * cell - 1}" fill="{group_fill(names[i])}"><title>{label}</title>'
+                     '</rect>')
+        if k in tall:
             parts.append(f'<text x="{left + n * cell + 16:.0f}" y="{top + (i + j + 1) / 2 * cell + 4:.0f}" '
-                         f'class="t-small t-ink">group {slot + 1} ({count})</text>')
-        i = j + 1
+                         f'class="t-small t-ink">{label}</text>')
     lx, ly = left, top + n * cell + 14
     parts.append(f'<text x="{lx:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">SNPs:</text>')
     lx += 44
@@ -573,8 +608,9 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
 
 def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -> str:
     """Counts of the genomes of each group of identical genomes (and of those in no group) for each value of the
-    colour column."""
+    colour column held by one of the genomes (a value of a failed sample only has no column)."""
     missing = any(not colours.value(n) for n in names)
+    shown = [v for v in colours.values if any(colours.value(n) == v for n in names)]
     in_group = {n for g in groups for n in g}
     sets = [(f"group {i + 1}", g, "") for i, g in enumerate(groups)]  # Colour is the column's here
     singles = [n for n in names if n not in in_group]
@@ -584,14 +620,14 @@ def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -
     def swatch(colour: str) -> str:
         return f'<span class="swatch" style="background:{colour}"></span>' if colour else ""
 
-    head = ["<th></th>"] + [f'<th class="num">{swatch(slot_colour(i))}{esc(v)}</th>'
-                            for i, v in enumerate(colours.values)]
+    head = ["<th></th>"] + [f'<th class="num">{swatch(slot_colour(colours.values.index(v)))}{esc(v)}</th>'
+                            for v in shown]
     if missing:
         head.append(f'<th class="num">{swatch(MISSING_COLOUR)}no value</th>')
     head.append('<th class="num">Total</th>')
     body = []
     for label, members, colour in sets:
-        counts = {v: 0 for v in colours.values}
+        counts = {v: 0 for v in shown}
         none = 0
         for m in members:
             value = colours.value(m)
@@ -599,7 +635,7 @@ def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -
                 counts[value] += 1
             else:
                 none += 1
-        cells = [counts[v] for v in colours.values] + ([none] if missing else []) + [len(members)]
+        cells = [counts[v] for v in shown] + ([none] if missing else []) + [len(members)]
         body.append(f"<tr><td>{swatch(colour)}{esc(label)}</td>" + "".join(
             f'<td class="num{" zero" if not c else ""}">{c if c else "–"}</td>' for c in cells) + "</tr>")
     return ('<div class="tablewrap"><table class="cross"><thead><tr>' + "".join(head) + "</tr></thead><tbody>"
@@ -624,6 +660,7 @@ def read_vcf(path: Path) -> tuple[list[Snp], int]:
     """SNP records of a VCF (CHROM, POS, REF, ALT and the genotype counts) and the number of genome columns."""
     snps: list[Snp] = []
     genomes = 0
+    kinds: dict[str, str] = {}
     with open(path) as fh:
         for line in fh:
             if line.startswith("##") or not line.strip():
@@ -634,17 +671,39 @@ def read_vcf(path: Path) -> tuple[list[Snp], int]:
                 continue
             if len(fields) < 8 or not fields[1].isdigit():
                 continue
-            calls = [gt.split(":")[0] for gt in fields[9:]]
-            alleles = [re.split(r"[/|]", gt) for gt in calls]
-            missing = sum(1 for a in alleles if all(x in (".", "") for x in a))
-            alt = sum(1 for a in alleles if any(x.isdigit() and int(x) > 0 for x in a))
+            missing = alt = 0
+            for gt, count in Counter(fields[9:]).items():  # Few distinct values per record, each classed once
+                if gt not in kinds:
+                    kinds[gt] = _call_kind(gt)
+                if kinds[gt] == "missing":
+                    missing += count
+                elif kinds[gt] == "alt":
+                    alt += count
             snps.append(Snp(fields[0], int(fields[1]), fields[3], fields[4], alt, missing))
     return snps, genomes
 
 
+def _call_kind(sample: str) -> str:
+    """'missing', 'alt' or 'ref' for a sample column of a VCF record (the genotype is before the first colon):
+    plain genotypes without a regex, the rest (0/1, 1|0, ./.) split on / and |."""
+    call = sample.partition(":")[0]
+    if call in (".", ""):
+        return "missing"
+    if call == "0":
+        return "ref"
+    if call.isdigit():
+        return "alt" if int(call) > 0 else "ref"
+    alleles = re.split(r"[/|]", call)
+    if all(x in (".", "") for x in alleles):
+        return "missing"
+    return "alt" if any(x.isdigit() and int(x) > 0 for x in alleles) else "ref"
+
+
 def n_per_bin(assemblies: list[Path], sequences: list[tuple[str, int]], bin_bp: int) -> dict[str, list[int]]:
     """N bases per bin of `bin_bp` along each reference sequence, summed over the assemblies (templated assemblies:
-    a record named <sample>_<sequence> follows the coordinates of that reference sequence)."""
+    a record named <sample>_<sequence> follows the coordinates of that reference sequence, approximately: its
+    insertions and deletions shift the positions after them, so a record of another length than the reference is
+    rescaled to the reference length)."""
     lengths = dict(sequences)
     counts = {name: [0] * (length // bin_bp + 1) for name, length in sequences}
     for path in assemblies:
@@ -654,9 +713,30 @@ def n_per_bin(assemblies: list[Path], sequences: list[tuple[str, int]], bin_bp: 
             if name not in lengths:
                 continue
             track = counts[name]
-            for i in range(len(track)):
-                track[i] += rec.seq.count("N", i * bin_bp, (i + 1) * bin_bp)
+            if len(rec.seq) == lengths[name] or not rec.seq:
+                for i in range(len(track)):
+                    track[i] += rec.seq.count("N", i * bin_bp, (i + 1) * bin_bp)
+                continue
+            factor = lengths[name] / len(rec.seq)
+            for m in re.finditer("N+", rec.seq):
+                _add_run(track, m.start() * factor, m.end() * factor, m.end() - m.start(), bin_bp)
     return counts
+
+
+def _add_run(track: list[int], start: float, end: float, count: int, bin_bp: int) -> None:
+    """Spread `count` N bases over the bins covered by [start, end) (0-based positions in reference coordinates),
+    in proportion to the overlap; the whole count ends up in the track."""
+    first, last = int(start // bin_bp), min(int(max(end - 1e-9, start) // bin_bp), len(track) - 1)
+    first = min(first, last)
+    if last == first or end <= start:
+        track[first] += count
+        return
+    given = 0
+    for b in range(first, last):
+        share = round(count * ((b + 1) * bin_bp - max(start, b * bin_bp)) / (end - start))
+        track[b] += share
+        given += share
+    track[last] += count - given
 
 
 def _gene_class(g: Gene) -> str:
@@ -665,8 +745,8 @@ def _gene_class(g: Gene) -> str:
 
 
 def _gene_title(g: Gene) -> str:
-    text = (f"{g.name}: {g.kind_text()}, {'+' if g.strand > 0 else '−'} strand, {g.start:,}–{g.end:,} "
-            f"({g.length:,} bp)")
+    ranges = " + ".join(f"{s:,}–{e:,}" for s, e in g.extent)  # Several across the origin or trans-spliced
+    text = f"{g.name}: {g.kind_text()}, {'+' if g.strand > 0 else '−'} strand, {ranges} ({g.length:,} bp)"
     if g.product and g.product != g.name:
         text += f", {g.product}"
     if g.snps:
@@ -699,7 +779,8 @@ def place_labels(genes: list[Gene], left: float, right: float, scale: float,
     placed = []
     for g in chosen:
         half = _text_px(g.name, size) / 2
-        x = min(max(left + ((g.start + g.end) / 2 - 1) * scale, left + half), right - half)
+        s, e = max(g.extent, key=lambda r: r[1] - r[0])  # Centred on the largest range of a gene in pieces
+        x = min(max(left + ((s + e) / 2 - 1) * scale, left + half), right - half)
         for row, end in enumerate(ends):
             if x - half >= end + 6:
                 ends[row] = x + half
@@ -748,8 +829,9 @@ def _gene_rows(seq_ann: SequenceAnnotation, left: float, right: float, scale: fl
         for g in seq_ann.genes:
             if g.strand != strand:
                 continue
-            for px in range(int((g.start - 1) * scale), int(g.end * scale) + 1):
-                columns.setdefault(px, []).append(g.name)
+            for s, e in g.extent:  # The ranges, not the hull: a gene across the origin spans the whole row
+                for px in range(int((s - 1) * scale), int(e * scale) + 1):
+                    columns.setdefault(px, []).append(g.name)
         run: list[int] = []
         for px in sorted(columns) + [None]:  # type: ignore[list-item]
             if run and (px is None or px != run[-1] + 1):
@@ -803,7 +885,7 @@ def genome_map(sequences: list[tuple[str, int]], snps: list[Snp], genomes: int,
         tick = 0.0
         while tick <= length:
             x = left + tick * scale
-            label = f"{tick / 1e6:g} Mb" if tick_bp >= 1e6 else f"{tick / 1e3:g} kb"
+            label = f"{tick / 1e6:g} Mb" if longest >= 1e6 else f"{tick / 1e3:g} kb"
             parts.append(f'<line x1="{x:.1f}" y1="{ya}" x2="{x:.1f}" y2="{ya + 4}" class="axis"/>')
             parts.append(f'<text x="{x:.1f}" y="{ya + 15}" text-anchor="middle" class="t-tiny t-muted">{label}'
                          '</text>')
@@ -1020,18 +1102,18 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None) -> str:
 # Page
 # ---------------------------------------------------------------------------------------------------------------
 
-TOKENS_LIGHT = """color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
+TOKENS_LIGHT = """color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#6f6e68;
 --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);
 --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;
 --good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
 --q0:#e1e0d9;--q1:#86b6ef;--q2:#3987e5;--q3:#1c5cab;--q4:#0d366b;
---qt0:#52514e;--qt1:#0b0b0b;--qt2:#fff;--qt3:#fff;--qt4:#fff;
+--qt0:#52514e;--qt1:#0b0b0b;--qt2:#0b0b0b;--qt3:#fff;--qt4:#fff;
 --bad-bg:#fbe3e3;--bad-fg:#8f1d1d;--warn-bg:#fdf1cf;--warn-fg:#6b4a00;--info-bg:#e1ecfa;--info-fg:#1c4f8f"""
 TOKENS_DARK = """color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
 --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
 --good:#0ca30c;--warning:#fab219;--crit:#d03b3b;
---q0:#2c2c2a;--q1:#184f95;--q2:#2a78d6;--q3:#6da7ec;--q4:#b7d3f6;
+--q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
 --bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5"""
 
@@ -1111,8 +1193,11 @@ dl{{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:13
 dt{{color:var(--muted)}}
 dd{{margin:0;word-break:break-all}}
 @media print{{
-  body{{background:#fff}} main{{max-width:none;padding:0}}
-  table.samples th{{position:static}} .tablewrap{{overflow:visible}}
+  @page{{size:landscape;margin:12mm}} body{{background:#fff}} main{{max-width:none;padding:0}}
+  th{{position:static}} .tablewrap{{overflow:visible}} .tablewrap.tall{{max-height:none;overflow:visible}}
+  table{{font-size:10px}} th,td{{white-space:normal;padding:3px 4px}} table.sortable th:after{{content:none}}
+  table.samples td.note,table.samples td.long,table.snps td.ctx{{min-width:0}}
+  thead{{display:table-header-group}} tr{{break-inside:avoid}}
   h2{{break-after:avoid}} .figcap{{break-before:avoid}}
 }}
 """
@@ -1157,13 +1242,14 @@ def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
     """The summary columns, with the metadata columns after Sample (a column whose values are all numbers sorts
     as numbers; a column with long values wraps; the colour column's values get their swatch)."""
     extra = []
+    own = [name for pair in TABLE_COLUMNS for name in pair]  # A metadata column of these names is marked
     for c in (metadata.columns if metadata else []):
         values = metadata.values(c)
         cls = "num md" if is_numeric(values) else ("md long" if any(len(v) > MAX_VALUE_LENGTH for v in values)
                                                    else "md")
         extra.append((c, cls))
     heads = [f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>' for key, label in TABLE_COLUMNS]
-    heads[1:1] = [f'<th class="{cls}">{esc(c)}</th>' for c, cls in extra]
+    heads[1:1] = [f'<th class="{cls}">{esc(shown_name(c, own))}</th>' for c, cls in extra]
     out = ['<div class="tablewrap"><table class="samples sortable"><thead><tr>' + "".join(heads)
            + "</tr></thead><tbody>"]
     for r in rows:
@@ -1262,11 +1348,11 @@ def build_report(output: Path) -> str:
              tile(f"{ref.get('length', 0):,} bp" if ref.get("length") else "?", "reference",
                   f"{ref_name}" + (f", {ref['sequences']} sequence(s)" if ref.get("sequences") else ""))]
     if order:
-        tiles.append(tile(str(core_snps if core_snps is not None else "–"), "SNP sites",
+        tiles.append(tile(f"{core_snps:,}" if isinstance(core_snps, int) else "–", "SNP sites",
                           f"{len(order)} genomes, {distinct_count(order, matrix)} distinct" if core_snps else
                           f"{len(order)} genomes"))
     else:
-        tiles.append(tile(str(core_snps if core_snps is not None else "–"), "SNP sites"))
+        tiles.append(tile(f"{core_snps:,}" if isinstance(core_snps, int) else "–", "SNP sites"))
     out.append(f'<div class="tiles">{"".join(tiles)}</div>')
     if metadata is not None:
         recorded = info.get("metadata") if isinstance(info.get("metadata"), dict) else {}
@@ -1339,7 +1425,7 @@ def build_report(output: Path) -> str:
             if groups and colours:
                 bands = (" The inner grey bands on both axes and the blocks on the right mark the groups of "
                          f"identical genomes; the outer coloured bands give each genome's <b>{esc(column)}</b> "
-                         "(legend; light grey: no value).")
+                         "(legend; grey: no value).")
             elif groups:
                 bands = (" Coloured bands on both axes and the blocks on the right mark the groups of identical "
                          "genomes.")
@@ -1368,8 +1454,8 @@ def build_report(output: Path) -> str:
                 if len(groups) > GROUP_COLOURS:
                     out.append(f'<p class="meta">Groups beyond the {GROUP_COLOURS}th share the grey colour.</p>')
                 if colours:
-                    out.append(f'<p class="meta">Genomes of each group by <b>{esc(column)}</b> (the reference and '
-                               "added genomes have no value):</p>" + cross_table(groups, order, colours))
+                    out.append(f'<p class="meta">Genomes of each group by <b>{esc(column)}</b> (the reference '
+                               "has no value):</p>" + cross_table(groups, order, colours))
             out.append(f"<p>{len(order)} genomes, {distinct_count(order, matrix)} distinct at the SNP sites "
                        "compared.</p>")
 
@@ -1536,7 +1622,9 @@ def _genome_map_section(output: Path, vcf: Path, reference: Path, settings: dict
             n_text = f" No N track: none of the {len(assemblies)} templated assemblies has an N base."
         else:
             n_text = (f" The N track sums the N bases of the {len(assemblies)} templated assemblies per "
-                      f"{n_bin / 1000:g} kb (log scale), where the consensus follows the reference coordinates.")
+                      f"{n_bin / 1000:g} kb (log scale). Positions are approximate: the consensus follows the "
+                      "reference coordinates, but its insertions and deletions shift the positions after them (an "
+                      "assembly of another length than the reference is rescaled to it).")
     else:
         n_text = (f" No N track: {assembler or 'the'} assemblies are de novo, so their coordinates do not follow "
                   "the reference.")

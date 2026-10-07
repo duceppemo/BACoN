@@ -63,8 +63,8 @@ position  ref  alt  samples     region  gene      context    codon    amino_acid
 ```
 
 `data/metadata.tsv` is a sample metadata file ([Usage](Usage#inputs)) with the columns `group` (A, B, and no
-value for delta), `year`, `origin` and a free-text `note`; its first lines, starting with `#`, say that the
-values are simulated.
+value for delta), `year`, `origin` and a free-text `note`; its first lines, starting with `#` before the header,
+are comments saying that the values are simulated.
 
 ## Running it
 
@@ -148,12 +148,14 @@ records the command, the reference's MD5, the annotation and metadata files and 
 
 Running the same command again with other options reruns only what changes ([Usage](Usage#resuming-and-changing-parameters)):
 
-- `--color-by year` colours the figures by year instead of group; `--color-by none` leaves them uncoloured;
-  `note` is free text and cannot colour them. Nothing is redone, and the report is rebuilt.
+- `--color-by year` colours the figures by year instead of group; `--color-by none` leaves them uncoloured
+  (with or without `--metadata`); `note` is free text and cannot colour them. Nothing is redone, and the report
+  is rebuilt. Without `--metadata`, the copy `metadata.tsv` that the first run wrote is removed.
 - `-r example_output/data/reference.gb` without `--annotation`: the GenBank file is the reference and its own
   annotation; `reference.fasta` in the output folder is identical, so nothing is redone either.
 - `-a flye` assembles de novo; `--snp-method parsnp` compares the assemblies with Parsnp instead of SKA2. Both
-  give the same 20 SNPs and distances on this example.
+  give the same 20 SNPs and distances on this example (with Parsnp, `4_compared/parsnp/snps.vcf` holds the same
+  20 records, and `python example/check_example.py example_output parsnp` passes the three checks).
 
 For real data, see the [Tutorial](Tutorial) (28 potato cultivars) and
 [its report](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).

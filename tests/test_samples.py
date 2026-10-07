@@ -67,6 +67,15 @@ def test_sample_sheet(tmp_path, fastq):
     assert samples["B"].files == [tmp_path / "b.fastq.gz"]
 
 
+def test_sample_sheet_paths_keep_their_inner_spaces(tmp_path, fastq):
+    (tmp_path / "reads").mkdir()
+    fastq("reads/a  b.fastq.gz", [("a", "ACGT")])
+    sheet = tmp_path / "sheet.tsv"
+    sheet.write_text("sample\tfile\nab \t reads/a  b.fastq.gz \n")
+    [sample] = read_sample_sheet(sheet)
+    assert sample.name == "ab" and sample.files == [tmp_path / "reads" / "a  b.fastq.gz"]
+
+
 def test_sample_sheet_errors(tmp_path):
     sheet = tmp_path / "s.tsv"
     sheet.write_text("name\tpath\nA\tx.fq\n")

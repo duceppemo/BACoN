@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-from bacon.metadata import Metadata
+from bacon.metadata import Metadata, shown_name
 from bacon.newick import parse
 
 SAMPLE_HEADERS = {
@@ -69,7 +69,8 @@ def sample_table(rows: list[dict[str, str]], run: str = "", metadata: Metadata |
         key = f"meta_{_run_id(column).lower()}"
         if key in headers:  # Two names differing only in punctuation or case
             key = f"{key}_{len(headers) + 1}"
-        headers[key] = {"title": column, "description": f"Metadata: {column}"}
+        title = shown_name(column, ["Sample", *SAMPLE_HEADERS, *(h["title"] for h in SAMPLE_HEADERS.values())])
+        headers[key] = {"title": title, "description": f"Metadata: {column}"}
         columns[key] = column
     headers.update(SAMPLE_HEADERS)
     data = {}

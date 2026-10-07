@@ -12,6 +12,7 @@ from bacon.metadata import (
     read_table,
     restrict,
     sheet_metadata,
+    shown_name,
     sort_key,
     unusable_reason,
     write_copy,
@@ -20,18 +21,75 @@ from bacon.metadata import (
 
 def test_read_table_formats(tmp_path):
     tsv = tmp_path / "m.tsv"
-    tsv.write_bytes(b"\xef\xbb\xbfSample\tGroup\t\r\n# a comment\r\n\r\n s1 \t A \r\ns2\tB\textra\r\n")
+    tsv.write_bytes(b"\xef\xbb\xbf# a comment\r\n\r\nSample\tGroup\t\r\n\r\n s1 \t A \r\ns2\tB\textra\r\n")
     header, rows = read_table(tsv, "Metadata file")
     assert header == ["Sample", "Group"]  # BOM gone, names stripped, the empty trailing column dropped
-    assert rows == [{"Sample": "s1", "Group": "A", "": ""}, {"Sample": "s2", "Group": "B", "": "extra"}]
+    assert rows == [{"Sample": "s1", "Group": "A"}, {"Sample": "s2", "Group": "B"}]  # Extra cells ignored
     csv = tmp_path / "m.csv"
     csv.write_text('sample,note\ns1,"a, quoted\tvalue"\n')
-    assert read_table(csv, "x")[1] == [{"sample": "s1", "note": "a, quoted value"}]  # Tabs become spaces
+    assert read_table(csv, "x")[1] == [{"sample": "s1", "note": "a, quoted\tvalue"}]  # Quotes: commas kept
     with pytest.raises(BaconError, match="Metadata file not found"):
         read_table(tmp_path / "none.tsv", "Metadata file")
     (tmp_path / "empty.tsv").write_text("# only a comment\n\n")
     with pytest.raises(BaconError, match="is empty"):
         read_table(tmp_path / "empty.tsv", "Metadata file")
+
+
+def test_read_table_refuses_unclosed_quotes_and_quoted_line_breaks(tmp_path):
+    csv = tmp_path / "m.csv"
+    csv.write_text('sample,size,group\ns1,"5 inch,A\ns2,3,B\ns3,2,B\n')  # Would swallow s2 and s3 silently
+    with pytest.raises(BaconError, match=r"m.csv, line 2: .*unclosed quote"):
+        read_table(csv, "Metadata file")
+    csv.write_text('sample,note\ns1,"line one\nline two"\ns2,x\n')  # A line break in a value breaks the copy
+    with pytest.raises(BaconError, match="line 2: a quoted value spans several lines"):
+        read_table(csv, "Metadata file")
+    csv.write_text('\n# c\nsample,note\ns1,"say ""hi"""\n\ns2,"ab"c\n')  # The line is the file's
+    with pytest.raises(BaconError, match="line 6: "):
+        read_table(csv, "Metadata file")
+    tsv = tmp_path / "m.tsv"
+    tsv.write_text('sample\tsize\tgroup\ns1\t"5 inch\tA\ns2\t3\tB\ns3\t2\tB\n')
+    assert [r["sample"] for r in read_table(tsv, "x")[1]] == ["s1", "s2", "s3"]  # In a TSV a quote is a character
+    assert read_table(tsv, "x")[1][0]["size"] == '"5 inch'
+
+
+def test_read_table_strips_and_only_metadata_values_lose_inner_whitespace(tmp_path):
+    sheet = tmp_path / "s.tsv"
+    sheet.write_text("sample\tfile\tsite\nab \t reads/a  b.fastq.gz\tnorth   shore\n")
+    header, rows = read_table(sheet, "Sample sheet")
+    assert rows == [{"sample": "ab", "file": "reads/a  b.fastq.gz", "site": "north   shore"}]  # Paths kept whole
+    assert sheet_metadata(sheet).rows == {"ab": {"site": "north shore"}}  # Metadata values: one space
+    csv = tmp_path / "m.csv"
+    csv.write_text("sample,no   te\ns1,a\tb\n")
+    assert read_metadata(csv).rows == {"s1": {"no te": "a b"}}  # A tab in a CSV cell would break the copy
+
+
+def test_comment_lines_count_only_before_the_header(tmp_path):
+    path = tmp_path / "m.csv"
+    path.write_text("# simulated values\n\n# second comment\ncolour,sample\n#FF0000,s1\n#00FF00,s2\n")
+    assert read_metadata(path).rows == {"s1": {"colour": "#FF0000"}, "s2": {"colour": "#00FF00"}}
+    path.write_text("sample,g\ns1,A\n# not a comment\n")
+    assert list(read_metadata(path).rows) == ["s1", "# not a comment"]
+
+
+def test_duplicate_column_names_are_an_error(tmp_path):
+    path = tmp_path / "m.csv"
+    path.write_text("sample,Group,group,g\ns1,A,B,C\n")
+    with pytest.raises(BaconError, match="two columns have the same name: Group, group"):
+        read_metadata(path)
+    path.write_text("sample,g,Sample\ns1,A,B\n")  # A second 'sample' column, whatever its case
+    with pytest.raises(BaconError, match="same name: sample, Sample"):
+        read_metadata(path)
+    path.write_text("sample,file,File\ns1,a.fq,b.fq\n")
+    with pytest.raises(BaconError, match="Sample sheet .*same name: file, File"):
+        sheet_metadata(path)
+    path.write_text("sample,g,,\ns1,A,,\n")  # Several empty names are not duplicates
+    assert read_metadata(path).columns == ["g"]
+
+
+def test_shown_name_marks_the_tables_own_columns():
+    assert shown_name("Status", ["Sample", "Status", "Note"]) == "Status (metadata)"
+    assert shown_name("note", ["Sample", "Status", "Note"]) == "note (metadata)"
+    assert shown_name("Site", ["Sample", "Status", "Note"]) == "Site"
 
 
 def test_read_metadata_values_and_warnings(tmp_path):
@@ -72,10 +130,10 @@ def test_sheet_metadata_agreeing_and_conflicting_rows(tmp_path):
 
 def test_merge_gives_the_first_table_precedence_column_by_column():
     given = Metadata(["group", "year"], {"s1": {"group": "A", "year": ""}, "s2": {"group": "B", "year": "2"}})
-    sheet = Metadata(["site", "group"], {"s1": {"site": "n", "group": "X"}, "s3": {"site": "s", "group": "Y"}},
-                     ["w"])
+    sheet = Metadata(["site", "Group"], {"s1": {"site": "n", "Group": "X"}, "s3": {"site": "s", "Group": "Y"}},
+                     ["w"])  # 'Group' is the sheet's name for the same column
     m = merge(given, sheet)
-    assert m.columns == ["group", "year", "site"]
+    assert m.columns == ["group", "year", "site"]  # Not 'Group' again
     assert m.rows == {"s1": {"group": "A", "year": "", "site": "n"}, "s2": {"group": "B", "year": "2", "site": ""},
                       "s3": {"group": "", "year": "", "site": "s"}}  # s3's group comes from --metadata: none
     assert m.warnings == ["w"]
@@ -118,8 +176,12 @@ def test_choose_colour_column():
 
 def test_sort_key_and_is_numeric():
     assert sorted(["10", "9", "b", "A", "2.5"], key=sort_key) == ["2.5", "9", "10", "A", "b"]
+    assert sorted(["v10", "v9", "V2", "a10b", "a9b"], key=sort_key) == ["a9b", "a10b", "V2", "v9", "v10"]  # Natural
     assert is_numeric(["1", "", "2.5"]) and not is_numeric(["1", "x"]) and not is_numeric(["", ""])
-    assert not is_numeric(["nan"])
+    assert is_numeric(["1e5", "0012", ".5", "+5", "-1.", "2E-3"])  # What the page's parseFloat reads whole
+    for value in ("nan", "inf", "Infinity", "1_000", "1,000", "0x10", "١٢", "1e", "e5"):
+        assert not is_numeric([value]), value
+        assert sort_key(value)[0] == 1, value  # Sorted as text
 
 
 def test_write_copy(tmp_path):

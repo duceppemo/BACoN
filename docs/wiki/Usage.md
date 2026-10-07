@@ -25,8 +25,11 @@ each SNP ([Outputs](Outputs#reporthtml)). It is not part of any checkpoint: addi
 reruns nothing. The default is the reference itself when it is a GenBank file. The annotated sequences must
 have the names of the reference's sequences (a single annotated sequence of the same length as a single
 reference sequence is accepted whatever its name); features on other sequences or beyond the end of a sequence
-are ignored with a warning. BACoN copies the file, uncompressed, to `OUTPUT/annotation.gb` or
-`OUTPUT/annotation.gff3`, so that the report can be rebuilt after the folder is moved.
+are ignored with a warning, and an annotated sequence whose length (`LOCUS`, `##sequence-region`) is not the
+reference's gets a warning asking whether it is the annotation of this reference. BACoN copies the file,
+uncompressed, to `OUTPUT/annotation.gb` or `OUTPUT/annotation.gff3`, so that the report can be rebuilt after the
+folder is moved. What is read from the annotation, and how SNP effects are derived, is in
+[Methods](Methods#5-snp-effects).
 
 **Sample metadata** (`--metadata`): a TSV or CSV file with a `sample` column (any case) naming the samples and
 any other columns, such as a group, a cultivar, a site or a year, used in the report only
@@ -35,10 +38,21 @@ and the heatmap, with a table of the groups of identical genomes against its val
 not part of any checkpoint: adding, changing or removing it reruns nothing, and the report is rebuilt. The
 columns of a sample sheet other than `sample` and `file` are metadata too (a sample on several rows must have the
 same values; otherwise the first is kept, with a warning); when both are given, a column of `--metadata` replaces
-the sheet's column of the same name, and its columns come first. Values are stripped; empty cells, `NA`, `na`
-and `-` are missing values. A sample listed twice keeps its first row (warning); rows naming no sample of the run
-are reported; samples without a row get blank cells. BACoN writes the merged table, limited to the run's samples,
-to `OUTPUT/metadata.tsv`, so that the report can be rebuilt after the folder is moved.
+the sheet's column of the same name (whatever its case), and its columns come first. Names and values are
+stripped, and runs of whitespace inside a metadata value become one space (a sample sheet's file paths are kept
+as written); empty cells, `NA`, `na` and `-` are missing values. Two columns of the same name, whatever their
+case, are an error; a column named like one of the samples table's own columns (`Status`, `Note`, `Depth`...)
+is shown as `Status (metadata)`. A sample listed twice keeps its first row (warning); rows naming no sample of
+the run are reported; samples without a row get blank cells. Genomes given with `--add-genomes` may have a row
+too, under their file name. BACoN writes the merged table, limited to the run's samples and added genomes, to
+`OUTPUT/metadata.tsv`, so that the report can be rebuilt after the folder is moved; a later run without metadata
+removes that copy (a `metadata.tsv` that BACoN did not write is kept, and the report uses it).
+
+The file format is the same for a metadata file and a sample sheet: blank lines are ignored, and lines starting
+with `#` *before the header* are comments (after the header, a line starting with `#` is a row, so a value such
+as `#FF0000` may come first). A tab in the header makes the file a TSV, in which quotes are ordinary characters;
+otherwise it is a CSV, whose quoted values may contain commas but not line breaks (an unclosed quote is an
+error naming the line, not a value that silently swallows the following rows).
 
 ```
 sample      group      year  comment
@@ -48,7 +62,8 @@ gamma       B          2022  Shares beta's six SNPs, plus four of its own
 delta       NA         2023  Ten SNPs of its own; group unknown
 ```
 
-`--color-by COLUMN` chooses the column that colours the figures; `--color-by none` leaves them uncoloured. By
+`--color-by COLUMN` chooses the column that colours the figures; `--color-by none` leaves them uncoloured (and
+needs no metadata). By
 default it is the first column that can be coloured: a column with at most 8 distinct values (the report's
 palette) that does not look like free text, that is, whose distinct values are at most 30 characters long on
 average and, once 10 or more samples have a value, do not outnumber half of them. Numbers with few distinct
@@ -63,7 +78,7 @@ without `.gz`). Three ways to give them:
 |---|---|
 | `-i sample.fastq.gz` | one sample, named after the file (`sample`) |
 | `-i folder/` | each sequence file directly in the folder is a sample named after the file; each subfolder is a sample named after the subfolder, made of all the sequence files it contains, in any depth. MinKNOW's `fastq_pass/` works as is (`barcode01/`, `barcode02/`, ...); `unclassified/` and `mixed/` are skipped |
-| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; lines starting with `#` are ignored; any other column is sample metadata (above) |
+| `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; blank lines, and lines starting with `#` before the header, are ignored; any other column is sample metadata (above) |
 
 Sample names may contain letters, digits and `.` `_` `+` `-`. Two inputs giving the same sample name, or a
 sample mixing fasta and fastq files, are errors. Symbolic links are a quick way to rename samples.

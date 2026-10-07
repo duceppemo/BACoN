@@ -77,8 +77,12 @@ def test_metadata_options():
     assert args.metadata is None and args.color_by is None
 
 
-def test_color_by_needs_metadata(capsys):
+def test_color_by_needs_metadata(capsys, tmp_path):
     from bacon.cli import main
     with pytest.raises(SystemExit):
         main(["-r", "r.fa", "-i", "in", "-o", "out", "--color-by", "group"])
     assert "--color-by needs --metadata" in capsys.readouterr().err
+    # 'none' asks for nothing: no metadata needed (the run fails later, on the missing reference)
+    assert main(["-r", str(tmp_path / "missing.fa"), "-i", str(tmp_path), "-o", str(tmp_path / "o"),
+                 "--color-by", "None"]) == 1
+    assert "--color-by needs" not in capsys.readouterr().err

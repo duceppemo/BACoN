@@ -1239,3 +1239,47 @@ def test_sample_sheet_columns_are_metadata_and_metadata_wins(stubs, dataset, tmp
     info = json.loads((out / "run_info.json").read_text())
     assert info["metadata"]["color_by"] == "site" and "sheet.tsv" not in (info["metadata"]["file"] or "")
     assert "Metadata from <b>meta.csv and the sample sheet</b>" in (out / "report.html").read_text()
+
+
+def test_added_genomes_carry_metadata(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    extra = tmp_path / "pub1.fasta"
+    extra.write_text(">x\n" + "ACGT" * 250 + "\n")
+    meta = _metadata_file(tmp_path, "sample\tgroup\ns1\tA\ns2\tA\ns3\tB\npub1\tB\n")
+    assert run(settings(ref, reads, out, metadata=meta, add_genomes=[extra])) == 0
+    assert "match no sample" not in caplog.text and "3 of 4 samples have a row (and 1 of 1 added genomes)" in caplog.text
+    assert (out / "metadata.tsv").read_text() == "sample\tgroup\nnone\t\ns1\tA\ns2\tA\ns3\tB\npub1\tB\n"
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["metadata"]["matched"] == 3 and info["metadata"]["unmatched_rows"] == 0
+    page = (out / "report.html").read_text()
+    assert page.count("<title>pub1: group B</title>") == 3  # The tree's circle, the heatmap's two bands
+    assert "B (2)</text>" in page and "no value (1)</text>" in page  # s3 and pub1; the Reference
+    assert "(the reference has no value)" in page and "added genomes have no value" not in page
+
+
+def test_copies_not_written_by_bacon_are_kept(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    (out / "metadata.tsv").write_text("sample\tgroup\ns1\tA\ns2\tB\n")  # Hand-made, as the report accepts
+    gff = "##gff-version 3\nref\t.\tgene\t10\t300\t.\t+\t.\tID=g1;Name=geneA\n"
+    (out / "annotation.gff3").write_text(gff)
+    stubs.unlink()
+    caplog.clear()
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    assert (out / "metadata.tsv").exists() and (out / "annotation.gff3").exists()
+    assert "Metadata %s was not written by BACoN: kept" % (out / "metadata.tsv") in caplog.text
+    assert "Annotation %s was not written by BACoN: kept" % (out / "annotation.gff3") in caplog.text
+    assert "coloured by <b>group</b>" in (out / "report.html").read_text()
+    # BACoN's own copies go when the run has no metadata or annotation
+    meta = _metadata_file(tmp_path)
+    ann = tmp_path / "ann.gff3"
+    ann.write_text(gff)
+    assert run(settings(ref, reads, out, snp_method="none", metadata=meta, annotation=ann)) == 0
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["metadata"]["copy"] == "metadata.tsv" and info["annotation"]["copy"] == "annotation.gff3"
+    caplog.clear()
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    assert not (out / "metadata.tsv").exists() and not (out / "annotation.gff3").exists()
+    assert "not written by BACoN" not in caplog.text
