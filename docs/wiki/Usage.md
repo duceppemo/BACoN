@@ -106,7 +106,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--keep-percent` | 95 | Filtlong keeps the best reads, up to this percentage of the bases (fastq only: fasta reads have no qualities and are selected by length) |
 | `--target-depth` | 100 | Filtlong keeps at most this depth of the best reads (depth = bases / genome size, `-s` or the reference length) |
 | `-a`, `--assembly-method` | `samtools` | `samtools` (templated), `flye` or `myloasm` (de novo); see [Methods](Methods) |
-| `--template-gaps` | `n` | Templated assembly: reference positions covered by fewer than three reads are `N`; `reference` copies the reference into such positions at the sequence ends only |
+| `--template-gaps` | `n` | Templated assembly: what to put where fewer than three reads cover the reference. `n`: an `N` (no base is guessed); `reference`: the reference's bases, at the ends of each sequence only (gaps inside stay `N`) |
 | `--read-type` | `nano-hq` | Flye: `nano-hq` for R10/Q20 reads (<5% error; Flye's advice for R9 Guppy 5+ reads is also `nano-hq`), `nano-raw` for R9 reads basecalled with Guppy < 5, `nano-corr` for corrected reads |
 | `--min-size` | automatic | Flye minimum read overlap |
 | `-s`, `--size` | reference length | Expected genome size, for Flye and for `--target-depth` |

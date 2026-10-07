@@ -55,7 +55,8 @@ Limits of the templated assembly:
   bases of an insertion the reads do not agree on are `N`: Flye resolved that insertion fully.
 - Where fewer than three reads align, or the reads disagree, the consensus has `N` (`N_bases`, and a note in
   `summary.tsv`).
-  `--template-gaps reference` copies the reference into uncovered sequence ends only; inner gaps stay `N`.
+  This is `--template-gaps n`, the default; with `--template-gaps reference`, uncovered positions at the ends of
+  each sequence get the reference's bases instead (inner gaps stay `N`).
 - In an inverted repeat both copies receive the same reads; a difference between the two copies of one
   sample cannot be seen (the two copies are usually identical in chloroplasts).
 
