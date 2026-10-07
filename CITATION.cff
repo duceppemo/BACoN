@@ -7,11 +7,14 @@ authors:
     given-names: Marc-Olivier
 version: 0.3.6
 date-released: "2026-10-07"
-doi: 10.5281/zenodo.23103930
+doi: 10.5281/zenodo.23213162
 identifiers:
   - type: doi
     value: 10.5281/zenodo.22970412
     description: "Concept DOI: resolves to the latest version"
+  - type: doi
+    value: 10.5281/zenodo.23213162
+    description: "Version DOI for 0.3.6"
   - type: doi
     value: 10.5281/zenodo.23103930
     description: "Version DOI for 0.3.5"
