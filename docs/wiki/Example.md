@@ -104,7 +104,7 @@ or [download it](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/rep
 the reference (the others are the off-target reads), and after filtering the depth is 47.5–47.7x (Figure 1). The
 templated assembly is 30,000 bp for each sample, as long as the reference, with no `N` base (Figure 2): the
 reads span the 3 kb inverted repeat, so the consensus is called in both copies. The samples table has the
-metadata columns after the sample name; `group` colours the figures, so its values carry a colour swatch.
+metadata columns after the sample name; `group` colours the figures, so its values carry their marker.
 
 ![Overview and samples](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_overview.png)
 

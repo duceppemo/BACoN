@@ -16,9 +16,9 @@ log = logging.getLogger(__name__)
 
 MISSING_VALUES = {"", "NA", "na", "-"}  # Cells read as "no value"
 PALETTE_COLOURS = 12  # The report's categorical colours (bacon.report.PALETTE_LIGHT and PALETTE_DARK)
-MARKER_SHAPES = 4  # The report's marker shapes (bacon.report.SHAPES)
 # Distinct values a column may have to colour the figures: each value has a marker of its own, a colour and a shape
-MAX_COLOUR_VALUES = PALETTE_COLOURS * MARKER_SHAPES
+# (bacon.report.MARKERS)
+MAX_COLOUR_VALUES = 48
 MAX_VALUE_LENGTH = 30  # Above this average length of the distinct values, a column is free text
 FREE_TEXT_FROM = 10  # With this many samples having a value, more distinct values than half of them is free text
 KEY_COLUMNS = ("sample", "file")  # Columns of a sample sheet that are not metadata
@@ -234,8 +234,8 @@ def unusable_reason(values: list[str]) -> str | None:
     if not distinct:
         return "no value"
     if len(distinct) > MAX_COLOUR_VALUES:
-        return (f"{len(distinct)} distinct values (at most {MAX_COLOUR_VALUES} can be coloured: "
-                f"{PALETTE_COLOURS} colours × {MARKER_SHAPES} shapes)")
+        return (f"{len(distinct)} distinct values (at most {MAX_COLOUR_VALUES} can be coloured, each with a "
+                "marker of its own)")
     if len(present) >= FREE_TEXT_FROM and len(distinct) > len(present) / 2:
         return f"{len(distinct)} distinct values among {len(present)} samples (free text)"
     if sum(len(v) for v in distinct) / len(distinct) > MAX_VALUE_LENGTH:

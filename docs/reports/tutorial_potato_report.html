@@ -17,7 +17,7 @@
 --q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
 --bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
---pseudo-op:.72;--c1:#F0E442;--c2:#0077BB;--c3:#CC3311;--c4:#99DDFF;--c5:#117733;--c6:#FFAABB;--c7:#AA4499;--c8:#77AADD;--c9:#009988;--c10:#EE7733;--c11:#CC79A7;--c12:#EE3377;--edge:rgba(0,0,0,.5)}}
+--pseudo-op:.72;--c1:#F0E442;--c2:#0077BB;--c3:#CC3311;--c4:#99DDFF;--c5:#117733;--c6:#FFAABB;--c7:#AA4499;--c8:#CCBB44;--c9:#009988;--c10:#EE7733;--c11:#CC79A7;--c12:#EE3377;--edge:rgba(0,0,0,.5)}}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
 --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
@@ -25,7 +25,7 @@
 --q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
 --bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
---pseudo-op:.72;--c1:#F0E442;--c2:#0077BB;--c3:#CC3311;--c4:#99DDFF;--c5:#117733;--c6:#FFAABB;--c7:#AA4499;--c8:#77AADD;--c9:#009988;--c10:#EE7733;--c11:#CC79A7;--c12:#EE3377;--edge:rgba(0,0,0,.5)}
+--pseudo-op:.72;--c1:#F0E442;--c2:#0077BB;--c3:#CC3311;--c4:#99DDFF;--c5:#117733;--c6:#FFAABB;--c7:#AA4499;--c8:#CCBB44;--c9:#009988;--c10:#EE7733;--c11:#CC79A7;--c12:#EE3377;--edge:rgba(0,0,0,.5)}
 *{box-sizing:border-box}
 :root{print-color-adjust:exact;-webkit-print-color-adjust:exact}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -91,6 +91,7 @@ table.snps td.gene{font-style:italic}table.snps td.ctx{white-space:normal;min-wi
 .key span{display:inline-block;padding:1px 8px;border-radius:4px;margin-right:8px;font-size:13px}
 .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .mk{stroke:var(--edge);stroke-width:.8px}.mk0{fill:none;stroke:var(--muted);stroke-width:1.3px}
+.mkb{box-shadow:inset 0 0 0 .8px var(--edge)}
 .mki{vertical-align:middle;margin:-2px 5px 0 0;overflow:visible}.mkt{white-space:nowrap}
 .tree{background:#fff;border-radius:8px;padding:8px;overflow-x:auto;border:1px solid var(--border)}
 .tree svg{max-width:100%;height:auto}

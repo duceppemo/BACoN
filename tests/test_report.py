@@ -764,7 +764,7 @@ def test_with_a_colour_column_colour_means_the_metadata_only():
     page = heatmap(names, matrix, [["a", "b"]], colours)
     assert 'fill="var(--ink2)"><title>a: group 1</title>' in page  # Grey group band
     assert 'fill="var(--c1)" class="mk"><title>a: group A</title>' in page  # Coloured metadata marker
-    assert 'fill="var(--c1)"><title>a: group 1</title>' in heatmap(names, matrix, [["a", "b"]])  # Without metadata
+    assert 'fill="var(--c1)" class="mk"><title>a: group 1</title>' in heatmap(names, matrix, [["a", "b"]])  # No metadata
 
 
 def test_grey_group_bands_alternate_along_the_axes():
@@ -1443,11 +1443,51 @@ def _closest(colours, vision: str) -> float:
     return min(math.dist(_oklab(a, vision), _oklab(b, vision)) for a, b in itertools.combinations(colours, 2))
 
 
+def _ciede2000(a: str, b: str, vision: str = "normal") -> float:
+    """CIEDE2000 between two colours as seen with normal vision or a simulated colour vision deficiency."""
+    import math
+
+    def lab(hex_colour):
+        rgb = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+        if vision != "normal":
+            lin = [min(1.0, max(0.0, sum(m * c for m, c in zip(row, lin)))) for row in _MACHADO[vision]]
+        r, g, b_ = lin
+        xyz = ((0.4124564 * r + 0.3575761 * g + 0.1804375 * b_) / 0.95047, 0.2126729 * r + 0.7151522 * g
+               + 0.0721750 * b_, (0.0193339 * r + 0.1191920 * g + 0.9503041 * b_) / 1.08883)
+        fx, fy, fz = (t ** (1 / 3) if t > 216 / 24389 else (24389 / 27 * t + 16) / 116 for t in xyz)
+        return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+    (l1, a1, b1), (l2, a2, b2) = lab(a), lab(b)
+    cb = (math.hypot(a1, b1) + math.hypot(a2, b2)) / 2
+    g = 0.5 * (1 - math.sqrt(cb ** 7 / (cb ** 7 + 25 ** 7)))
+    a1, a2 = (1 + g) * a1, (1 + g) * a2
+    c1, c2 = math.hypot(a1, b1), math.hypot(a2, b2)
+    h1, h2 = math.degrees(math.atan2(b1, a1)) % 360, math.degrees(math.atan2(b2, a2)) % 360
+    dh = 0 if c1 * c2 == 0 else (h2 - h1 + 180) % 360 - 180
+    dl, dc, dhh = l2 - l1, c2 - c1, 2 * math.sqrt(c1 * c2) * math.sin(math.radians(dh / 2))
+    lm, cm = (l1 + l2) / 2, (c1 + c2) / 2
+    hm = h1 + h2 if c1 * c2 == 0 else ((h1 + h2) / 2 + (180 if abs(h1 - h2) > 180 else 0)) % 360
+    t = (1 - 0.17 * math.cos(math.radians(hm - 30)) + 0.24 * math.cos(math.radians(2 * hm))
+         + 0.32 * math.cos(math.radians(3 * hm + 6)) - 0.20 * math.cos(math.radians(4 * hm - 63)))
+    sl = 1 + 0.015 * (lm - 50) ** 2 / math.sqrt(20 + (lm - 50) ** 2)
+    sc, sh = 1 + 0.045 * cm, 1 + 0.015 * cm * t
+    rt = -math.sin(math.radians(60 * math.exp(-(((hm - 275) / 25) ** 2)))) * 2 * math.sqrt(cm ** 7 / (cm ** 7 + 25 ** 7))
+    return math.sqrt((dl / sl) ** 2 + (dc / sc) ** 2 + (dhh / sh) ** 2 + rt * (dc / sc) * (dhh / sh))
+
+
+def test_ciede2000_helper_gives_known_differences():
+    # Black and white, sRGB red and green (Sharma, Wu & Dalal's formulas, as in colour-science)
+    assert abs(_ciede2000("#000000", "#ffffff") - 100.0) < 0.01
+    assert abs(_ciede2000("#ff0000", "#00ff00") - 86.61) < 0.05
+    assert _ciede2000("#0077BB", "#0077BB", "deutan") == 0
+
+
 def test_palette_twelve_colours_kept_apart_for_colourblind_readers():
-    from bacon.metadata import MARKER_SHAPES, MAX_COLOUR_VALUES, PALETTE_COLOURS
-    from bacon.report import GROUP_COLOURS, PALETTE_DARK, PALETTE_LIGHT, SHAPES, TOKENS_DARK, TOKENS_LIGHT
+    from bacon.metadata import MAX_COLOUR_VALUES, PALETTE_COLOURS
+    from bacon.report import GROUP_COLOURS, MARKERS, PALETTE_DARK, PALETTE_LIGHT, TOKENS_DARK, TOKENS_LIGHT
     assert len(PALETTE_LIGHT) == len(PALETTE_DARK) == PALETTE_COLOURS == GROUP_COLOURS == 12
-    assert len(set(SHAPES)) == len(SHAPES) == MARKER_SHAPES and MAX_COLOUR_VALUES == 48
+    assert len(MARKERS) == MAX_COLOUR_VALUES == 48
     for palette, tokens, surface, floor in ((PALETTE_LIGHT, TOKENS_LIGHT, "#fcfcfb", 2), (PALETTE_DARK, TOKENS_DARK,
                                                                                          "#1a1a19", 3)):
         assert f"--surface:{surface}" in tokens and "--edge:" in tokens
@@ -1461,15 +1501,52 @@ def test_palette_twelve_colours_kept_apart_for_colourblind_readers():
                 assert _closest(palette[shape::4], vision) >= 11
     from bacon.report import CSS
     assert sum(_wcag(c, "#fcfcfb") < 3 for c in PALETTE_LIGHT) == 4 and ".mk{stroke:var(--edge)" in CSS
+    # Dark: the stand-in of the sky blue (8th) is not a second pale blue next to the dark blue's (4th), with
+    # which it shares the diamond
+    assert PALETTE_DARK[3] == "#99DDFF" and PALETTE_DARK[7] == "#CCBB44" and _ciede2000(PALETTE_DARK[3],
+                                                                                         PALETTE_DARK[7]) > 40
+
+
+def _worst_same_shape(count: int, palette, visions=("deutan", "protan", "tritan")) -> float:
+    """The smallest difference (the smaller of CIEDE2000 and OKLab) between the colours of two of the first `count`
+    values that share a shape, under the given visions: what a reader must tell apart by colour alone."""
+    import itertools
+    import math
+
+    from bacon.report import MARKERS
+    worst = math.inf
+    for (c1, s1), (c2, s2) in itertools.combinations(MARKERS[:count], 2):
+        if s1 == s2:
+            a, b = palette[c1], palette[c2]
+            worst = min(worst, *(min(_ciede2000(a, b, v), math.dist(_oklab(a, v), _oklab(b, v))) for v in visions))
+    return worst
+
+
+def test_values_sharing_a_shape_stay_apart_for_colourblind_readers():
+    from bacon.report import PALETTE_DARK, PALETTE_LIGHT
+    # Measured (light and dark alike): 11.3 up to 25 values, as within the first 12; 6.9 at 48. The former
+    # assignment (four shapes, moved on by one after each round of 12 colours) fell to 5.9 from 13 values
+    for palette in (PALETTE_LIGHT, PALETTE_DARK):
+        assert _worst_same_shape(12, palette) >= 11.2
+        assert _worst_same_shape(13, palette) >= 11.2  # Across rounds of colours, not only within one
+        assert _worst_same_shape(24, palette) >= 11.2
+        assert _worst_same_shape(25, palette) >= 11.2
+        assert _worst_same_shape(36, palette) >= 8.5
+        assert _worst_same_shape(48, palette) >= 6.8
+        assert _worst_same_shape(48, palette, ("normal",)) >= 10  # Normal vision too
 
 
 def test_value_markers_differ_in_colour_and_shape():
-    from bacon.report import SHAPES, value_marker
+    from bacon.report import MARKERS, SHAPES, value_marker
+    assert SHAPES == ("circle", "triangle", "square", "diamond", "triangle-down", "plus", "cross")
     pairs = [value_marker(rank) for rank in range(48)]
-    assert len(set(pairs)) == 48  # 12 colours x 4 shapes: a pair of its own for each value
+    assert len(set(pairs)) == 48  # A pair of its own for each value
     assert all(a[0] != b[0] and a[1] != b[1] for a, b in zip(pairs, pairs[1:]))  # Neighbours differ in both
-    assert [shape for _, shape in pairs[:4]] == list(SHAPES) and pairs[0] == ("var(--c1)", "circle")
-    assert pairs[12] == ("var(--c1)", "triangle") and pairs[4] == ("var(--c5)", "circle")
+    # The first 12 as before this assignment (reports with up to 12 values are unchanged): colours in turn, the
+    # first four shapes in turn
+    assert pairs[:12] == [(f"var(--c{i + 1})", SHAPES[i % 4]) for i in range(12)]
+    assert max(sum(c == colour for c, _ in MARKERS) for colour in range(12)) == 5  # No colour more than 5 times
+    assert pairs[12] == ("var(--c1)", "cross")
 
 
 def test_markers_shapes_hollow_and_escaped_titles():
@@ -1480,6 +1557,10 @@ def test_markers_shapes_hollow_and_escaped_titles():
     assert marker("hollow", 5, 5, 10, title="a") == '<circle cx="5" cy="5" r="4" class="mk0"><title>a</title></circle>'
     c = _colouring({"a": "{0} <b>", "b": ""}, column="x{}")
     assert c.marker("a", 1, 1, 8).endswith('class="mk"><title>a: x{} {0} &lt;b&gt;</title></circle>')
+    assert marker("triangle-down", 5, 5, 10, "var(--c1)").startswith('<path d="M5,10.17L10.4,0.77L-0.4,0.77Z"')
+    plus = marker("plus", 5, 5, 10, "var(--c1)")
+    assert plus.startswith('<path d="M6.9,10.5L6.9,6.9L10.5,6.9L10.5,3.1L6.9,3.1') and plus.count("L") == 11
+    assert marker("cross", 5, 5, 10, "var(--c1)").startswith('<path d="M2.45,10.23L5,7.69L7.55,10.23')
     with pytest.raises(ValueError):
         marker("star", 0, 0, 1)
 
@@ -1512,3 +1593,125 @@ def test_table_markers_stay_with_the_value_when_wrapped():
     assert marked(None, "no <value>").startswith('<span class="mkt"><svg class="mki"')
     assert marked(None, "no <value>").endswith('class="mk0"/></svg>no</span> &lt;value&gt;')
     assert ".mkt{white-space:nowrap}" in CSS and "th,td{white-space:normal" in CSS.split("@media print")[1]
+
+
+def _marker_sig(element: str) -> tuple:
+    """A marker's colour and shape, wherever it is drawn and whatever its size: its fill and its tag, or the
+    outline of a path scaled to a unit box."""
+    fill = re.search(r'fill="([^"]+)"', element).group(1) if 'class="mk"' in element else "hollow"
+    tag = element[1:element.index(" ")]
+    if tag != "path":
+        return fill, tag
+    points = [tuple(map(float, p.split(","))) for p in re.search(r'd="M([^"Z]+)Z"', element).group(1).split("L")]
+    xs, ys = [x for x, _ in points], [y for _, y in points]
+    return fill, tuple((round((x - min(xs)) / (max(xs) - min(xs)), 1), round((y - min(ys)) / (max(ys) - min(ys)), 1))
+                       for x, y in points)
+
+
+def test_each_value_has_one_marker_everywhere_with_a_failed_sample_sorting_first(tmp_path):
+    from bacon.report import marker, value_marker
+    out = _metadata_run(tmp_path, "sample\tgroup\na\tx\nb\ty\nc\t0\n")
+    summary = out / "summary.tsv"  # c failed: its value, 0, sorts first but is in no figure
+    summary.write_text(summary.read_text() + "c\tfailed (bait)\tNA\tNA\tNA\tno reads matched the reference\n")
+    page = build_report(out)
+    element = r'(<(?:circle|rect|path) [^>]*class="mk")'
+    for rank, value, genome in ((1, "x", "a"), (2, "y", "b")):
+        expected = _marker_sig(marker(value_marker(rank)[1], 5, 5, 10, value_marker(rank)[0]))
+        found = {
+            "legend": re.findall(element + rf'/><text x="\d+" y="\d+" class="t-small t-ink2">{value} \(1\)</text>', page),
+            "cross table": re.findall(element + rf'/></svg>{value}</span></th>', page),
+            "samples table": re.findall(rf'<td class="md" data-v="{value}"><span class="mkt"><svg [^>]*>' + element, page),
+            "tree and bands": re.findall(element + rf'><title>{genome}: group {value}</title>', page),
+        }
+        assert [len(v) for v in found.values()] == [1, 1, 1, 3], found  # The tree's marker and the two bands'
+        assert all(_marker_sig(e) == expected for v in found.values() for e in v), (value, found)
+    # The failed sample keeps its own marker (the first value's) in the samples table
+    first = re.search(r'<td class="md" data-v="0"><span class="mkt"><svg [^>]*>' + element, page).group(1)
+    assert _marker_sig(first) == ("var(--c1)", "circle")
+
+
+def test_tree_text_follows_its_marker():
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
+    out = tree_svg(root, {}, "ref.fa", 100, _colouring({"a": "x", "b": "y", "c": "x"}))
+    cx = float(re.search(r'<circle cx="([\d.]+)" cy="[\d.]+" r="4.5" fill="var\(--c1\)" class="mk"><title>a:', out)
+               .group(1))
+    text_x = float(re.search(r'<text x="([\d.]+)" y="[\d.]+" class="t-ink" font-size="12">a <tspan', out).group(1))
+    assert text_x >= cx + 4.5 + 3  # The name starts clear of the marker (9 px across)
+
+
+def test_heatmap_markers_centred_on_their_row_and_beside_their_label():
+    names = ["a", "b", "c"]
+    m = {x: {y: 0 if x == y else 2 for y in names} for x in names}
+    out = heatmap(names, m, [], _colouring({"a": "x", "b": "y", "c": ""}))
+    cell = re.search(r'<rect x="([\d.]+)" y="([\d.]+)" width="(\d+)" height="\d+"><title>a – a: 0 SNPs', out)
+    x, y, side = (float(v) for v in cell.groups())
+    centres = [(float(cx), float(cy)) for cx, cy in re.findall(
+        r'<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+" fill="var\(--c1\)" class="mk"><title>a:', out)]
+    assert len(centres) == 2  # On its row and in its column (the cells' positions are rounded to the pixel)
+    assert abs(centres[0][1] - (y + side / 2)) <= 0.5 and abs(centres[1][0] - (x + side / 2)) <= 0.5
+    # The legend: each marker on the line of its label (the text's baseline 4 px below its centre), just before it
+    legend = re.search(r'<circle cx="([\d.]+)" cy="([\d.]+)" r="5.5" fill="var\(--c1\)" class="mk"/><text x="(\d+)" '
+                       r'y="(\d+)" class="t-small t-ink2">x \(1\)</text>', out)
+    cx, cy, tx, ty = (float(v) for v in legend.groups())
+    assert abs(ty - cy - 4) <= 0.5 and abs(tx - cx - 10) <= 0.5
+    hollow = re.search(r'<circle cx="[\d.]+" cy="([\d.]+)" r="[\d.]+" class="mk0"/><text x="\d+" y="(\d+)" '
+                       r'class="t-small t-ink2">no value \(1\)', out)
+    assert abs(float(hollow.group(2)) - float(hollow.group(1)) - 4) <= 0.5
+
+
+def test_samples_table_marks_each_value_with_its_own_marker(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tgroup\na\tx\nb\ty\n")
+    page = build_report(out)
+    cells = dict(re.findall(r'<td class="md" data-v="(\w)"><span class="mkt"><svg [^>]*>(<[^>]*class="mk"/>)', page))
+    assert _marker_sig(cells["x"]) == ("var(--c1)", "circle") and _marker_sig(cells["y"])[0] == "var(--c2)"
+
+
+def test_cross_table_turns_with_many_values():
+    from bacon.report import MAX_CROSS_COLUMNS, cross_table
+    names = [f"g{i:02d}" for i in range(30)]
+    groups = [names[:2], names[2:4]]
+
+    def values(count):
+        return _colouring({n: f"v{i % count:02d}" for i, n in enumerate(names)}, column="site")
+
+    wide = cross_table(groups, names, values(MAX_CROSS_COLUMNS))  # 12 values: the values head the columns
+    assert wide.split("</thead>")[0].count("</th>") == 1 + 12 + 1 and wide.count("<tr>") == 1 + 3
+    tall = cross_table(groups, names, values(13))  # 13: the groups head the columns, a row per value
+    head, body = tall.split("</thead>")
+    assert re.findall(r'<th class="num">([^<]+)</th>', head) == ["group 1", "group 2", "not in a group"]
+    rows = body.split("<tr>")[1:]
+    assert len(rows) == 13 + 1 and "v00</span></td>" in rows[0] and rows[-1].startswith("<td>Total</td>")
+    assert re.findall(r'>(\d+|–)</td>', rows[0]) == ["1", "–", "2"]  # g00 in group 1, g13 and g26 in no group
+    assert re.findall(r'>(\d+)</td>', rows[-1]) == ["2", "2", "26"]  # The sizes of the groups
+    many_groups = [[n] * 1 for n in names[:28]]  # More groups than values: values stay in the columns
+    assert "group 1</td>" in cross_table([g * 2 for g in many_groups][:14], names, values(13))
+
+
+def test_groups_of_identical_genomes_have_an_edge_and_labels():
+    from bacon.report import CSS
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
+    assert 'fill="var(--c1)" class="mk"><title>group 1</title></rect>' in tree_svg(root, {"a": 0, "b": 0}, "", 100)
+    names = ["a", "b", "c"]
+    m = {x: {y: 0 if {x, y} <= {"a", "b"} or x == y else 3 for y in names} for x in names}
+    out = heatmap(names, m, [["a", "b"]])
+    assert out.count('fill="var(--c1)" class="mk"><title>a: group 1</title>') == 2  # Both bands
+    assert re.search(r'width="4" height="\d+" fill="var\(--c1\)" class="mk"><title>group 1 \(2\)</title>', out)
+    assert 'class="t-small t-ink">group 1 (2)</text>' in out  # The block's label on the right
+    assert ".mkb{box-shadow:inset 0 0 0 .8px var(--edge)}" in CSS
+
+
+def test_report_groups_list_swatches_have_an_edge(tmp_path):
+    page = build_report(_full_run(tmp_path))
+    assert '<li><span class="swatch mkb" style="background:var(--c1)"></span><b>group 1</b>' in page
+
+
+def test_report_ignores_a_recorded_colour_column_that_can_no_longer_colour(tmp_path):
+    rows = "".join(f"s{i}\tv{i % 49:02d}\n" for i in range(98))  # A copy edited by hand: 49 values
+    out = _metadata_run(tmp_path, "sample\tgroup\na\tv00\nb\tv01\n" + rows, color_by="group")
+    page = build_report(out)
+    assert "No column colours the figures" in page and "<title>a: group v00</title>" not in page
+    assert "<table class=\"cross\">" not in page and "group:</text>" not in page
+    assert ("The metadata column &#x27;group&#x27; recorded to colour the figures cannot colour them: 49 distinct "
+            "values (at most 48 can be coloured, each with a marker of its own); the figures are not coloured.") in page
+    out = _metadata_run(tmp_path / "ok", "sample\tgroup\na\tv00\nb\tv01\n" + rows.replace("v48", "v47"))
+    assert "coloured by <b>group</b>" in build_report(out)  # 48 values: coloured

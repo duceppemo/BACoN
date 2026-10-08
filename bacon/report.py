@@ -32,7 +32,6 @@ from bacon.annotation import (
 )
 from bacon.metadata import (
     COPY_NAME,
-    MARKER_SHAPES,
     MAX_VALUE_LENGTH,
     PALETTE_COLOURS,
     Metadata,
@@ -41,6 +40,7 @@ from bacon.metadata import (
     read_metadata,
     shown_name,
     sort_key,
+    unusable_reason,
 )
 from bacon.newick import Node, depths, heights, ladderize, parse, preorder, walk
 from bacon.seqio import read_records, split_extension
@@ -55,21 +55,39 @@ MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longes
 # https://jfly.uni-koeln.de/color/) and Paul Tol's schemes (https://personal.sron.nl/~pault/, technical note
 # SRON/EPS/TN/09-002 3.2, 2021): yellow and dark blue of his high-contrast scheme, blue, red, teal, orange and
 # magenta of vibrant, green, wine and purple of muted, sky blue and reddish purple of Okabe-Ito; in the dark theme
-# four give way to colours of about the same hue (Okabe-Ito yellow; Tol's light cyan, pink and blue).
+# four give way to colours with 3:1 on the dark surface (Okabe-Ito yellow; Tol's light cyan and pink for the dark
+# blue and the wine; Tol's bright yellow for the sky blue, whose pale-blue stand-in shared a shape with the cyan).
 # Chosen among those palettes to keep every pair as distinct as possible for colourblind readers (the smallest
 # CIEDE2000 or OKLab difference of any two colours under deuteranopia, protanopia and tritanopia simulated with
 # Machado et al. 2009 at severity 1), while staying at least 12 apart for normal vision, 2:1 against the light
 # surface (the markers have a dark edge there) and 3:1 against the dark one. The first ones are the most distinct
-# (a column with few values gets them), and colours four apart, which share a shape (value_marker), stay distinct.
+# (a column with few values gets them), and colours four apart, which share a shape (MARKERS), stay distinct.
 PALETTE_LIGHT = ("#DDAA33", "#0077BB", "#CC3311", "#004488", "#117733", "#882255", "#AA4499", "#56B4E9", "#009988",
                  "#EE7733", "#CC79A7", "#EE3377")
-PALETTE_DARK = ("#F0E442", "#0077BB", "#CC3311", "#99DDFF", "#117733", "#FFAABB", "#AA4499", "#77AADD", "#009988",
+PALETTE_DARK = ("#F0E442", "#0077BB", "#CC3311", "#99DDFF", "#117733", "#FFAABB", "#AA4499", "#CCBB44", "#009988",
                 "#EE7733", "#CC79A7", "#EE3377")
-# The shapes of the values' markers, the most distinct first; a hollow circle is a genome without a value
-SHAPES = ("circle", "triangle", "square", "diamond")
+# The shapes of the values' markers, each legible at 8 px and none a group's square with rounded corners; a hollow
+# circle is a genome without a value
+SHAPES = ("circle", "triangle", "square", "diamond", "triangle-down", "plus", "cross")
+# The marker of each value of the colour column in legend order, (colour, shape) as indices of the palette and of
+# SHAPES. The first 12 take the colours in turn and the first four shapes in turn: values sharing a shape are four
+# colours apart, at least 11 apart under every simulated colour vision deficiency, light or dark (the palette's
+# order). The next 36 were found by a search among the colours (each used at most 5 times) and the seven shapes
+# so that, for each number of values from 13 to 48, the two most alike values sharing a shape are as distinct as
+# possible in both themes, for normal vision and the three deficiencies: still at least 11 apart up to 25 values,
+# as within the first 12; then at least 9.4 up to 32 values, 8.6 up to 36, 7.7 up to 40, 7.3 up to 44 and 6.9
+# up to 48 (a value's legend entry and text still name it). Every value has a pair of its own, and consecutive
+# values differ in both colour and shape.
+MARKERS = (
+    (0, 0), (1, 1), (2, 2), (3, 3), (4, 0), (5, 1), (6, 2), (7, 3), (8, 0), (9, 1), (10, 2), (11, 3),
+    (0, 6), (5, 5), (7, 4), (1, 6), (4, 4), (2, 6), (1, 5), (3, 6), (2, 5), (6, 4), (2, 1), (9, 5),
+    (5, 2), (1, 3), (3, 0), (10, 4), (0, 2), (7, 0), (0, 4), (7, 6), (0, 3), (3, 5), (10, 6), (3, 1),
+    (10, 5), (6, 1), (1, 2), (6, 3), (10, 1), (6, 6), (4, 3), (2, 4), (4, 5), (11, 2), (4, 1), (11, 4),
+)
 GROUP_COLOURS = PALETTE_COLOURS  # Groups of identical genomes with a colour of their own; the others share grey
 N_LABELS = 5  # Bars labelled in the N-bases chart (the largest values)
 MAX_NAME_GUTTER = 220  # Room for the sample names of the bar charts, in px; longer names are cut
+MAX_CROSS_COLUMNS = 12  # Values in columns of the cross table; above, and above the groups, values in rows
 MIN_LABELLED_RUN = 12  # A block of identical genomes on the heatmap's right is labelled from this height, in px
 FIG_WIDTH = 1120
 MAX_GENE_RECTS = 1500  # Above this many genes in the map, the gene rows are merged per pixel, without names
@@ -173,13 +191,9 @@ MISSING_COLOUR = "var(--muted)"  # A genome without a value of the colour column
 
 
 def value_marker(rank: int) -> tuple[str, str]:
-    """The colour and shape of the value of rank `rank` (0, 1...) in the legend: the colours in turn, and the
-    shapes in turn with them, moved on by one shape after each round of colours. Consecutive values differ in
-    both colour and shape, the first four values have four shapes, and each of the PALETTE_COLOURS x
-    MARKER_SHAPES values has a pair of its own; within a round of colours, the values sharing a shape are four
-    colours apart, which the palette's order keeps distinct."""
-    colour = rank % PALETTE_COLOURS
-    return f"var(--c{colour + 1})", SHAPES[(colour + rank // PALETTE_COLOURS) % MARKER_SHAPES]
+    """The colour and shape of the value of rank `rank` (0, 1...) in the legend (MARKERS)."""
+    colour, shape = MARKERS[rank]
+    return f"var(--c{colour + 1})", SHAPES[shape]
 
 
 def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title: str = "") -> str:
@@ -197,12 +211,21 @@ def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title:
         side = size * 0.86
         return element("rect", f'x="{_n(cx - side / 2)}" y="{_n(cy - side / 2)}" width="{_n(side)}" '
                                f'height="{_n(side)}" {paint}')
-    if shape == "triangle":  # Pointing up; centred between its box and its centroid
+    if shape in ("triangle", "triangle-down"):  # Centred between its box and its centroid
         h, w = size * 0.94, size * 1.08
-        points = [(cx, cy - 0.55 * h), (cx + w / 2, cy + 0.45 * h), (cx - w / 2, cy + 0.45 * h)]
+        flip = 1 if shape == "triangle" else -1
+        base = cy + flip * 0.45 * h
+        points = [(cx, cy - flip * 0.55 * h), (cx + w / 2, base), (cx - w / 2, base)]
     elif shape == "diamond":
         r = size * 0.6
         points = [(cx, cy - r), (cx + r * 0.85, cy), (cx, cy + r), (cx - r * 0.85, cy)]
+    elif shape in ("plus", "cross"):  # Arms a third of the size thick; the cross is the plus turned by 45°
+        e, t = size * 0.55, size * 0.19
+        arm = [(t, e), (t, t), (e, t), (e, -t), (t, -t), (t, -e)]
+        outline = arm + [(-x, -y) for x, y in arm]
+        if shape == "cross":
+            outline = [((x - y) * 0.7071, (x + y) * 0.7071) for x, y in outline]
+        points = [(cx + x, cy + y) for x, y in outline]
     else:
         raise ValueError(f"unknown marker shape {shape!r}")
     return element("path", f'd="M{"L".join(f"{_n(x)},{_n(y)}" for x, y in points)}Z" {paint}')
@@ -279,6 +302,11 @@ def report_metadata(output: Path, info: dict) -> tuple[Metadata | None, Colourin
     recorded = info.get("metadata")
     if isinstance(recorded, dict) and "color_by" in recorded:
         column = recorded["color_by"] if recorded["color_by"] in metadata.columns else None
+        # The run checked the column, but the copy may have been edited since (too many values to mark each one)
+        reason = unusable_reason(metadata.values(column)) if column else None
+        if reason:
+            return metadata, None, (f"The metadata column {column!r} recorded to colour the figures cannot colour "
+                                    f"them: {reason}; the figures are not coloured")
     else:
         column = choose_colour_column(metadata, None)[0]
     return metadata, colouring(metadata, column) if column else None, ""
@@ -484,7 +512,7 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
         slot = slots.get(n.name) if colours is None else None  # With a colour column, colour is the metadata's
         if slot is not None:
             texts.append(f'<rect x="{x:.1f}" y="{yy - 4.5:.1f}" width="9" height="9" rx="1.5" '
-                         f'fill="{slot_colour(slot)}"><title>group {slot + 1}</title></rect>')
+                         f'fill="{slot_colour(slot)}" class="mk"><title>group {slot + 1}</title></rect>')
         if slots and colours is None:
             x += 13
         value = ""
@@ -618,15 +646,19 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
             shade[a] = runs
 
     def group_fill(name: str) -> str:
-        return group_colour(shade[name], True) if colours is not None else slot_colour(slots[name])
+        """The fill of a genome's group, with the edge of the markers when it is a colour (a light one has low
+        contrast on the light surface; the greys with a colour column have 3:1 or more)."""
+        if colours is not None:
+            return f'fill="{group_colour(shade[name], True)}"'
+        return f'fill="{slot_colour(slots[name])}" class="mk"'
 
     for i, a in enumerate(names):
         x, y = left + i * cell, top + i * cell
         if a in slots:
-            colour, title = group_fill(a), f"{esc(a)}: group {slots[a] + 1}"
-            parts.append(f'<rect x="{left - 14:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" fill="{colour}">'
+            paint, title = group_fill(a), f"{esc(a)}: group {slots[a] + 1}"
+            parts.append(f'<rect x="{left - 14:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" {paint}>'
                          f'<title>{title}</title></rect>')
-            parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
+            parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" {paint}>'
                          f'<title>{title}</title></rect>')
         if colours is not None:  # The value's marker, centred in a 10 px band outside the group band
             parts.append(colours.marker(a, left - band + 5, y + (cell - 1) / 2, glyph))
@@ -650,7 +682,7 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
         parts.append(f'<g class="{c}" text-anchor="middle" font-size="{font:.1f}">{"".join(items)}</g>')
     for k, (i, j, _, label) in enumerate(blocks):  # A bar per block, labelled when the block is tall enough
         parts.append(f'<rect x="{left + n * cell + 8:.0f}" y="{top + i * cell:.0f}" width="4" '
-                     f'height="{(j - i + 1) * cell - 1}" fill="{group_fill(names[i])}"><title>{label}</title>'
+                     f'height="{(j - i + 1) * cell - 1}" {group_fill(names[i])}><title>{label}</title>'
                      '</rect>')
         if k in tall:
             parts.append(f'<text x="{left + n * cell + 16:.0f}" y="{top + (i + j + 1) / 2 * cell + 4:.0f}" '
@@ -678,37 +710,31 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
 
 def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -> str:
     """Counts of the genomes of each group of identical genomes (and of those in no group) for each value of the
-    colour column held by one of the genomes (a value of a failed sample only has no column)."""
+    colour column held by one of the genomes (a value of a failed sample only has no column); with more than
+    MAX_CROSS_COLUMNS values, and more values than groups, the values are the rows (a wide table is cut on a
+    printed page)."""
     missing = any(not colours.value(n) for n in names)
     shown = [v for v in colours.values if any(colours.value(n) == v for n in names)]
     in_group = {n for g in groups for n in g}
-    sets = [(f"group {i + 1}", g, "") for i, g in enumerate(groups)]  # Colour is the column's here
+    sets = [(f"group {i + 1}", g) for i, g in enumerate(groups)]
     singles = [n for n in names if n not in in_group]
     if singles:
-        sets.append(("not in a group", singles, ""))
-
-    def swatch(colour: str) -> str:
-        return f'<span class="swatch" style="background:{colour}"></span>' if colour else ""
-
-    head = ["<th></th>"] + [f'<th class="num">{marked(colours.values.index(v), v)}</th>' for v in shown]
-    if missing:
-        head.append(f'<th class="num">{marked(None, "no value")}</th>')
-    head.append('<th class="num">Total</th>')
-    body = []
-    for label, members, colour in sets:
-        counts = {v: 0 for v in shown}
-        none = 0
-        for m in members:
-            value = colours.value(m)
-            if value:
-                counts[value] += 1
-            else:
-                none += 1
-        cells = [counts[v] for v in shown] + ([none] if missing else []) + [len(members)]
-        body.append(f"<tr><td>{swatch(colour)}{esc(label)}</td>" + "".join(
-            f'<td class="num{" zero" if not c else ""}">{c if c else "–"}</td>' for c in cells) + "</tr>")
-    return ('<div class="tablewrap"><table class="cross"><thead><tr>' + "".join(head) + "</tr></thead><tbody>"
-            + "".join(body) + "</tbody></table></div>")
+        sets.append(("not in a group", singles))
+    values = [marked(colours.values.index(v), v) for v in shown] + ([marked(None, "no value")] if missing else [])
+    counts = []  # For each set, its count of each value (then of no value) and its size
+    for _, members in sets:
+        held = Counter(colours.value(m) for m in members)
+        counts.append([held[v] for v in shown] + ([held[""]] if missing else []) + [len(members)])
+    labels = [esc(label) for label, _ in sets]
+    head, rows = values + ["Total"], labels
+    if len(shown) > MAX_CROSS_COLUMNS and len(values) > len(sets):  # The values as rows, the groups as columns
+        head, rows = labels, values + ["Total"]
+        counts = [list(column) for column in zip(*counts)]
+    body = [f"<tr><td>{label}</td>" + "".join(f'<td class="num{" zero" if not c else ""}">{c if c else "–"}</td>'
+                                              for c in cells) + "</tr>" for label, cells in zip(rows, counts)]
+    return ('<div class="tablewrap"><table class="cross"><thead><tr><th></th>'
+            + "".join(f'<th class="num">{h}</th>' for h in head) + "</tr></thead><tbody>" + "".join(body)
+            + "</tbody></table></div>")
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1316,6 +1342,7 @@ table.snps td.gene{{font-style:italic}}table.snps td.ctx{{white-space:normal;min
 .key span{{display:inline-block;padding:1px 8px;border-radius:4px;margin-right:8px;font-size:13px}}
 .swatch{{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}}
 .mk{{stroke:var(--edge);stroke-width:.8px}}.mk0{{fill:none;stroke:var(--muted);stroke-width:1.3px}}
+.mkb{{box-shadow:inset 0 0 0 .8px var(--edge)}}
 .mki{{vertical-align:middle;margin:-2px 5px 0 0;overflow:visible}}.mkt{{white-space:nowrap}}
 .tree{{background:#fff;border-radius:8px;padding:8px;overflow-x:auto;border:1px solid var(--border)}}
 .tree svg{{max-width:100%;height:auto}}
@@ -1595,7 +1622,7 @@ def build_report(output: Path) -> str:
                 out.append('<h3>Identical genomes</h3><p class="meta">No SNP between any two genomes of a group '
                            '(positions with N or a gap are not compared).</p><ul class="groups">' + "".join(
                                ("<li>" if colours else  # With a colour column, colour is the column's
-                                f'<li><span class="swatch" style="background:{slot_colour(i)}"></span>')
+                                f'<li><span class="swatch mkb" style="background:{slot_colour(i)}"></span>')
                                + f"<b>group {i + 1}</b> ({len(g)}): {esc(', '.join(g))}</li>"
                                for i, g in enumerate(groups)) + "</ul>")
                 if len(groups) > GROUP_COLOURS:

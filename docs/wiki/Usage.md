@@ -79,12 +79,17 @@ more samples have a value, do not outnumber half of them (so 28 samples can have
 need 96 samples). Numbers with few distinct values (years, batches) are categories like any other. A requested
 column that does not exist stops BACoN before any step; one that cannot be coloured gives a warning and
 uncoloured figures. The values are marked in sorted order (numerically when they are all numbers), each with a
-colour and a shape of its own, so that values whose colours look alike to a colourblind reader still differ: 12
-colours from the colourblind-safe palettes of Okabe & Ito and of Paul Tol, chosen and ordered to stay as distinct
-as possible under deuteranopia, protanopia and tritanopia (the first ones, which a column with few values gets,
-the most distinct), and four shapes (circle, triangle, square, diamond), taken in turn with the colours and moved
-on by one after each round of 12, so that consecutive values differ in both and each of the 12 × 4 values has a
-pair of its own. A genome without a value gets a hollow circle.
+colour and a shape of its own: 12 colours from the colourblind-safe palettes of Okabe & Ito and of Paul Tol,
+chosen and ordered to stay as distinct as possible under deuteranopia, protanopia and tritanopia (the first ones,
+which a column with few values gets, the most distinct), and seven shapes (circle, triangle, square, diamond,
+inverted triangle, plus, cross). The first 12 values take the colours in turn with the first four shapes in turn,
+so that the values sharing a shape are four colours apart and stay distinct to a colourblind reader; the next 36
+were chosen by a search to keep the values sharing a shape as distinct as possible. Up to 25 values, values
+whose colours look alike to a colourblind reader therefore differ in shape; with more, a few pairs sharing a
+shape may look alike (more so towards 48 values), and the legend and the value written after each name in the
+tree and in the tables tell them apart. Consecutive values differ in both colour and shape. The markers follow
+the sorted values, so adding or removing a value (a new sample, an edited sheet) can change the colour and shape
+of the values after it. A genome without a value gets a hollow circle.
 
 **Reads**, as fastq or fasta, gzipped or not (`.fastq`, `.fq`, `.fasta`, `.fa`, `.fna`, `.fas`, with or
 without `.gz`). Three ways to give them:

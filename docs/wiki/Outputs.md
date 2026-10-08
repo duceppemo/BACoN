@@ -46,23 +46,29 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly (templated
   assemblies only: a de novo run gets a sentence instead of a chart of empty bars). Failed samples are listed
   without a bar.
-- **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches,
-  a scale bar (with its equivalent number of SNPs for SKA2), and a coloured square for each group of identical
-  genomes (12 colours, then grey); or why there is none. With a colour column, colour is given to the column
-  only: each leaf gets the marker of its value, a colour and a shape (a hollow circle when the genome has none,
-  as the reference), and the value in muted text after the name, instead of the group square. Each value has a
-  marker of its own, up to 48 values (12 colours from the colourblind-safe palettes of Okabe & Ito and of Paul
-  Tol, with a circle, triangle, square or diamond), so that two values whose colours look alike to a
-  colourblind reader still differ by their shape; the light and dark themes and the printed page keep them.
+- **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches, a
+  scale bar (with its equivalent number of SNPs for SKA2), and a coloured square with a thin dark edge for each
+  group of identical genomes (12 colours, then grey); or why there is none. With a colour column, colour is given
+  to the column only: each leaf gets the marker of its value, a colour and a shape (a hollow circle when the
+  genome has none, as the reference), and the value in muted text after the name, instead of the group square.
+  Each value has a marker of its own, up to 48 values (12 colours from the colourblind-safe palettes of Okabe &
+  Ito and of Paul Tol, and seven shapes: circle, triangle, square, diamond, inverted triangle, plus, cross). Up to
+  25 values, two values whose colours look alike to a colourblind reader differ by their shape; with more, a few
+  pairs sharing a shape may look alike, and the legend and the value after each name tell them apart
+  ([Usage](Usage)). The light and dark themes and the printed page keep the markers, but with many genomes the
+  printed tree and heatmap are shrunk to fit the page, and the markers with them (at 150 genomes the heatmap's are
+  under a millimetre across).
 - **SNP distances**: a heatmap in the order of the tree, with colour classes spread over the range of the
   distances (so that 1–5 SNP differences stay visible next to larger ones) and the exact distance on hover.
   The groups of identical genomes, with no SNP between any two members, are coloured bands along both axes and
   labelled on the right, and are listed below with the number of distinct genomes (positions with `N` or a gap
   are not compared, so a genome with missing data could match two genomes that differ: it is put in one group
   only). With a colour column, a second band outside the first gives each genome's marker (a hollow circle
-  when it has none), with its own legend of markers, values and counts, and the list of identical genomes is
-  followed by a table counting the genomes of each group (and those in no group) for each value, headed by the
-  values' markers. The groups of identical genomes are then drawn
+  when it has none), with its own legend of markers, values and counts (on rows of their own, headed by the
+  column's name, under the row of distance classes headed `SNPs:`), and the list of identical genomes is
+  followed by a table counting the genomes of each group (and those in no group) for each value, with the
+  values' markers (as columns, or as rows above 12 values when there are more values than groups, so that the
+  table fits a printed page). The groups of identical genomes are then drawn
   in two alternating greys, so that colour means the column's values only. Without any SNP site, no identity
   is claimed. Above 150 genomes the heatmap is left out (the distances are in `snp_distances.tsv`).
 - **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf` (the records that passed

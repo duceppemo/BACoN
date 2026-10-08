@@ -27,16 +27,30 @@
 ### Changed
 - The metadata column that colours the report may have up to 48 distinct values (was 8): each value gets a
   marker of its own, a colour and a shape, in the tree (instead of the circle), in the heatmap's band and legend
-  (with its count), in the table of identical genomes by value and in the samples table, so that two values
-  whose colours look alike to a colourblind reader still differ by their shape. The 12 colours come from
-  published colourblind-safe palettes (Okabe & Ito; Paul Tol's high-contrast, vibrant, muted and light schemes),
-  chosen and ordered so that every pair stays as distinct as possible under simulated deuteranopia, protanopia
-  and tritanopia (Machado et al. 2009), the first ones, which a column with few values gets, the most; the four
-  shapes (circle, triangle, square, diamond) are taken in turn with the colours and move on by one after each
-  round of 12, so that consecutive values differ in both. A genome without a value keeps its hollow circle. The
-  groups of identical genomes take their colours from the same palette, 12 instead of 8 before the grey, and
-  keep their squares; with a colour column they stay grey. The free-text rule is unchanged (from 10 samples with
-  a value, a column with more distinct values than half of them is free text).
+  (with its count), in the table of identical genomes by value and in the samples table. The 12 colours come
+  from published colourblind-safe palettes (Okabe & Ito; Paul Tol's high-contrast, vibrant, muted, light and
+  bright schemes), chosen and ordered so that every pair stays as distinct as possible under simulated
+  deuteranopia, protanopia and tritanopia (Machado et al. 2009), the first ones, which a column with few values
+  gets, the most; in the dark theme four give way to colours with 3:1 on the dark surface (the sky blue to Tol's
+  bright yellow, so that it is not a second pale blue sharing the diamond with the light cyan). There are seven
+  shapes (circle, triangle, square, diamond, inverted triangle, plus, cross). The first 12 values take the
+  colours in turn with the first four shapes in turn, so that the values sharing a shape are four colours apart
+  and stay distinct for a colourblind reader (at least 11 in CIEDE2000 and OKLab under the three simulated
+  deficiencies, light and dark); the next 36 were chosen by a search to keep the values sharing a shape as
+  distinct as possible for each number of values: as distinct as within the first 12 up to 25 values, then at
+  least 9.4 up to 32, 8.6 up to 36, 7.7 up to 40 and 6.9 at 48 (taking four shapes in turn and moving them on
+  after each round of 12 colours gave 5.9 from 13 values). So, up to 25 values, values whose colours look alike
+  to a colourblind reader differ in shape; above, a few pairs sharing a shape may look alike, and the legend and
+  the value written after each name tell them apart. Consecutive values differ in both colour and shape, and the
+  markers follow the sorted values (adding or removing a value can change those of the values after it). A
+  genome without a value keeps its hollow circle. With more than 12 values, and more values than groups, the
+  table of identical genomes by value has the values as rows, so that it fits a printed page. The groups of
+  identical genomes take their colours from the same palette, 12 instead of 8 before the grey, and keep their
+  squares, now with the markers' thin dark edge (on the bands, the blocks and the list too: the first colour, a
+  yellow, has 2:1 on the light surface); with a colour column they stay grey. A report rebuilt from a metadata
+  copy edited by hand checks the recorded colour column again (more than 48 values: the figures are left
+  uncoloured, with a note). The free-text rule is unchanged (from 10 samples with a value, a column with more
+  distinct values than half of them is free text).
 - A gene without a symbol (no `/gene`, as in older RefSeq records: only `/locus_tag` and `/product`) is shown as
   `locus_tag (product)`, `LK299_pgr007 (23S ribosomal RNA)`, in the SNP table, the hovers, the intergenic
   contexts and the summary of the genes with the most SNPs (`LK299_pgr007 (23S ribosomal RNA; 4)`); on the map

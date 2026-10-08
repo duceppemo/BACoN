@@ -162,9 +162,9 @@ def test_unusable_reason():
     assert unusable_reason(["", "", ""]) == "no value"
     assert unusable_reason([str(i) for i in range(9)]) is None  # 9 distinct values: more than the 8 of 0.3.6
     assert unusable_reason(["A"] * 9 + ["B"]) is None
-    assert unusable_reason([f"v{i}" for i in range(48)] * 2) is None  # 48 values (12 colours x 4 shapes), 96 samples
+    assert unusable_reason([f"v{i}" for i in range(48)] * 2) is None  # 48 values (a marker each), 96 samples
     reason = unusable_reason([f"v{i}" for i in range(49)] * 2)
-    assert reason == "49 distinct values (at most 48 can be coloured: 12 colours × 4 shapes)"
+    assert reason == "49 distinct values (at most 48 can be coloured, each with a marker of its own)"
     assert "49 distinct" in unusable_reason([f"v{i}" for i in range(49)] * 9)  # The limit, before free text
     assert "free text" in unusable_reason([f"v{i % 6}" for i in range(10)])  # 6 distinct among 10
     assert unusable_reason([f"v{i % 5}" for i in range(10)]) is None  # 5 of 10 is still a category
