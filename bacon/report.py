@@ -197,8 +197,9 @@ def value_marker(rank: int) -> tuple[str, str]:
 
 
 def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title: str = "") -> str:
-    """An SVG marker about `size` px across centred on (cx, cy): `shape` filled with `fill`, with a thin edge, or,
-    for 'hollow', the grey outline of a circle (no value); `title` (escaped by the caller) shows on hover."""
+    """An SVG marker about `size` px across centred on (cx, cy): `shape` (SHAPES, or 'group': the rounded square
+    of a group of identical genomes) filled with `fill`, with a thin edge, or, for 'hollow', the grey outline of
+    a circle (no value); `title` (escaped by the caller) shows on hover."""
     def element(tag: str, attributes: str) -> str:
         return f"<{tag} {attributes}><title>{title}</title></{tag}>" if title else f"<{tag} {attributes}/>"
 
@@ -207,6 +208,9 @@ def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title:
     paint = f'fill="{fill}" class="mk"'
     if shape == "circle":
         return element("circle", f'cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(size * 0.5)}" {paint}')
+    if shape == "group":  # The rounded square of a group of identical genomes, `size` px across
+        return element("rect", f'x="{_n(cx - size / 2)}" y="{_n(cy - size / 2)}" width="{_n(size)}" '
+                               f'height="{_n(size)}" rx="{_n(size / 6)}" {paint}')
     if shape == "square":  # Areas roughly equal to the circle's
         side = size * 0.86
         return element("rect", f'x="{_n(cx - side / 2)}" y="{_n(cy - side / 2)}" width="{_n(side)}" '
@@ -233,16 +237,16 @@ def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title:
 
 def marker_html(rank: int | None, size: float = 11) -> str:
     """The marker of the value of rank `rank` inline in a table (a hollow circle without a value)."""
-    colour, shape = value_marker(rank) if rank is not None else ("", "hollow")
-    box = _n(size + 2)
-    return (f'<svg class="mki" width="{box}" height="{box}" viewBox="0 0 {box} {box}" aria-hidden="true">'
-            f"{marker(shape, size / 2 + 1, size / 2 + 1, size, colour)}</svg>")
+    return value_mark(rank).html(size)
 
 
-def marked(rank: int | None, value: str) -> str:
-    """A value after its marker, escaped; the marker stays on the line of the value's first word."""
+def marked(mark: Mark | int | None, value: str) -> str:
+    """A value after its marker (a Mark, or the rank of a value: value_mark), escaped; the marker stays on the
+    line of the value's first word."""
+    if not isinstance(mark, Mark):
+        mark = value_mark(mark)
     first, space, rest = value.partition(" ")
-    return f'<span class="mkt">{marker_html(rank)}{esc(first)}</span>{space}{esc(rest)}'
+    return f'<span class="mkt">{mark.html()}{esc(first)}</span>{space}{esc(rest)}'
 
 
 def group_colour(slot: int, neutral: bool = False) -> str:
@@ -269,19 +273,65 @@ class Colouring:
         return self.values.index(value) if value else None
 
     def colour(self, name: str) -> str:
-        slot = self.slot(name)
-        return value_marker(slot)[0] if slot is not None else MISSING_COLOUR
+        return sample_mark(name, {}, self).colour
 
     def marker(self, name: str, cx: float, cy: float, size: float) -> str:
         """The genome's marker (a hollow circle without a value), with its hover title."""
-        slot = self.slot(name)
-        colour, shape = value_marker(slot) if slot is not None else ("", "hollow")
-        return marker(shape, cx, cy, size, colour, self.title(name))
+        return sample_mark(name, {}, self).svg(cx, cy, size)
 
     def title(self, name: str) -> str:
         """'name: column value' for a hover, escaped."""
         value = self.value(name)
         return esc(f"{name}: {self.column} {value}" if value else f"{name}: no {self.column}")
+
+
+@dataclass(frozen=True)
+class Mark:
+    """How a genome is drawn wherever it appears in the report (the bar charts, the tree, the heatmap's bands,
+    the samples table, the list of identical genomes): a colour and a shape."""
+    colour: str  # The fill of its marker and of its bars; "": nothing colours the report (the bars' own colour)
+    shape: str  # A SHAPES name; "group": its group of identical genomes' square; "hollow": no value; "": none
+    title: str = ""  # Its hover, escaped
+
+    def svg(self, cx: float, cy: float, size: float) -> str:
+        """The marker centred on (cx, cy), "" without one."""
+        return marker(self.shape, cx, cy, size, self.colour, self.title) if self.shape else ""
+
+    def html(self, size: float = 11) -> str:
+        """The marker inline in a table or a list, without its hover (the text beside it names the genome or
+        the value); an empty box of the same size without a marker, to align the names."""
+        box, c = _n(size + 2), size / 2 + 1
+        inner = marker(self.shape, c, c, size, self.colour) if self.shape else ""
+        return (f'<svg class="mki" width="{box}" height="{box}" viewBox="0 0 {box} {box}" aria-hidden="true">'
+                f"{inner}</svg>")
+
+    def paint(self) -> str:
+        """The attributes of a bar of the genome: its colour, with the markers' edge (some colours have less than
+        3:1 on the light surface); the grey of a genome without a value (or in no group) has 3:1 without it."""
+        if not self.colour:
+            return 'class="bar"'
+        return f'fill="{self.colour}"' + ("" if self.shape in ("", "hollow") else ' class="mk"')
+
+
+def value_mark(rank: int | None, title: str = "") -> Mark:
+    """The marker of the value of rank `rank` in the legend (value_marker); a hollow circle without a value."""
+    if rank is None:
+        return Mark(MISSING_COLOUR, "hollow", title)
+    colour, shape = value_marker(rank)
+    return Mark(colour, shape, title)
+
+
+def sample_mark(name: str, slots: dict[str, int], colours: Colouring | None) -> Mark:
+    """The colour and shape of a genome in every figure and table of the report, the one source of them all: with
+    a metadata column colouring the figures, the marker of its value (a hollow circle and grey bars without
+    one); otherwise the square of its group of identical genomes, in the group's colour (slots: group_slots),
+    with grey bars and no mark for a genome in no group; without groups either, nothing (the bars' own
+    colour)."""
+    if colours is not None:
+        return value_mark(colours.slot(name), colours.title(name))
+    if name in slots:
+        return Mark(slot_colour(slots[name]), "group", esc(f"{name}: group {slots[name] + 1}"))
+    return Mark(MISSING_COLOUR, "") if slots else Mark("", "")
 
 
 def colouring(metadata: Metadata, column: str) -> Colouring:
@@ -383,12 +433,18 @@ class Bar:
 
 
 def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float | None = None,
-              threshold_text: str = "", width: int = 560, integers: bool = False) -> str:
-    """Horizontal bars sorted by value, largest first; a threshold line; failed samples listed at the end."""
+              threshold_text: str = "", width: int = 560, integers: bool = False,
+              slots: dict[str, int] | None = None, colours: Colouring | None = None) -> str:
+    """Horizontal bars sorted by value, largest first; a threshold line; failed samples listed at the end. With a
+    colour column or groups of identical genomes (slots), each sample's bar takes its colour and its marker is
+    drawn before its name, as in the tree and the heatmap (sample_mark)."""
     bars = (sorted((b for b in bars if b.value is not None and not b.failed), key=lambda b: -b.value)
             + [b for b in bars if b.value is None and not b.failed] + [b for b in bars if b.failed])
     row, size = 16, 11
-    left = min(MAX_NAME_GUTTER, 16 + _text_px(max((b.name for b in bars), key=len, default=""), size))
+    slots = slots or {}
+    marked_names = bool(slots) or colours is not None
+    mark_px = 13 if marked_names else 0  # A 9 px marker and its gap, between the name and the axis
+    left = min(MAX_NAME_GUTTER, 16 + _text_px(max((b.name for b in bars), key=len, default=""), size)) + mark_px
     plot = width - left - 80
     top = 26
     values = [b.value for b in bars if b.value is not None]
@@ -413,8 +469,10 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
                      f'{esc(threshold_text)}</text>')
     for i, b in enumerate(bars):
         y = top + i * row
-        parts.append(f'<text x="{left - 6}" y="{y + row - 4}" text-anchor="end" class="t-small t-ink2">'
-                     f'{_shortened(b.name, left - 16, size)}</text>')
+        mark = sample_mark(b.name, slots, colours)
+        parts.append(f'<text x="{_n(left - 6 - mark_px)}" y="{y + row - 4}" text-anchor="end" '
+                     f'class="t-small t-ink2">{_shortened(b.name, left - 16 - mark_px, size)}</text>')
+        parts.append(mark.svg(left - 10.5, y + row / 2, 9))
         if b.failed:
             parts.append(f'<text x="{left}" y="{y + row - 4}" class="t-tiny t-muted"><tspan fill="var(--crit)">'
                          f'&#9632;</tspan> {esc(b.failed)}<title>{esc(b.hover)}</title></text>')
@@ -423,9 +481,9 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
                          '</title></text>')
         else:
             w = max(0.0, b.value * sx)
-            cls = "bar" if w >= 1 else "bar0"
-            parts.append(f'<rect x="{left}" y="{y + 3}" width="{max(w, 1.0):.1f}" height="{row - 6}" rx="2" '
-                         f'class="{cls}"><title>{esc(b.hover)}</title></rect>')
+            paint = mark.paint() if w >= 1 else 'class="bar0"'
+            parts.append(f'<rect x="{_n(left)}" y="{y + 3}" width="{max(w, 1.0):.1f}" height="{row - 6}" rx="2" '
+                         f'{paint}><title>{esc(b.hover)}</title></rect>')
             if b.label:
                 parts.append(f'<text x="{left + w + 5:.1f}" y="{y + row - 4}" class="t-tiny t-ink">'
                              f'{esc(b.label)}</text>')
@@ -490,7 +548,7 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
     y = heights(root, {id(leaf): top + i * row + row / 2 for i, leaf in enumerate(leaves)})
     longest = max((len(leaf.name) + (len(ref_name) + 1 if leaf.name == "Reference" else 0)
                    + (len(colours.value(leaf.name)) + 2 if colours else 0) for leaf in leaves), default=1)
-    width = left + plot + 30 + _text_px("x" * longest, size) + (13 if slots else 0) + (13 if colours else 0)
+    width = left + plot + 30 + _text_px("x" * longest, size) + (13 if slots or colours else 0)
     height = top + len(leaves) * row + (40 if max_depth > 0 else 12)
     parts = [_svg(width, height, "Tree")]
     lines, texts = [], []
@@ -509,17 +567,10 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
             lines.append(f"M{x0:.1f},{min(ys):.1f}V{max(ys):.1f}")
             continue
         x, yy = x0 + 5, y[id(n)]
-        slot = slots.get(n.name) if colours is None else None  # With a colour column, colour is the metadata's
-        if slot is not None:
-            texts.append(f'<rect x="{x:.1f}" y="{yy - 4.5:.1f}" width="9" height="9" rx="1.5" '
-                         f'fill="{slot_colour(slot)}" class="mk"><title>group {slot + 1}</title></rect>')
-        if slots and colours is None:
+        if slots or colours is not None:  # With a colour column, colour is the metadata's (sample_mark)
+            texts.append(sample_mark(n.name, slots, colours).svg(x + 4.5, yy, 9))
             x += 13
-        value = ""
-        if colours is not None:
-            value = colours.value(n.name)
-            texts.append(colours.marker(n.name, x + 4.5, yy, 9))
-            x += 13
+        value = colours.value(n.name) if colours is not None else ""
         note = f' <tspan class="t-muted" font-weight="400">{esc(value)}</tspan>' if value else ""
         if n.name == "Reference":
             if ref_name:
@@ -646,11 +697,11 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
             shade[a] = runs
 
     def group_fill(name: str) -> str:
-        """The fill of a genome's group, with the edge of the markers when it is a colour (a light one has low
-        contrast on the light surface; the greys with a colour column have 3:1 or more)."""
+        """The fill of a genome's group: its colour (sample_mark), with the edge of the markers (a light one has
+        low contrast on the light surface); with a colour column, a grey (3:1 or more): colour is the column's."""
         if colours is not None:
             return f'fill="{group_colour(shade[name], True)}"'
-        return f'fill="{slot_colour(slots[name])}" class="mk"'
+        return f'fill="{sample_mark(name, slots, None).colour}" class="mk"'
 
     for i, a in enumerate(names):
         x, y = left + i * cell, top + i * cell
@@ -661,8 +712,9 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
             parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" {paint}>'
                          f'<title>{title}</title></rect>')
         if colours is not None:  # The value's marker, centred in a 10 px band outside the group band
-            parts.append(colours.marker(a, left - band + 5, y + (cell - 1) / 2, glyph))
-            parts.append(colours.marker(a, x + (cell - 1) / 2, top - band + 5, glyph))
+            mark = sample_mark(a, slots, colours)
+            parts.append(mark.svg(left - band + 5, y + (cell - 1) / 2, glyph))
+            parts.append(mark.svg(x + (cell - 1) / 2, top - band + 5, glyph))
         parts.append(f'<text x="{left - band - 6:.0f}" y="{y + cell / 2 + 4:.0f}" text-anchor="end" '
                      f'class="t-small t-ink2">{esc(a)}</text>')
         parts.append(f'<text transform="translate({x + cell / 2 + 3:.0f},{top - band - 6:.0f}) rotate(-60)" '
@@ -700,12 +752,22 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
         for row in key_rows:
             ly += 18
             for lx, rank, label in row:
-                colour, shape = value_marker(rank) if rank is not None else ("", "hollow")
-                parts.append(marker(shape, lx + 6, ly + 6, 11, colour))
+                parts.append(value_mark(rank).svg(lx + 6, ly + 6, 11))
                 parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(label)}'
                              '</text>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def markers_legend(names: list[str], colours: Colouring) -> str:
+    """The legend of the colour column's markers as a line of the page: each value held by one of `names` with
+    its marker and its count, in legend order, then the genomes without a value."""
+    counts = Counter(colours.value(n) for n in names)
+    items = [marked(colours.values.index(v), f"{v} ({counts[v]})") for v in colours.values if v in counts]
+    if "" in counts:
+        items.append(marked(None, f"no value ({counts['']})"))
+    return (f'<p class="mkkey"><b>{esc(colours.column)}:</b> '
+            + "".join(f"<span>{item}</span>" for item in items) + "</p>")
 
 
 def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -> str:
@@ -1259,7 +1321,7 @@ TOKENS_LIGHT = """color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0
 --q0:#e1e0d9;--q1:#86b6ef;--q2:#3987e5;--q3:#1c5cab;--q4:#0d366b;
 --qt0:#52514e;--qt1:#0b0b0b;--qt2:#0b0b0b;--qt3:#fff;--qt4:#fff;
 --bad-bg:#fbe3e3;--bad-fg:#8f1d1d;--warn-bg:#fdf1cf;--warn-fg:#6b4a00;--info-bg:#e1ecfa;--info-fg:#1c4f8f;
---pseudo-op:.35"""
+--pseudo-op:.3"""
 TOKENS_DARK = """color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
 --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
@@ -1267,7 +1329,7 @@ TOKENS_DARK = """color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--i
 --q0:#2c2c2a;--q1:#184f95;--q2:#2470cc;--q3:#6da7ec;--q4:#b7d3f6;
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
 --bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
---pseudo-op:.72"""
+--pseudo-op:.3"""
 # The categorical colours, and the edge of the markers (dark on the light surface, where four colours are below
 # 3:1; on the dark surface every colour reaches 3:1 and the edge only separates touching markers)
 TOKENS_LIGHT += "".join(f";--c{i}:{c}" for i, c in enumerate(PALETTE_LIGHT, 1)) + ";--edge:rgba(11,11,11,.6)"
@@ -1282,11 +1344,11 @@ CSS = f"""
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}}
 main{{max-width:1440px;margin:0 auto;padding:24px 16px 80px}}
 h1{{font-size:26px;line-height:1.2;margin:0 0 6px}}
-h1 b{{color:var(--s1)}}
+h1 b{{color:var(--c2)}}
 h2{{font-size:21px;margin:44px 0 10px;padding-top:12px;border-top:1px solid var(--grid)}}
 h3{{font-size:17px;margin:26px 0 8px}}
 p,li{{max-width:900px}}
-a{{color:var(--s1)}}
+a{{color:var(--c2)}}
 code{{font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:0 3px}}
 .meta{{color:var(--ink2);font-size:14px;margin:0 0 16px}}
 .tiles{{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}}
@@ -1308,9 +1370,9 @@ margin:8px 0;break-inside:avoid}}
 .grid{{stroke:var(--grid);stroke-width:1}}.axis{{stroke:var(--axis);stroke-width:1}}
 .thresh{{stroke:var(--ink2);stroke-width:1}}
 .branch{{stroke:var(--ink2);stroke-width:1.5;fill:none;stroke-linecap:square}}
-.bar{{fill:var(--s1)}}.bar0{{fill:var(--axis)}}.nbar{{fill:var(--muted)}}
-.snp-all{{stroke:var(--s1);stroke-width:1.5}}.snp-miss{{stroke:var(--s2);stroke-width:1.5}}
-.gene-cds{{fill:var(--s3)}}.gene-rna{{fill:var(--s7)}}.gene-pseudo{{fill:var(--s3);opacity:var(--pseudo-op)}}
+.bar{{fill:var(--c2)}}.bar0{{fill:var(--axis)}}.nbar{{fill:var(--muted)}}
+.snp-all{{stroke:var(--c2);stroke-width:1.5}}.snp-miss{{stroke:var(--c3);stroke-width:1.5}}
+.gene-cds{{fill:var(--c5)}}.gene-rna{{fill:var(--c7)}}.gene-pseudo{{fill:var(--c5);fill-opacity:var(--pseudo-op);stroke:var(--c5);stroke-width:1}}
 .gene-other{{fill:var(--muted)}}.gene-dense{{fill:var(--ink2);opacity:.55}}
 .band-ir{{fill:var(--q1);opacity:.55}}.band-sc{{fill:var(--q0)}}.t-gene{{font-style:italic}}
 g.q0 rect{{fill:var(--q0)}}g.q1 rect{{fill:var(--q1)}}g.q2 rect{{fill:var(--q2)}}g.q3 rect{{fill:var(--q3)}}
@@ -1344,6 +1406,8 @@ table.snps td.gene{{font-style:italic}}table.snps td.ctx{{white-space:normal;min
 .mk{{stroke:var(--edge);stroke-width:.8px}}.mk0{{fill:none;stroke:var(--muted);stroke-width:1.3px}}
 .mkb{{box-shadow:inset 0 0 0 .8px var(--edge)}}
 .mki{{vertical-align:middle;margin:-2px 5px 0 0;overflow:visible}}.mkt{{white-space:nowrap}}
+.mkkey{{font-size:13px;color:var(--ink2);margin:0 0 16px}}.mkkey b{{color:var(--ink);margin-right:8px}}
+.mkkey>span{{display:inline-block;margin-right:14px}}
 .tree{{background:#fff;border-radius:8px;padding:8px;overflow-x:auto;border:1px solid var(--border)}}
 .tree svg{{max-width:100%;height:auto}}
 ul.groups li{{margin-bottom:4px}}
@@ -1398,9 +1462,11 @@ class _Figures:
 
 
 def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
-                   colours: Colouring | None = None) -> str:
+                   colours: Colouring | None = None, slots: dict[str, int] | None = None) -> str:
     """The summary columns, with the metadata columns after Sample (a column whose values are all numbers sorts
-    as numbers; a column with long values wraps; the colour column's values get their marker)."""
+    as numbers; a column with long values wraps; the colour column's values get their marker); without a colour
+    column, the names of the genomes in a group of identical genomes get its square (sample_mark)."""
+    slots = slots if colours is None else {}
     extra = []
     own = [name for pair in TABLE_COLUMNS for name in pair]  # A metadata column of these names is marked
     for c in (metadata.columns if metadata else []):
@@ -1419,12 +1485,15 @@ def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
             classes = " ".join(c for c in (_flag(key, r), "num" if key in NUMERIC else "",
                                            "note" if key == "Note" else "") if c)
             sort_value = value if value not in ("NA", "") else ("-1" if key in NUMERIC else "")
-            cells.append(f'<td class="{classes}" data-v="{esc(sort_value)}">{esc(_fmt(key, value))}</td>')
+            shown = (marked(sample_mark(value, slots, None), value) if key == "Sample" and slots
+                     else esc(_fmt(key, value)))
+            cells.append(f'<td class="{classes}" data-v="{esc(sort_value)}">{shown}</td>')
         extras = []
         for column, cls in extra:
             value = metadata.value(r.get("Sample", ""), column) if metadata else ""
-            shown = (marked(colours.slot(r.get("Sample", "")), value)
-                     if colours is not None and column == colours.column and value else esc(value))
+            # The colour column: each value after its marker, a hollow circle alone without a value
+            shown = (marked(sample_mark(r.get("Sample", ""), {}, colours), value)
+                     if colours is not None and column == colours.column else esc(value))
             sort_value = value if value or not cls.startswith("num") else "-Infinity"
             extras.append(f'<td class="{cls}" data-v="{esc(sort_value)}">{shown}</td>')
         cells[1:1] = extras
@@ -1535,8 +1604,8 @@ def build_report(output: Path) -> str:
         text = (f"Metadata from {origin}: {len(metadata.columns)} "
                 f"column{'s' if len(metadata.columns) != 1 else ''} ({esc(', '.join(metadata.columns))}); "
                 f"{with_row} of {len(rows)} samples have a value. ")
-        text += (f"The tree and the heatmap are coloured by <b>{esc(column)}</b> (a colour and a shape for each "
-                 "value)." if colours else "No column colours the figures.")
+        text += (f"The figures are coloured by <b>{esc(column)}</b> (a colour and a shape for each value, the "
+                 "same in every figure and table)." if colours else "No column colours the figures.")
         out.append(f'<p class="meta">{text}</p>')
     if comparison.get("failed") and isinstance(comparison["failed"], str):
         out.append(f'<p class="bad">The comparison failed: {esc(comparison["failed"])}</p>')
@@ -1549,21 +1618,45 @@ def build_report(output: Path) -> str:
                f'<span class="warn">depth below {LOW_DEPTH}x or length outside '
                f'{LENGTH_RANGE[0]}–{LENGTH_RANGE[1]}x the reference</span>'
                '<span class="info">N bases</span>Click a column to sort.</p>')
-    out.append(_samples_table(rows, metadata, colours))
+    out.append(_samples_table(rows, metadata, colours, slots))
     if rows:
+        samples = [r.get("Sample", "") for r in rows]
+        # The legend of the bars' markers is the heatmap's, or, when the heatmap does not show every value of the
+        # bars (no heatmap; a value of failed samples only), a line under the charts
+        heatmap_drawn = bool(order) and len(order) <= MAX_HEATMAP_GENOMES
+        own_legend = colours is not None and (not heatmap_drawn or bool(
+            {colours.value(n) for n in samples} - {colours.value(n) for n in order}))
+        if colours is not None:
+            where = "under these charts" if own_legend else "under the heatmap"
+            colour_text = (f" Each bar has the colour of the sample's <b>{esc(column)}</b>, whose marker is "
+                           f"before the name, as in every figure and table (legend {where}; a hollow circle and "
+                           "a grey bar: no value).")
+        elif slots:
+            beyond = (f" (beyond the {GROUP_COLOURS}th group, grey with a square)" if len(groups) > GROUP_COLOURS
+                      else "")
+            colour_text = (" Each bar has the colour of the sample's group of identical genomes, whose square is "
+                           "before the name, as in every figure and table (the groups are listed under the SNP "
+                           f"distances){beyond}; a grey bar without a square: in no group.")
+        else:
+            colour_text = ""
         depth_chart = bar_chart(depth_bars(rows), "Depth after filtering, per sample", unit="x",
-                                threshold=LOW_DEPTH, threshold_text=f"{LOW_DEPTH}x flag")
+                                threshold=LOW_DEPTH, threshold_text=f"{LOW_DEPTH}x flag", slots=slots,
+                                colours=colours)
         depth_part = depth_chart + figures.caption(
             "Estimated depth of the filtered reads over the reference, per sample. The line is the "
             f"{LOW_DEPTH}x threshold of the table's depth flag; samples below it are labelled. Failed samples are "
-            "listed without a bar. Hover a bar for the read counts and the note.")
+            f"listed without a bar. Hover a bar for the read counts and the note.{colour_text}")
         if any(r.get("N_bases", "").isdigit() for r in rows):
-            n_part = bar_chart(n_bars(rows), "N bases per assembly", integers=True) + figures.caption(
+            same = f" Colours and markers as in Figure {figures.count}." if colour_text else ""
+            n_part = bar_chart(n_bars(rows), "N bases per assembly", integers=True, slots=slots,
+                               colours=colours) + figures.caption(
                 "N bases in each assembly, largest first (the table flags every assembly with N bases; the "
-                f"{N_LABELS} largest counts are labelled). Hover a bar for the fraction of the assembly.")
+                f"{N_LABELS} largest counts are labelled). Hover a bar for the fraction of the assembly.{same}")
         else:  # De novo assemblies (or no assembly): no count to draw
             n_part = '<p class="meta">No chart of N bases: they are counted for templated assemblies only.</p>'
         out.append(f'<div class="two"><div>{depth_part}</div><div>{n_part}</div></div>')
+        if own_legend:
+            out.append(markers_legend(samples, colours))
 
     # Comparison
     if order:
@@ -1619,11 +1712,14 @@ def build_report(output: Path) -> str:
             out.append("<p>No SNP site was compared: the distances say nothing about identity.</p>")
         else:
             if groups:
+                # With a colour column, colour is the column's: each genome has its value's marker
                 out.append('<h3>Identical genomes</h3><p class="meta">No SNP between any two genomes of a group '
                            '(positions with N or a gap are not compared).</p><ul class="groups">' + "".join(
-                               ("<li>" if colours else  # With a colour column, colour is the column's
-                                f'<li><span class="swatch mkb" style="background:{slot_colour(i)}"></span>')
-                               + f"<b>group {i + 1}</b> ({len(g)}): {esc(', '.join(g))}</li>"
+                               ("<li>" if colours else f'<li><span class="swatch mkb" style="background:'
+                                f'{sample_mark(g[0], slots, None).colour}"></span>')
+                               + f"<b>group {i + 1}</b> ({len(g)}): "
+                               + (", ".join(marked(sample_mark(n, slots, colours), n) for n in g) if colours
+                                  else esc(", ".join(g))) + "</li>"
                                for i, g in enumerate(groups)) + "</ul>")
                 if len(groups) > GROUP_COLOURS:
                     out.append(f'<p class="meta">Groups beyond the {GROUP_COLOURS}th share the grey colour.</p>')

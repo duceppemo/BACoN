@@ -38,8 +38,9 @@ folder is moved. What is read from the annotation, and how SNP effects are deriv
 
 **Sample metadata** (`--metadata`): a TSV or CSV file with a `sample` column (any case) naming the samples and
 any other columns, such as a group, a cultivar, a site or a year, used in the report only
-([Outputs](Outputs#reporthtml)): the columns are added to the samples table, and one of them colours the tree
-and the heatmap, with a table of the groups of identical genomes against its values. Like the annotation, it is
+([Outputs](Outputs#reporthtml)): the columns are added to the samples table, and one of them colours the bar
+charts, the tree and the heatmap (each sample has the same colour and shape everywhere in the report), with a
+table of the groups of identical genomes against its values. Like the annotation, it is
 not part of any checkpoint: adding, changing or removing it reruns nothing, and the report is rebuilt. The
 columns of a sample sheet other than `sample` and `file` are metadata too (a sample on several rows must have the
 same values; otherwise the first is kept, with a warning); when both are given, a column of `--metadata` replaces

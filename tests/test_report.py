@@ -89,7 +89,7 @@ def test_heatmap_values_on_hover_only_for_many_genomes():
 def test_tree_svg_marks_groups_supports_and_scale():
     root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
     out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100)
-    assert out.count('fill="var(--c1)"') == 2 and "<title>group 1</title>" in out
+    assert out.count('fill="var(--c1)"') == 2 and "<title>a: group 1</title>" in out
     assert 'font-weight="600">Reference <tspan' in out and "ref.fa" in out
     assert ">0.95</text>" in out and ">0.80</text>" in out
     assert "substitutions per site (about 1 SNP)" in out  # 0.01 per site x 100 sites
@@ -702,7 +702,8 @@ def test_report_with_metadata_table_figures_and_escaping(tmp_path):
     assert '<td class="md" data-v=""></td>' in page and "G<1>" not in page and "n <x>" not in page
     assert "Metadata from <b>meta &lt;m&gt;.tsv</b>: 3 columns (group, n &lt;x&gt;, note); 2 of 2 samples" in page
     assert "coloured by <b>group</b>" in page and "give each genome's <b>group</b>" in page
-    assert "coloured by <b>group</b> (a colour and a shape for each value)" in page  # Overview
+    assert "The figures are coloured by <b>group</b> (a colour and a shape for each value, the same in every figure " \
+        "and table)" in page  # Overview
     assert "each value has a colour and a shape of its own" in page and "Circles" not in page  # Tree caption
     assert "as a marker, a colour and a shape for each value (legend; a hollow circle: no value)" in page  # Heatmap
     assert "<title>a: group G&lt;1&gt;</title>" in page and "G&lt;1&gt; (1)</text>" in page  # Band and legend
@@ -758,7 +759,7 @@ def test_with_a_colour_column_colour_means_the_metadata_only():
     colours = Colouring("group", ["A", "B"], {"a": "A", "b": "B", "c": "A"})
     root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
     tree = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100, colours)
-    assert "<title>group 1</title>" not in tree  # No group square: the circles carry the colour
+    assert "group 1</title>" not in tree  # No group square: the circles carry the colour
     names = ["Reference", "a", "b", "c"]
     matrix = {x: {y: (0 if {x, y} <= {"a", "b"} or x == y else 3) for y in names} for x in names}
     page = heatmap(names, matrix, [["a", "b"]], colours)
@@ -1347,11 +1348,25 @@ def _contrast(fg: str, bg: str, alpha: float = 1.0) -> float:
 
 
 def test_pseudogenes_have_a_3_to_1_contrast_in_dark_mode():
-    from bacon.report import CSS, TOKENS_DARK
-    tokens = dict(re.findall(r"--([\w-]+):([^;]+)", TOKENS_DARK))
-    assert ".gene-pseudo{fill:var(--s3);opacity:var(--pseudo-op)}" in CSS
-    assert _contrast(tokens["s3"], tokens["surface"], float(tokens["pseudo-op"])) >= 3
-    assert float(tokens["pseudo-op"]) < 1  # Still lighter than a coding gene
+    from bacon.report import CSS, TOKENS_DARK, TOKENS_LIGHT
+    # A faint fill with an outline in the coding genes' colour: the outline carries the contrast
+    assert ".gene-pseudo{fill:var(--c5);fill-opacity:var(--pseudo-op);stroke:var(--c5);stroke-width:1}" in CSS
+    for theme in (TOKENS_LIGHT, TOKENS_DARK):
+        tokens = dict(re.findall(r"--([\w-]+):([^;]+)", theme))
+        assert _contrast(tokens["c5"], tokens["surface"]) >= 3
+        assert float(tokens["pseudo-op"]) < 1  # Still lighter than a coding gene
+
+
+def test_bars_snp_ticks_and_genes_use_the_colourblind_friendly_palette():
+    from bacon.report import CSS, TOKENS_DARK, TOKENS_LIGHT
+    for rule in (".bar{fill:var(--c2)}", ".snp-all{stroke:var(--c2)", ".snp-miss{stroke:var(--c3)",
+                 ".gene-cds{fill:var(--c5)}", ".gene-rna{fill:var(--c7)}"):
+        assert rule in CSS, rule
+    assert not re.search(r"var\(--s\d", CSS)  # The old palette is no longer used
+    for theme in (TOKENS_LIGHT, TOKENS_DARK):
+        tokens = dict(re.findall(r"--([\w-]+):([^;]+)", theme))
+        for slot in ("c2", "c3", "c5", "c7"):
+            assert _contrast(tokens[slot], tokens["surface"]) >= 3, (slot, tokens[slot])
 
 
 def test_printed_figures_fit_a_page():
@@ -1623,7 +1638,8 @@ def test_each_value_has_one_marker_everywhere_with_a_failed_sample_sorting_first
             "samples table": re.findall(rf'<td class="md" data-v="{value}"><span class="mkt"><svg [^>]*>' + element, page),
             "tree and bands": re.findall(element + rf'><title>{genome}: group {value}</title>', page),
         }
-        assert [len(v) for v in found.values()] == [1, 1, 1, 3], found  # The tree's marker and the two bands'
+        # The tree's marker, the heatmap's two bands' and the two bar charts'
+        assert [len(v) for v in found.values()] == [1, 1, 1, 5], found
         assert all(_marker_sig(e) == expected for v in found.values() for e in v), (value, found)
     # The failed sample keeps its own marker (the first value's) in the samples table
     first = re.search(r'<td class="md" data-v="0"><span class="mkt"><svg [^>]*>' + element, page).group(1)
@@ -1690,7 +1706,7 @@ def test_cross_table_turns_with_many_values():
 def test_groups_of_identical_genomes_have_an_edge_and_labels():
     from bacon.report import CSS
     root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
-    assert 'fill="var(--c1)" class="mk"><title>group 1</title></rect>' in tree_svg(root, {"a": 0, "b": 0}, "", 100)
+    assert 'fill="var(--c1)" class="mk"><title>a: group 1</title></rect>' in tree_svg(root, {"a": 0, "b": 0}, "", 100)
     names = ["a", "b", "c"]
     m = {x: {y: 0 if {x, y} <= {"a", "b"} or x == y else 3 for y in names} for x in names}
     out = heatmap(names, m, [["a", "b"]])
@@ -1715,3 +1731,241 @@ def test_report_ignores_a_recorded_colour_column_that_can_no_longer_colour(tmp_p
             "values (at most 48 can be coloured, each with a marker of its own); the figures are not coloured.") in page
     out = _metadata_run(tmp_path / "ok", "sample\tgroup\na\tv00\nb\tv01\n" + rows.replace("v48", "v47"))
     assert "coloured by <b>group</b>" in build_report(out)  # 48 values: coloured
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# One colour and shape per genome throughout the report
+# ---------------------------------------------------------------------------------------------------------------
+
+def _consistency_run(tmp_path, metadata=True):
+    """a and b identical (one group), Reference and e identical (another), c in no group and without a value,
+    d failed with a value no genome of the figures has."""
+    comparison = {"method": "ska", "tree_method": "fasttree", "core_snps": 3, "tree": "4_compared/ska/tree.nwk",
+                  "distances": "4_compared/ska/snp_distances.tsv"}
+    summary = ("Sample\tStatus\tEst_depth\tN_bases\tAssembly_length\tNote\n"
+               "a\tok\t30.0\t5\t1000\t\nb\tok\t15.0\t0\t1000\tlow depth (15x)\nc\tok\t50.0\t2\t1000\t\n"
+               "d\tfailed (bait)\tNA\tNA\tNA\tno reads matched the reference\ne\tok\t40.0\t1\t1000\t\n")
+    names = ["Reference", "a", "b", "c", "e"]
+    same = [{"a", "b"}, {"Reference", "e"}]
+    matrix = "\t".join(["snp-dists", *names]) + "\n" + "".join(
+        "\t".join([x] + ["0" if x == y or any({x, y} <= g for g in same) else "3" for y in names]) + "\n"
+        for x in names)
+    out = _folder(tmp_path, comparison, summary=summary, matrix=matrix,
+                  reference={"file": "/x/ref.fa", "length": 1000, "sequences": 1})
+    (out / "4_compared" / "ska" / "tree.nwk").write_text(
+        "((a:0.001,b:0.001)0.9:0.002,((Reference:0.0005,e:0.0005)0.8:0.001,c:0.002)0.7:0.001);\n")
+    if metadata:
+        (out / "metadata.tsv").write_text("sample\tsite\na\tx\nb\ty\nd\tz\ne\tx\n")
+        info = json.loads((out / "run_info.json").read_text())
+        info["metadata"] = {"file": "/x/m.tsv", "copy": "metadata.tsv", "columns": ["site"],
+                            "sample_sheet_columns": [], "color_by": "site"}
+        (out / "run_info.json").write_text(json.dumps(info))
+    return out
+
+
+MARK = r'<(?:circle|rect|path) [^>]*class="mk0?"'
+
+
+def _shape(element: str) -> tuple:
+    """A marker's colour and shape whatever its size: ('hollow',), or its fill and its shape (a rect with rounded
+    corners is a group's square; a path is its outline scaled to a unit box)."""
+    if 'class="mk0"' in element:
+        return ("hollow",)
+    fill, tag = re.search(r'fill="([^"]+)"', element).group(1), element[1:element.index(" ")]
+    if tag == "rect":
+        return fill, "group" if " rx=" in element else "square"
+    return _marker_sig(element) if tag == "path" else (fill, tag)
+
+
+def _section(page: str, start: str, end: str) -> str:
+    return page[page.index(start):page.index(end, page.index(start))]
+
+
+def _drawn(page: str, name: str, colour_column: bool) -> dict[str, list]:
+    """Every marker (and colour) the page draws for the genome `name`, by place."""
+    tree = _section(page, "<title>Tree</title>", "</svg>")
+    heat = _section(page, "<title>Pairwise SNP distances</title>", "</svg>")
+    depth = _section(page, "<title>Depth after filtering, per sample</title>", "</svg>")
+    nbars = _section(page, "<title>N bases per assembly</title>", "</svg>")
+    table = _section(page, '<table class="samples sortable">', "</table>")
+    listed = _section(page, '<ul class="groups">', "</ul>")
+    hover = rf'><title>{name}: (?:no )?(?:site|group)'
+    found = {"tree": re.findall(MARK + hover, tree)}
+    for chart, svg in (("depth bars", depth), ("N bars", nbars)):
+        found[chart] = re.findall(MARK + hover, svg)
+        # The bar itself, after the marker: its colour (failed samples have none)
+        found[chart + " fill"] = re.findall(rf'<rect x="[\d.]+" y="\d+" width="[\d.]+" height="10" rx="2" '
+                                            rf'fill="([^"]+)"[^>]*><title>{name}: ', svg)
+    row = re.search(rf'<tr><td class="[^"]*" data-v="{name}">.*?</tr>', table)
+    found["samples table"] = re.findall(MARK, row.group(0)) if row else []
+    if colour_column:
+        found["heatmap bands"] = re.findall(MARK + hover, heat)
+        found["identical list"] = re.findall(rf'({MARK})/></svg>{name}</span>', listed)
+        value = re.search(r'<td class="md" data-v="([^"]*)">', row.group(0)).group(1) if row else ""
+        cross = _section(page, '<table class="cross">', "</thead>")
+        found["cross table"] = re.findall(rf'({MARK})/></svg>{value}</span></th>' if value else
+                                          rf'({MARK})/></svg>no</span> value</th>', cross)
+    else:
+        found["heatmap bands"] = re.findall(rf'width="10" height="\d+" fill="([^"]+)" class="mk"><title>{name}: '
+                                            r"group \d+</title>", heat)
+        line = re.search(rf'<li><span class="swatch mkb" style="background:([^"]+)"></span><b>group \d+</b> '
+                         rf'\(\d+\): [^<]*\b{name}\b', listed)
+        found["identical list"] = [line.group(1)] if line else []
+    return found
+
+
+@pytest.mark.parametrize("colour_column", [True, False])
+def test_each_genome_has_one_colour_and_shape_in_every_place(tmp_path, colour_column):
+    page = build_report(_consistency_run(tmp_path, colour_column))
+    markers = ("tree", "depth bars", "N bars", "samples table") + (
+        ("heatmap bands", "identical list", "cross table") if colour_column else ())
+    colours = ("depth bars fill", "N bars fill") + (() if colour_column else ("heatmap bands", "identical list"))
+    expected = {  # (marker, bar colour); with a colour column the groups are grey, colour is the column's
+        True: {"a": (("var(--c1)", "circle"), "var(--c1)"), "e": (("var(--c1)", "circle"), "var(--c1)"),
+               "b": (("var(--c2)", ((0.5, 0.0), (1.0, 1.0), (0.0, 1.0))), "var(--c2)"),  # y: a triangle
+               "c": (("hollow",), "var(--muted)"),  # No value
+               "d": (("var(--c3)", "square"), None)},  # Failed: in the table and before its name in the bars
+        # Reference and e are group 1 (the groups are sorted by size, then by their members), a and b group 2
+        False: {"a": (("var(--c2)", "group"), "var(--c2)"), "b": (("var(--c2)", "group"), "var(--c2)"),
+                "e": (("var(--c1)", "group"), "var(--c1)"), "c": (None, "var(--muted)"), "d": (None, None)},
+    }[colour_column]
+    for name, (mark, colour) in expected.items():
+        found = _drawn(page, name, colour_column)
+        drawn = {place: {_shape(e) for e in found[place]} for place in markers if found[place]}
+        if mark is None:  # No mark anywhere (in no group, or failed, without a colour column)
+            assert not drawn, (name, drawn)
+        else:
+            figures = ({"tree", "heatmap bands", "identical list"} if colour_column else {"tree"}) \
+                if name in "abe" else set()
+            assert set(drawn) >= {"depth bars", "samples table"} | figures, (name, drawn)
+            assert all(shapes == {mark} for shapes in drawn.values()), (name, drawn)
+        fills = {place: set(found[place]) for place in colours if found[place]}
+        if colour is None:  # A failed sample has no bar
+            assert not fills.get("depth bars fill") and not fills.get("N bars fill"), (name, fills)
+        else:
+            assert fills and all(f == {colour} for f in fills.values()), (name, fills)
+            if mark is not None and not colour_column:  # The groups' colour in the heatmap and the list too
+                assert set(fills) >= {"depth bars fill", "heatmap bands", "identical list"}, (name, fills)
+    assert ("<li><b>group" in page) == colour_column  # No coloured swatch with a colour column (grey groups)
+
+
+def test_bar_chart_colours_the_bars_and_marks_the_names():
+    from bacon.report import MAX_NAME_GUTTER, Colouring
+    bars = [Bar("a<1>", 30, "a<1>: 30x"), Bar("b", 10, "b: 10x"), Bar("c", 0, "c: 0x"), Bar("d", None, "d: NA"),
+            Bar("e", None, "e: failed", failed="failed (bait)")]
+    colours = Colouring("site", ["x", "y"], {"a<1>": "x", "b": "y", "c": "x", "e": "y"})
+    out = bar_chart(bars, "Depth", slots={"a<1>": 0}, colours=colours)
+    # The bar of a value's colour with the markers' edge; the grey of no value without it; a zero bar stays grey
+    assert '<title>a&lt;1&gt;: 30x</title>' in out and "<1>" not in out
+    assert re.search(r'height="10" rx="2" fill="var\(--c1\)" class="mk"><title>a&lt;1&gt;: 30x', out)
+    assert re.search(r'height="10" rx="2" fill="var\(--c2\)" class="mk"><title>b: 10x', out)
+    assert re.search(r'height="10" rx="2" class="bar0"><title>c: 0x', out)
+    assert 'class="bar"' not in out
+    # Each name's marker (the colour column wins over the groups), the failed sample's too, a hollow circle for d
+    assert 'class="mk"><title>a&lt;1&gt;: site x</title></circle>' in out and "group 1" not in out
+    assert 'class="mk"><title>e: site y</title></path>' in out and 'class="mk0"><title>d: no site</title>' in out
+    # The marker sits between the name (right-aligned before it) and the axis
+    left = float(re.search(r'<rect x="([\d.]+)" y="\d+" width="[\d.]+" height="10" rx="2" fill="var\(--c1\)"', out)
+                 .group(1))
+    cx = float(re.search(r'<circle cx="([\d.]+)" cy="[\d.]+" r="4.5" fill="var\(--c1\)" class="mk"><title>a&lt;1', out)
+               .group(1))
+    name_end = float(re.search(r'<text x="([\d.]+)" y="\d+" text-anchor="end" class="t-small t-ink2">b<', out)
+                     .group(1))
+    assert name_end + 3 <= cx - 4.5 and cx + 4.5 <= left - 3
+    # Groups only: the group's colour and square; grey without a square in no group; the bars' own colour without
+    # groups
+    grouped = bar_chart(bars, "Depth", slots={"a<1>": 0, "b": 13})
+    assert re.search(r'height="10" rx="2" fill="var\(--c1\)" class="mk"><title>a&lt;1&gt;: 30x', grouped)
+    assert 'rx="1.5" fill="var(--c1)" class="mk"><title>a&lt;1&gt;: group 1</title></rect>' in grouped
+    assert 'rx="1.5" fill="var(--muted)" class="mk"><title>b: group 14</title></rect>' in grouped  # Beyond 12
+    assert grouped.count("<rect x=") - grouped.count('rx="2"') == 2  # Two squares: none for c, d, e
+    assert re.search(r'height="10" rx="2" fill="var\(--muted\)"><title>b: 10x', grouped) is None
+    plain = bar_chart(bars, "Depth")
+    assert plain.count('class="bar"') == 2 and "mk" not in plain and 'fill="var(--muted)"' not in plain
+    assert re.search(r'height="10" rx="2" fill="var\(--muted\)"><title>', bar_chart(bars, "Depth", slots={"b": 0}))
+    # Long names are cut before the marker; the gutter grows by the marker's room only
+    long = [Bar("x" * 80, 5, "long")]
+    assert 'viewBox' in bar_chart(long, "t", colours=colours)
+    assert float(re.search(r'<rect x="([\d.]+)"', bar_chart(long, "t", colours=colours)).group(1)) == \
+        MAX_NAME_GUTTER + 13 == float(re.search(r'<rect x="([\d.]+)"', bar_chart(long, "t")).group(1)) + 13
+
+
+def test_bars_of_150_genomes_keep_their_markers_in_the_gutter():
+    from bacon.report import Colouring
+    names = [f"genome_{i:03d}_with_a_longish_name" for i in range(150)]
+    colours = Colouring("site", [f"v{i:02d}" for i in range(40)], {n: f"v{i % 41:02d}" if i % 41 < 40 else ""
+                                                                   for i, n in enumerate(names)})
+    out = bar_chart([Bar(n, i + 1, n) for i, n in enumerate(names)], "Depth", colours=colours)
+    left = float(re.search(r'<rect x="([\d.]+)"', out).group(1))
+    assert len([e for e in re.findall(MARK, out) if 'rx="2"' not in e]) == 150  # Not the bars
+    ends = [float(x) for x in re.findall(r'<text x="([\d.]+)" y="\d+" text-anchor="end" class="t-small', out)]
+    assert len(ends) == 150 and max(ends) + 3 <= left - 15  # Every name ends before the 9 px markers
+    rows = sorted({float(y) for y in re.findall(r'<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="10"', out)})
+    assert len(rows) == 150 and min(b - a for a, b in zip(rows, rows[1:])) == 16  # 9 px markers in 16 px rows
+
+
+def test_report_bars_follow_the_groups_or_the_colour_column_and_say_so(tmp_path):
+    page = build_report(_consistency_run(tmp_path / "groups", metadata=False))
+    assert "Each bar has the colour of the sample's group of identical genomes, whose square is before the name" \
+        in page and "(the groups are listed under the SNP distances); a grey bar without a square: in no group." \
+        in page and "Colours and markers as in Figure 1." in page and "beyond the 12th group" not in page
+    assert 'class="mkkey"' not in page  # The list of identical genomes is the groups' legend
+    # The samples table: a group's square before the name, an empty box of the same size for the others
+    assert re.search(r'data-v="a"><span class="mkt"><svg class="mki" [^>]*><rect [^>]*rx=[^>]*fill="var\(--c2\)" '
+                     r'class="mk"/></svg>a</span></td>', page)
+    assert re.search(r'data-v="c"><span class="mkt"><svg class="mki" [^>]*></svg>c</span></td>', page)
+    page = build_report(_consistency_run(tmp_path / "column"))
+    assert "Each bar has the colour of the sample's <b>site</b>, whose marker is before the name" in page
+    # d, failed, has the only z: the heatmap's legend does not show it, so the bars get their own legend
+    assert "(legend under these charts; a hollow circle and a grey bar: no value)" in page
+    legend = re.search(r'<p class="mkkey"><b>site:</b> .*?</p>', page).group(0)
+    assert re.findall(r"</svg>(\w+)</span> (?:value )?\((\d)\)", legend) == [("x", "2"), ("y", "1"), ("z", "1"), ("no", "1")]
+    assert "<li><b>group 1</b> (2): <span class=\"mkt\"><svg" in page  # The list: each genome's marker
+    assert "The figures are coloured by <b>site</b>" in page
+
+
+def test_bars_legend_only_where_no_heatmap_legend_shows_their_values(tmp_path):
+    out = _consistency_run(tmp_path)
+    (out / "metadata.tsv").write_text("sample\tsite\na\tx\nb\ty\nd\tx\ne\tx\n")  # d's value is in the heatmap
+    page = build_report(out)
+    assert 'class="mkkey"' not in page and "(legend under the heatmap; a hollow circle" in page
+    # No comparison: the bars are coloured by the column, with their legend under them
+    info = json.loads((out / "run_info.json").read_text())
+    info["comparison"] = {"skipped": "--snp-method none"}
+    (out / "run_info.json").write_text(json.dumps(info))
+    page = build_report(out)
+    assert '<p class="mkkey"><b>site:</b>' in page and "(legend under these charts;" in page
+    assert re.search(r'fill="var\(--c1\)" class="mk"><title>a: 30x', page)
+    # No comparison and no metadata: the bars keep their own colour
+    (out / "metadata.tsv").unlink()
+    page = build_report(out)
+    assert page.count('class="bar"') == 4 + 3 and "Each bar has the colour" not in page and 'class="mk' not in page
+
+
+def test_bars_legend_when_there_are_too_many_genomes_for_a_heatmap(tmp_path):
+    names = ["Reference"] + [f"g{i}" for i in range(160)]
+    rows = ["\t".join([n] + ["1" if n != m else "0" for m in names]) for n in names]
+    matrix = "\t".join(["snp-dists", *names]) + "\n" + "\n".join(rows) + "\n"
+    summary = "Sample\tStatus\tEst_depth\n" + "".join(f"g{i}\tok\t{i + 1}\n" for i in range(160))
+    out = _folder(tmp_path, {"method": "ska", "core_snps": 5, "distances": "4_compared/ska/snp_distances.tsv"},
+                  summary=summary, matrix=matrix)
+    (out / "metadata.tsv").write_text("sample\tsite\n" + "".join(f"g{i}\ts{i % 3}\n" for i in range(160)))
+    page = build_report(out)
+    assert "too many for a heatmap" in page and "(legend under these charts;" in page
+    assert re.findall(r"</svg>(\w+)</span> \((\d+)\)", re.search(r'<p class="mkkey">.*?</p>', page).group(0)) == \
+        [("s0", "54"), ("s1", "53"), ("s2", "53")]
+
+
+def test_bars_caption_says_groups_beyond_the_twelfth_are_grey(tmp_path):
+    names = ["Reference"] + [f"g{i:02d}" for i in range(26)]  # 13 pairs of identical genomes
+
+    def d(a, b):
+        return 0 if a == b or (a != "Reference" and b != "Reference" and int(a[1:]) // 2 == int(b[1:]) // 2) else 4
+    matrix = "\t".join(["snp-dists", *names]) + "\n" + "".join(
+        "\t".join([a] + [str(d(a, b)) for b in names]) + "\n" for a in names)
+    summary = "Sample\tStatus\tEst_depth\n" + "".join(f"g{i:02d}\tok\t{30 + i}\n" for i in range(26))
+    page = build_report(_folder(tmp_path, {"method": "ska", "core_snps": 4,
+                                           "distances": "4_compared/ska/snp_distances.tsv"},
+                                summary=summary, matrix=matrix))
+    assert "(beyond the 12th group, grey with a square); a grey bar without a square: in no group." in page
+    assert re.search(r'rx="1.5" fill="var\(--muted\)" class="mk"><title>g24: group 13</title>', page)

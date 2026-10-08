@@ -25,6 +25,17 @@
   band with a `note` saying why.
 
 ### Changed
+- Each sample has one colour and shape throughout the report, from a single source (`sample_mark`) shared by
+  every figure and table. The bar charts of depth and of `N` bases, which were all one colour, now colour each
+  sample's bar like the rest of the report and draw its marker before its name: with a colour column, the
+  colour and marker of its value (with the markers' edge; a grey bar and a hollow circle without a value; a
+  failed sample, listed without a bar, keeps its marker); without one, the colour and square of its group of
+  identical genomes (a grey bar without a square in no group); without a comparison either, the single blue as
+  before. The captions say so; the colour column's legend is the heatmap's, and a line under the bar charts
+  gives it when there is no heatmap (no comparison, more than 150 genomes) or a value is held by failed samples
+  only. With a colour column, the list of identical genomes gives each genome's marker and the samples table
+  a hollow circle for a sample without a value; without one, the samples table starts the name of each genome
+  of a group with the group's square. The tree's group squares hover as the heatmap's bands (`a: group 1`).
 - The metadata column that colours the report may have up to 48 distinct values (was 8): each value gets a
   marker of its own, a colour and a shape, in the tree (instead of the circle), in the heatmap's band and legend
   (with its count), in the table of identical genomes by value and in the samples table. The 12 colours come

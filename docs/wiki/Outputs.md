@@ -41,11 +41,20 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   Flye's depth), sortable by clicking a header; failed samples, depth below 20x, length outside 0.8–1.2 times
   the reference, and `N` bases are highlighted. The metadata columns, when there are any, come right after
   `Sample`: a column whose values are all numbers sorts as numbers, long values wrap, the values of the
-  colour column carry their marker (its colour and shape), and a column named like one of the table's own (`Status`, `Note`,
-  `Depth`...) is headed `Status (metadata)`. Two bar charts follow, sorted: the depth of each sample after
-  filtering, with the 20x line (samples below it are labelled), and the `N` bases of each assembly (templated
-  assemblies only: a de novo run gets a sentence instead of a chart of empty bars). Failed samples are listed
-  without a bar.
+  colour column carry their marker (its colour and shape; a hollow circle alone when the sample has no value),
+  and a column named like one of the table's own (`Status`, `Note`, `Depth`...) is headed `Status (metadata)`.
+  Without a colour column, the name of each genome in a group of identical genomes starts with the group's
+  square. Two bar charts follow, sorted: the depth of each sample after filtering, with the 20x line (samples
+  below it are labelled), and the `N` bases of each assembly (templated assemblies only: a de novo run gets a
+  sentence instead of a chart of empty bars). Failed samples are listed without a bar. Each sample looks the
+  same in the bar charts as everywhere else in the report: with a colour column, its bar has its value's colour
+  (with the markers' thin dark edge) and its marker is drawn before its name, failed samples included (a grey
+  bar and a hollow circle without a value); without one, its bar has the colour of its group of identical
+  genomes, with the group's square before its name (a grey bar without a square for a genome in no group; groups
+  beyond the 12th are grey, with a square); without a comparison either, the bars keep their single blue. The
+  legend of the colour column is the heatmap's; when there is no heatmap (no comparison, more than 150 genomes),
+  or a value is held by failed samples only, a line under the bar charts gives each value's marker and number of
+  samples. The groups' legend is the list of identical genomes.
 - **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches, a
   scale bar (with its equivalent number of SNPs for SKA2), and a coloured square with a thin dark edge for each
   group of identical genomes (12 colours, then grey); or why there is none. With a colour column, colour is given
@@ -67,7 +76,7 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   when it has none), with its own legend of markers, values and counts (on rows of their own, headed by the
   column's name, under the row of distance classes headed `SNPs:`), and the list of identical genomes is
   followed by a table counting the genomes of each group (and those in no group) for each value, with the
-  values' markers (as columns, or as rows above 12 values when there are more values than groups, so that the
+  values' markers (each genome of the list also has its marker before its name) (as columns, or as rows above 12 values when there are more values than groups, so that the
   table fits a printed page). The groups of identical genomes are then drawn
   in two alternating greys, so that colour means the column's values only. Without any SNP site, no identity
   is claimed. Above 150 genomes the heatmap is left out (the distances are in `snp_distances.tsv`).
