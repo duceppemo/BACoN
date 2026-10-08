@@ -49,7 +49,7 @@ To check an installation, run the example (simulated reads with known SNPs; a fe
 repository, not in the conda package:
 
 ```bash
-curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.6.tar.gz | tar -xz --strip-components=1 BACoN-0.3.6/example
+curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.7.tar.gz | tar -xz --strip-components=1 BACoN-0.3.7/example
 bash example/run_example.sh
 ```
 
@@ -73,7 +73,7 @@ Everything else is in the [wiki](https://github.com/duceppemo/BACoN/wiki), whose
 
 If BACoN is useful in your work, please cite it (see [`CITATION.cff`](CITATION.cff)):
 
-> Duceppe, M.-O. (2026). BACoN: Bait, Assemble and Compare Nanopore reads (v0.3.6). Zenodo. https://doi.org/10.5281/zenodo.22970412
+> Duceppe, M.-O. (2026). BACoN: Bait, Assemble and Compare Nanopore reads (v0.3.7). Zenodo. https://doi.org/10.5281/zenodo.22970412
 
 and the programs it runs: minimap2, Filtlong, samtools or Flye or myloasm, SKA2 or Parsnp, and FastTree or
 IQ-TREE ([references](https://github.com/duceppemo/BACoN/wiki/Methods#references)).

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.7 (2026-10-08)
 
 ### Added
 - The LSC/IRb/SSC/IRa band of the genome map no longer needs annotated inverted repeats: BACoN detects the
