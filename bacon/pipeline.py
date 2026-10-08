@@ -25,7 +25,7 @@ from bacon import metadata as md
 from bacon.annotation import Annotation, annotation_format, find_regions, genbank_fasta_records, load_annotation
 from bacon.multiqc import write_multiqc
 from bacon.report import write_report
-from bacon.samples import VALID_NAME, Sample, discover, read_sample_sheet
+from bacon.samples import NAME_RULE, VALID_NAME, Sample, discover, read_sample_sheet
 from bacon.seqio import (
     Record,
     acgtn,
@@ -142,8 +142,9 @@ class Checkpoints:
             tmp.replace(self.path(step))
         except OSError as exc:
             tmp.unlink(missing_ok=True)
-            raise BaconError(f"Could not save the checkpoint {self.path(step)}: {exc.strerror or exc} (is the "
-                             "disk full?); BACoN stopped") from None
+            full = exc.errno in (errno.ENOSPC, errno.EDQUOT)  # Not for a permission or another error
+            raise BaconError(f"Could not save the checkpoint {self.path(step)}: {exc.strerror or exc}"
+                             f"{' (is the disk full?)' if full else ''}; BACoN stopped") from None
 
     def clear(self, step: str) -> None:
         self.path(step).unlink(missing_ok=True)
@@ -289,11 +290,13 @@ def _run_parallel(states: list[SampleState], fn: Callable[[SampleState, int], st
             results[name] = res
             if on_done is not None:
                 on_done(name, res)
-    except BaseException:
+    except BaseException as exc:  # An interruption, or a checkpoint that could not be saved
         pool.shutdown(wait=False, cancel_futures=True)
         killed = tools.kill_running()
-        if killed:
+        if killed and isinstance(exc, KeyboardInterrupt):
             log.warning("Interrupted: %d running program(s) stopped", killed)
+        elif killed:
+            log.debug("%d running program(s) stopped", killed)
         pool.shutdown(wait=True)
         raise
     pool.shutdown(wait=True)
@@ -550,15 +553,28 @@ def format_table(columns: list[str], rows: list[dict[str, str]]) -> str:
     return "\n".join(line.rstrip() for line in lines)
 
 
+def os_error_message(exc: OSError) -> str:
+    """'{file}: {reason}' (e.g. Permission denied) for an error on a file, without Python's [Errno 13]."""
+    if exc.filename is not None and exc.strerror:
+        return f"{exc.filename}: {exc.strerror}"
+    return str(exc)
+
+
+def _resolved_folder(path: Path) -> Path:
+    """The absolute path of a file in its resolved folder, with the file's own name (a link's, if it is one)."""
+    return path.absolute().parent.resolve() / path.name
+
+
 def run(s: Settings) -> int:
     started = time.time()
     # Absolute paths: some tools run in their own working folder.
     s.output, s.reference = s.output.resolve(), s.reference.resolve()
     s.annotation = s.annotation.resolve() if s.annotation else None
     s.metadata = s.metadata.resolve() if s.metadata else None
-    s.input = s.input.resolve() if s.input else None
+    # A file keeps the name it was given (a link's, not its target's), which names the sample or added genome.
+    s.input = (s.input.resolve() if s.input.is_dir() else _resolved_folder(s.input)) if s.input else None
     s.sample_sheet = s.sample_sheet.resolve() if s.sample_sheet else None
-    s.add_genomes = [p.resolve() for p in s.add_genomes]
+    s.add_genomes = [_resolved_folder(p) for p in s.add_genomes]
     if s.input and s.input.is_dir() and (s.output == s.input or s.output.is_relative_to(s.input)):
         # Its files would be taken for a sample's reads on the next run
         raise BaconError(f"The output folder {s.output} cannot be the input folder or inside it")
@@ -590,6 +606,10 @@ def run(s: Settings) -> int:
         return _run(s, started)
     except BaconError as exc:  # Logged here, while bacon.log still records
         log.error("%s", exc)
+        exc.logged = True  # type: ignore[attr-defined]
+        raise
+    except OSError as exc:  # A file BACoN may not read or write (permissions): a message, not a traceback
+        log.error("%s", os_error_message(exc))
         exc.logged = True  # type: ignore[attr-defined]
         raise
     except KeyboardInterrupt as exc:
@@ -863,8 +883,10 @@ def _check_added_genomes(s: Settings, samples: set[str]) -> dict[str, Path]:
         if not parts or not path.is_file() or sniff_format(path) != "fasta":
             raise BaconError(f"--add-genomes: not a fasta file: {path}")
         name = parts[0]
-        if not VALID_NAME.fullmatch(name) or name.lower() == "reference" or name in samples or name in added:
-            raise BaconError(f"--add-genomes: the name {name!r} (from {path}) is invalid or already used; "
+        if not VALID_NAME.fullmatch(name):
+            raise BaconError(f"--add-genomes: invalid name {name!r} (from {path}): {NAME_RULE}; rename the file")
+        if name.lower() == "reference" or name in samples or name in added:
+            raise BaconError(f"--add-genomes: the name {name!r} (from {path}) is reserved or already used; "
                              "rename the file")
         added[name] = path
     return added

@@ -30,8 +30,7 @@
   sample's bar like the rest of the report and draw its marker before its name: with a colour column, the
   colour and marker of its value (with the markers' edge; a grey bar and a hollow circle without a value; a
   failed sample, listed without a bar, keeps its marker); without one, the colour and square of its group of
-  identical genomes (a grey bar without a square in no group); without a comparison either, the single blue as
-  before. The captions say so; the colour column's legend is the heatmap's, and a line under the bar charts
+  identical genomes (a grey bar without a square in no group); without a comparison either, a single blue. The captions say so; the colour column's legend is the heatmap's, and a line under the bar charts
   gives it when there is no heatmap (no comparison, more than 150 genomes) or a value is held by failed samples
   only. With a colour column, the list of identical genomes gives each genome's marker and the samples table
   a hollow circle for a sample without a value; without one, the samples table starts the name of each genome
@@ -42,14 +41,15 @@
   from published colourblind-safe palettes (Okabe & Ito; Paul Tol's high-contrast, vibrant, muted, light and
   bright schemes), chosen and ordered so that every pair stays as distinct as possible under simulated
   deuteranopia, protanopia and tritanopia (Machado et al. 2009), the first ones, which a column with few values
-  gets, the most; in the dark theme four give way to colours with 3:1 on the dark surface (the sky blue to Tol's
-  bright yellow, so that it is not a second pale blue sharing the diamond with the light cyan). There are seven
+  gets, the most; in the dark theme four colours change: the dark blue and the wine (under 3:1 on the dark
+  surface) to a light cyan and a pink, the sky blue to Tol's bright yellow (not a second pale blue sharing the
+  diamond with the cyan), and Tol's yellow to Okabe & Ito's (too close to the bright yellow). There are seven
   shapes (circle, triangle, square, diamond, inverted triangle, plus, cross). The first 12 values take the
   colours in turn with the first four shapes in turn, so that the values sharing a shape are four colours apart
   and stay distinct for a colourblind reader (at least 11 in CIEDE2000 and OKLab under the three simulated
   deficiencies, light and dark); the next 36 were chosen by a search to keep the values sharing a shape as
   distinct as possible for each number of values: as distinct as within the first 12 up to 25 values, then at
-  least 9.4 up to 32, 8.6 up to 36, 7.7 up to 40 and 6.9 at 48 (taking four shapes in turn and moving them on
+  least 9.4 up to 32, 8.6 up to 36, 7.6 up to 40 and 6.9 at 48 (taking four shapes in turn and moving them on
   after each round of 12 colours gave 5.9 from 13 values). So, up to 25 values, values whose colours look alike
   to a colourblind reader differ in shape; above, a few pairs sharing a shape may look alike, and the legend and
   the value written after each name tell them apart. Consecutive values differ in both colour and shape, and the
@@ -61,7 +61,12 @@
   yellow, has 2:1 on the light surface); with a colour column they stay grey. A report rebuilt from a metadata
   copy edited by hand checks the recorded colour column again (more than 48 values: the figures are left
   uncoloured, with a note). The free-text rule is unchanged (from 10 samples with a value, a column with more
-  distinct values than half of them is free text).
+  distinct values than half of them is free text). As the limit was 8, a column with 9 to 48 values may now be
+  the default colour column of a run made again (a report rebuilt from an existing run keeps its recorded one).
+- The report's palette also colours the rest of the report: bars in blue (`#0077BB`), on the genome map the
+  SNP ticks in blue where every genome has a call and in red where some genome has none, protein-coding genes
+  in green, tRNA and rRNA genes in purple, and pseudogenes as a faint green fill with a green outline (3:1 on
+  both surfaces).
 - A gene without a symbol (no `/gene`, as in older RefSeq records: only `/locus_tag` and `/product`) is shown as
   `locus_tag (product)`, `LK299_pgr007 (23S ribosomal RNA)`, in the SNP table, the hovers, the intergenic
   contexts and the summary of the genes with the most SNPs (`LK299_pgr007 (23S ribosomal RNA; 4)`); on the map
@@ -90,8 +95,10 @@
   quota (rounded up) now limits the default `--threads`, with the CPU affinity.
 - `--add-genomes` is checked before any step (a missing file says "file not found"; an invalid or used name is
   reported at once); with `--snp-method none` it is ignored with a warning.
-- Metadata and sample sheets: UTF-16 with a byte order mark is read; a file that is not UTF-8 is read as
-  Windows-1252 with a warning; only LF, CRLF and CR end a line. CSV is parsed as in 0.3.5 again (`"s1" ,file`),
+- Metadata and sample sheets: UTF-16 and UTF-32 with a byte order mark are read; a file that is not UTF-8 is
+  read as Windows-1252 with a warning, but a UTF-8 file with a few invalid bytes (a UTF-8 byte order mark, or
+  any accented letter written in UTF-8) stays UTF-8, the invalid bytes read as `�` with a warning naming the
+  first line (0.3.6 read the whole file as Windows-1252, so a path with `é` pointed to no file); only LF, CRLF and CR end a line. CSV is parsed as in 0.3.5 again (`"s1" ,file`),
   but an unclosed quote, also on the last line, is an error naming its line. Values in quotes keep their quotes in
   `metadata.tsv`; an existing `metadata.tsv` in another encoding no longer stops the run.
 - An output path that is a file, or a folder that cannot be written, is a clear error; a checkpoint that cannot be
@@ -127,10 +134,46 @@
   filters only (Parsnp writes the SNPs it left out of its alignment, and so of the distances, with `FILTER`
   `ALN`, `CID`, `LCB`...), and the caption counts the others; a printed figure fits one page (the heatmap was
   split); `MD5 ?` instead of `MD5 None`; the header says `report built with BACoN X` when that differs from the
-  version that ran; `1 polishing iteration`; pseudogenes have a 3:1 contrast in dark mode; a deep tree (a
+  version that ran; `1 polishing iteration`; a deep tree (a
   caterpillar of 1,000 leaves) no longer exceeds Python's recursion limit in the report, `tree.svg` and the
   MultiQC files (every walk of a tree is iterative, and the MultiQC heatmap falls back to the table's order
-  when the tree cannot be read); the MultiQC heatmap shows integers (`10`, not `10.00`).
+  when the tree cannot be read); the MultiQC heatmap shows integers (`10`, not `10.00`) with recent MultiQC
+  (1.35; 1.19 ignores the setting).
+- Sample names may not start with a dot: a sample sheet naming a sample `..` deleted the output folder (and
+  the reads in it), `.` every other sample's assemblies; the same rule applies to added genomes, and an assembler
+  only deletes a sample's own folder in `3_assembled`.
+- Parsnp 2.1.1 writes every SNP one base off (the reference never carries its own allele); BACoN dropped all of
+  them and reported none. It now stops the comparison with an error, and requires Parsnp 2.1.2 or later.
+- A comma in a path made Flye and IQ-TREE fail (both split their input on commas): Flye goes through its
+  temporary folder, IQ-TREE runs in the comparison folder with relative paths.
+- A BBDuk failure was always reported as "BBDuk ran out of memory" (the `java` line BBDuk prints names the
+  out-of-memory option): only a real out-of-memory error says so. The log gives the working folder of a command
+  run in one (`$ (cd <dir> && ...)`), so that it can be run again.
+- A path BACoN may not read or create (permission denied) is a one-line error instead of a Python traceback. A
+  linked `--add-genomes` file, or a single `-i` file, is named after the link, not its target. A failed or
+  interrupted sample no longer leaves its merged reads (`1_extracted/.X.merged...`), minimap2's `.X.paf`, the
+  `--keep-bam` read list or partial extracted reads behind. A checkpoint that cannot be saved no longer logs
+  "Interrupted", and only a full disk or quota gets the "is the disk full?" hint.
+- Annotation: NCBI GFF3 writes the inverted repeats of a plastome as `inverted_repeat` features, which were not
+  recognised (the GFF3 of *Hydnora* NC_029358.1 gave no band, of *Lemna* NC_010109.1 one 2 bp off): GenBank and
+  GFF3 now give the same regions on 18 NCBI records. GenBank: an RNA or CDS without a gene name only joins a gene
+  containing it (an ncRNA overlapping the end of rrn26 made it an ncRNA gene, in the Arabidopsis mitochondrion
+  NC_037304.1); a gene's kind is set by its CDS, then its tRNA or rRNA, then other RNAs, whatever their order; and
+  a protein-coding gene's exons are its CDS parts (an ncRNA in the rps3 intron made 168 intron positions `CDS`).
+  GFF3: in a sorted file without `part=`, a part written beyond the end of a circular sequence put the parts in
+  the wrong order (wrong effects at 372 positions of rice's rps12); exon lines before their RNA's line were
+  lost. A CDS with a stop codon inside its coding sequence (not from `/transl_except` or RNA editing) gives no
+  effects, with a warning (a wrongly ordered CDS). `/organelle="mitochondrion:kinetoplast"` is a mitochondrion
+  (table 1 by default). A mitochondrion's annotated inverted repeats no longer give a "not a plastome layout"
+  warning.
+- Trees: a deep tree of identical internal nodes (zero-length branches, as FastTree writes for identical
+  genomes) no longer exceeds Python's recursion limit when rooted; a branch length or support that is not a
+  finite number (`1e999`, `nan`) is an error; a tree that cannot be drawn loses its figure only, with a note,
+  not the whole report.
+- Report: the bar charts no longer shorten names of 4 or 8 characters (or 16 and 17 with markers) that fit;
+  with more than 150 genomes the tree's caption points to the legend under the bar charts, which then also
+  lists the reference and added genomes; a printed figure keeps its size (small figures filled the page); the
+  header says that the last run's time does not count the steps it reused (`0.0 s` for a resumed run).
 - Example: `check_example.py` prints the report check's OK line when that check passes, whatever the others.
 - Docs: Methods and Outputs say that SNPs within about 30 bases of the reference's ends are not compared by
   Parsnp (15 by SKA2 with templated assemblies), what the `FILTER` values of a Parsnp VCF mean, and that the

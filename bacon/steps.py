@@ -24,7 +24,7 @@ from bacon.seqio import (
     split_extension,
     write_fasta,
 )
-from bacon.tools import run, which
+from bacon.tools import ToolError, run, which
 
 log = logging.getLogger(__name__)
 
@@ -64,33 +64,37 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
     log_file = log_dir / f"{sample.name}.log"
     mm2 = ["minimap2", "-x", "map-ont", "--secondary=no", "-t", str(threads)]
     files = [str(f) for f in sample.files]
-    if keep_bam:
-        bam = out_dir / f"{sample.name}.bam"
-        run([[*mm2, "-a", str(reference), *files],
-             ["samtools", "sort", "-@", str(max(1, threads // 4)), "-o", str(bam), "-"]], log_file,
-            what=f"(mapping {sample.name})")
-        run(["samtools", "index", str(bam)], log_file)
-        names_file = out_dir / f".{sample.name}.names"
-        run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1"]], log_file, stdout=names_file)
-        with open(names_file, encoding="ascii", errors="replace") as fh:
-            names = {line.strip() for line in fh if line.strip()}
-        names_file.unlink()
-    else:
-        paf = out_dir / f".{sample.name}.paf"
-        run([*mm2, str(reference), *files], log_file, stdout=paf, what=f"(mapping {sample.name})")
-        names = _names_from_paf(paf)
-        paf.unlink()
     output = out_dir / (sample.name + reads_suffix(sample.fmt))
-    total, kept = extract_reads(sample.files, names, output)
-    return _bait_result(output, total, kept)
+    names_file, paf = out_dir / f".{sample.name}.names", out_dir / f".{sample.name}.paf"
+    try:
+        if keep_bam:
+            bam = out_dir / f"{sample.name}.bam"
+            run([[*mm2, "-a", str(reference), *files],
+                 ["samtools", "sort", "-@", str(max(1, threads // 4)), "-o", str(bam), "-"]], log_file,
+                what=f"(mapping {sample.name})")
+            run(["samtools", "index", str(bam)], log_file)
+            run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1"]], log_file, stdout=names_file)
+            with open(names_file, encoding="ascii", errors="replace") as fh:
+                names = {line.strip() for line in fh if line.strip()}
+        else:
+            run([*mm2, str(reference), *files], log_file, stdout=paf, what=f"(mapping {sample.name})")
+            names = _names_from_paf(paf)
+        total, kept = extract_reads(sample.files, names, output)
+        return _bait_result(output, total, kept)
+    except BaseException:
+        output.unlink(missing_ok=True)  # A failed (or interrupted) sample leaves no reads, partial or stale
+        raise
+    finally:
+        names_file.unlink(missing_ok=True)
+        paf.unlink(missing_ok=True)
 
 
-_SHELL_CHARACTERS = re.compile(r"""[\s'"`$\\!*?\[\](){}<>|&;#]""")
+_SHELL_CHARACTERS = re.compile(r"""[\s'"`$\\!*?\[\](){}<>|&;#,]""")
 
 
 def _shell_safe(*paths: Path) -> bool:
     """Whether the absolute paths have no whitespace or shell character (that a program running commands through
-    a shell, or splitting them on spaces, would break on)."""
+    a shell, or splitting them on spaces, would break on), nor a comma (Flye splits its reads' paths on commas)."""
     return not any(_SHELL_CHARACTERS.search(str(p.absolute())) for p in paths)
 
 
@@ -108,12 +112,9 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
     """Keep the reads sharing at least one k-mer (up to `hdist` mismatches) with the reference."""
     out_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{sample.name}.log"
-    source = sample.files[0]
-    merged = None
-    if len(sample.files) > 1:  # BBDuk takes one input file
-        merged = out_dir / f".{sample.name}.merged{reads_suffix(sample.fmt)}"
-        concatenate(sample.files, merged)
-        source = merged
+    # BBDuk takes one input file: several are merged first
+    merged = out_dir / f".{sample.name}.merged{reads_suffix(sample.fmt)}" if len(sample.files) > 1 else None
+    source = merged or sample.files[0]
     output = out_dir / (sample.name + reads_suffix(sample.fmt))
     start = log_file.stat().st_size if log_file.exists() else 0
     # bbduk.sh passes its arguments through `eval`: a path with a space (or a shell character) breaks it. BBDuk
@@ -121,30 +122,36 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
     links = {"in": out_dir / f".{sample.name}.input{_extension(source)}",
              "ref": out_dir / f".{sample.name}.reference.fasta"}
     try:
+        if merged is not None:
+            concatenate(sample.files, merged)
         for link, target in ((links["in"], source), (links["ref"], reference)):
             link.unlink(missing_ok=True)
             link.symlink_to(target.resolve())
         run(["bbduk.sh", f"-Xmx{max(1, memory_gb)}g", "-eoom", "overwrite=true", f"in={links['in'].name}",
              f"ref={links['ref'].name}", f"threads={threads}", f"k={kmer}", f"hdist={hdist}", "maskmiddle=f",
              f"outm={output.name}"], log_file, cwd=out_dir, what=f"(baiting {sample.name})")
-    except BaconError as exc:
-        with open(log_file, errors="replace") as fh:
+        with open(log_file) as fh:
             fh.seek(start)
-            if "OutOfMemoryError" in fh.read():
-                raise SampleFailed(f"BBDuk ran out of memory with {memory_gb} GB: increase -m, lower -p, or use "
-                                   f"--hdist {max(0, hdist - 1)} (each mismatch allowed multiplies the memory "
-                                   f"needed); see {log_file}") from exc
+            counts = {m.group(1): (int(m.group(2)), int(m.group(3))) for m in _BBDUK_COUNTS.finditer(fh.read())}
+        total = ReadStats(*counts["Input"]) if "Input" in counts else None
+        return _bait_result(output, total, read_stats([output]))
+    except BaseException as exc:
+        output.unlink(missing_ok=True)  # A failed (or interrupted) sample leaves no reads, partial or stale
+        if isinstance(exc, ToolError):
+            with open(log_file, errors="replace") as fh:
+                fh.seek(start)
+                # Not "OutOfMemoryError" alone: bbduk.sh first prints its java command, with
+                # -XX:+ExitOnOutOfMemoryError
+                if "java.lang.OutOfMemoryError" in fh.read():
+                    raise SampleFailed(f"BBDuk ran out of memory with {memory_gb} GB: increase -m, lower -p, or "
+                                       f"use --hdist {max(0, hdist - 1)} (each mismatch allowed multiplies the "
+                                       f"memory needed); see {log_file}") from exc
         raise
     finally:
         for link in links.values():
             link.unlink(missing_ok=True)
         if merged:
             merged.unlink(missing_ok=True)
-    with open(log_file) as fh:
-        fh.seek(start)
-        counts = {m.group(1): (int(m.group(2)), int(m.group(3))) for m in _BBDUK_COUNTS.finditer(fh.read())}
-    total = ReadStats(*counts["Input"]) if "Input" in counts else None
-    return _bait_result(output, total, read_stats([output]))
 
 
 def _bait_result(output: Path, total: ReadStats | None, kept: ReadStats) -> StepResult:
@@ -220,6 +227,15 @@ class AssemblyDirs:
     def work(self, name: str) -> Path:
         return self.root / name
 
+    def clear_work(self, name: str) -> Path:
+        """The sample's working folder, deleted (the files of an earlier assembly). Refused unless the folder is
+        right in `root` (sample names are checked, but a name such as '..' would delete the output folder)."""
+        work = self.work(name)
+        if work.resolve().parent != self.root.resolve():
+            raise SampleFailed(f"refusing to delete {work}: not a sample folder in {self.root}")
+        shutil.rmtree(work, ignore_errors=True)
+        return work
+
 
 def _publish_assembly(name: str, contigs: Path, dirs: AssemblyDirs, *, rename: bool,
                       circular: set[str] | None = None) -> list[Record]:
@@ -290,8 +306,7 @@ def _flye_info(info: Path) -> dict[str, dict[str, str]]:
 def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, genome_size: int,
                   read_type: str, min_overlap: int | None, iterations: int, threads: int,
                   reference_length: int) -> StepResult:
-    work = dirs.work(name)
-    shutil.rmtree(work, ignore_errors=True)
+    work = dirs.clear_work(name)
     dirs.root.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}.log"
     # Flye refuses reads whose path has a space, and runs some programs through a shell (a space in its output
@@ -342,8 +357,7 @@ def _is_float(text: str) -> bool:
 
 def assemble_myloasm(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, threads: int,
                      reference_length: int) -> StepResult:
-    work = dirs.work(name)
-    shutil.rmtree(work, ignore_errors=True)
+    work = dirs.clear_work(name)
     dirs.root.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}.log"
     run(["myloasm", str(reads), "--output-dir", str(work), "--threads", str(threads)], log_file,
@@ -361,8 +375,7 @@ def assemble_myloasm(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, 
 def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDirs, log_dir: Path, *,
                       threads: int, reference_length: int, fill_gaps: bool) -> StepResult:
     """Templated assembly: samtools consensus of the reads aligned to the reference with minimap2."""
-    work = dirs.work(name)
-    shutil.rmtree(work, ignore_errors=True)
+    work = dirs.clear_work(name)
     for old in (dirs.graphs / f"{name}.gfa", dirs.graphs / f"{name}.png"):  # From an earlier de novo assembly
         old.unlink(missing_ok=True)
     work.mkdir(parents=True)

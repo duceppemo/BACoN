@@ -126,7 +126,9 @@ def reads_bargraph(rows: list[dict[str, str]], run: str = "") -> dict | None:
 
 def distance_heatmap(path: Path, tree: Path | None = None, run: str = "") -> dict:
     """The distance heatmap, rows and columns in the order of the tree's leaves (like report.html), or of the
-    distance table when the tree is missing, unreadable or of other genomes."""
+    distance table when the tree is missing, unreadable or of other genomes. The distances are shown as integers
+    (tt_decimals) by recent MultiQC versions; older ones such as 1.19 ignore it and show two decimals (their
+    decimalPlaces is deprecated in recent versions, which warn about it)."""
     lines = path.read_text().splitlines()
     names = lines[0].split("\t")[1:]
     rows = {line.split("\t")[0]: [int(x) for x in line.split("\t")[1:]] for line in lines[1:]}

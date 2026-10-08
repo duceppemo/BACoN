@@ -329,7 +329,8 @@ def genbank_fasta_records(path: Path) -> list[Record]:
 
 
 def _order_parts(loc: Location, numbers: list[tuple[int | None, int]], length: int,
-                 trans_spliced: bool = False, five_to_three: bool = False) -> None:
+                 trans_spliced: bool = False, five_to_three: bool = False,
+                 written: list[tuple[int, int]] | None = None) -> None:
     """Put the parts of a multi-line GFF3 feature in the order of translation: by their `part=` numbers (NCBI)
     when every line has one, else as listed (NCBI lists them 5' to 3', which puts a trans-spliced CDS, or one
     across the origin, out of coordinate order), except for parts listed by ascending coordinate (Ensembl, a
@@ -340,17 +341,21 @@ def _order_parts(loc: Location, numbers: list[tuple[int | None, int]], length: i
     than half the sequence, from its first base to its last) start at the high part on the + strand and at the
     low parts, read downwards, on the - strand. Without the sequence's length (no ##sequence-region, and no
     reference sequence of that name) a feature across the origin cannot be told apart. `numbers`: the `part=`
-    number and the line of each part (a line across the origin makes two parts). The strand of the feature is
-    that of most of its bases."""
+    number and the line of each part (a line across the origin makes two parts). `written`: the coordinates of
+    each part as the file writes them (a part beyond the origin by more than the length; by default those of
+    `loc.listed`): whether the lines are sorted is told from these. The strand of the feature is that of most of
+    its bases."""
     listed = loc.listed or []
     strands = {strand for _, _, strand in listed}
     by_line = {line: number for number, line in numbers}
+    written = written if written is not None else [(s, e) for s, e, _ in listed]
+    ascending = written == sorted(written)  # Listed by ascending coordinate as written (a sorted file)
     if all(n is not None for n in by_line.values()) and len(set(by_line.values())) == len(by_line):
         order = sorted(range(len(listed)), key=lambda i: (numbers[i][0], i))  # The parts of a line stay in order
         listed = [listed[i] for i in order]
-    elif listed == sorted(listed) and (trans_spliced or len(strands) > 1):
+    elif ascending and (trans_spliced or len(strands) > 1):
         loc.unordered = not five_to_three
-    elif len(strands) == 1 and listed == sorted(listed):
+    elif len(strands) == 1 and ascending:
         strand = strands.pop()
         across = bool(length) and listed[-1][1] - listed[0][0] + 1 > length / 2
         if across and listed[0][0] == 1 and listed[-1][1] == length:
@@ -375,8 +380,9 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
     by the length. The lengths come from the file, else from `known_lengths` (the reference's). Attribute keys
     are lower-cased."""
     features: dict[str, RawFeature] = {}  # By ID (a CDS without one: by sequence and Parent)
-    # The `part=` attribute and the line number of each part of a merged feature
+    # The `part=` attribute and the line number of each part of a merged feature, and its coordinates as written
     part_numbers: dict[str, list[tuple[int | None, int]]] = {}
+    written: dict[str, list[tuple[int, int]]] = {}
     lines = 0
     order: list[RawFeature] = []
     lengths: dict[str, int] = {}
@@ -418,13 +424,16 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                 part = attributes.get("part", "")
                 number = int(part) if part.isdigit() else None
                 length = lengths.get(cols[0]) or known_lengths.get(cols[0], 0)
+                as_written = [(start, end)]
                 if length and start > length and end - length <= length and cols[0] in circular:
                     start, end = start - length, end - length  # Wholly beyond the origin
                 pieces = [(start, end)]  # In the order of translation
                 if length and end > length >= start and end - length < start and cols[0] in circular:
                     pieces = [(start, length), (1, end - length)]  # Across the origin, as Bakta writes it
+                    as_written = [(start, length), (length + 1, end)]
                     if strand < 0:
                         pieces.reverse()
+                        as_written.reverse()
                 same = features.get(key) if key else None
                 if same is not None and same.type == cols[2] and same.seq == cols[0]:  # Another part
                     same.location.listed = [*(same.location.listed or []), *((s, e, strand) for s, e in pieces)]
@@ -434,6 +443,7 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                     if phase is not None:
                         same.phases[pieces[0][0]] = phase
                     part_numbers[key] += [(number, lines)] * len(pieces)
+                    written[key] += as_written
                     continue
                 location = Location(strand, sorted(pieces), partial_low, partial_high,
                                     [(s, e, strand) for s, e in pieces])
@@ -443,6 +453,7 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
                 if key and key not in features:
                     features[key] = feature
                     part_numbers[key] = [(number, lines)] * len(pieces)
+                    written[key] = as_written
                 order.append(feature)
     except DECOMPRESSION_ERRORS as exc:
         raise BaconError(f"{path}: truncated or corrupt compressed file ({exc})") from None
@@ -457,7 +468,7 @@ def read_gff3(path: Path, known_lengths: dict[str, int] | None = None
     for key in multi:
         f = features[key]
         _order_parts(f.location, part_numbers[key], lengths.get(f.seq) or known_lengths.get(f.seq, 0),
-                     _is_trans_spliced(f), five_to_three)
+                     _is_trans_spliced(f), five_to_three, written[key])
     return order, lengths, circular
 
 
@@ -477,8 +488,9 @@ class Cds:
     strands: list[int] | None = None  # The strand of each part, when they differ (trans-splicing across strands)
     transl_except: list[tuple[int, int]] = field(default_factory=list)  # Codons read otherwise (/transl_except)
     # Why the coding sequence cannot be read ("" when it can): a part on another sequence, parts in an unknown
-    # order. Such a CDS gives no effects
+    # order, a stop codon inside it (load_annotation). Such a CDS gives no effects
     unreadable: str = ""
+    edited: bool = False  # Edited at the RNA level (/exception="RNA editing"): its stop codons may be edited away
     _coding: tuple[int, str] | None = field(default=None, repr=False, compare=False)  # Cache: (id(seq), coding)
 
     def part_strand(self, k: int) -> int:
@@ -679,23 +691,33 @@ def _cds(f: RawFeature, default_table: int, length: int = 0) -> Cds:
     return Cds(loc.strand, [(s, e) for s, e, _ in loc.ordered], codon_start,
                int(table) if table.isdigit() else default_table, partial5, partial3, trans,
                strands if len(set(strands)) > 1 else None, _transl_except(f.qualifiers.get("transl_except", "")),
-               unreadable)
+               unreadable, "rna editing" in f.qualifiers.get("exception", "").lower())
+
+
+_KIND_RANK = {"CDS": 3, "tRNA": 2, "rRNA": 2, "ncRNA": 1}  # A gene's kind: that of its highest-ranked feature
 
 
 def _attach(gene: Gene, f: RawFeature, default_table: int, length: int = 0, exons: bool = True) -> None:
-    """Add a CDS, tRNA, rRNA or other RNA feature to its gene; its parts are exons of the gene unless `exons` is
-    False (a GFF3 RNA spanning its introns, with exon features of its own)."""
+    """Add a CDS, tRNA, rRNA or other RNA feature to its gene. The gene's kind is that of its CDS, else of its
+    tRNA, rRNA or tmRNA, else of its other RNA (the first of a rank). The exons of a protein-coding gene are the
+    parts of its CDS features, those of another gene the parts of its RNA features unless `exons` is False (a GFF3
+    RNA spanning its introns, with exon features of its own)."""
     if _is_pseudo(f.qualifiers):
         gene.pseudo = True
+    promoted = False
+    if f.type == "CDS" or f.type in RNA_TYPES:
+        kind = "CDS" if f.type == "CDS" else RNA_TYPES[f.type]
+        rank = 2 if f.type == "tmRNA" else _KIND_RANK[kind]
+        promoted = rank > _KIND_RANK.get(gene.kind, 0)
+        if promoted:
+            if kind == "CDS":
+                gene.exons = []  # Those of its RNA features, attached before
+            gene.kind = kind
     if f.type == "CDS":
         gene.cds.append(_cds(f, default_table, length))
-        if gene.kind in ("other", "ncRNA"):
-            gene.kind = "CDS"
-    elif f.type in RNA_TYPES and gene.kind == "other":
-        gene.kind = RNA_TYPES[f.type]
-    if exons and (f.type == "CDS" or f.type in RNA_TYPES):
+    if f.type == "CDS" or (exons and f.type in RNA_TYPES and gene.kind != "CDS"):
         gene.exons = sorted(set(gene.exons) | set(f.location.parts))
-    if not gene.product and f.qualifiers.get("product"):
+    if f.qualifiers.get("product") and (promoted or not gene.product):  # The product of the feature of its kind
         gene.product = f.qualifiers["product"].split("; ")[0]
     if not gene.symbol:
         gene.symbol = _symbol(f.qualifiers)
@@ -726,11 +748,18 @@ def _overlaps(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> bool:
     return any(s1 <= e2 and s2 <= e1 for s1, e1 in a for s2, e2 in b)
 
 
+def _contains(extent: list[tuple[int, int]], parts: list[tuple[int, int]]) -> bool:
+    """Whether every part lies inside one of the ranges of `extent`."""
+    return all(any(s <= ps and pe <= e for s, e in extent) for ps, pe in parts)
+
+
 def genes_from_genbank(features: list[RawFeature], default_table: int = DEFAULT_TABLE,
                        length: int = 0) -> list[Gene]:
-    """Group GenBank features into genes: a CDS, tRNA or rRNA joins the gene feature with the same /gene or
-    /locus_tag that overlaps it (or, without a name, any overlapping gene feature on its strand); without one, it
-    is a gene of its own. `length`, the sequence's, tells a feature across the origin from a spliced one."""
+    """Group GenBank features into genes: a CDS, tRNA, rRNA or other RNA joins the gene feature with the same
+    /gene or /locus_tag that overlaps it (or, without a name, the first gene feature on its strand containing it,
+    as genes_from_gff3 does); without one, it is a gene of its own (two unnamed RNAs without a gene feature are
+    two genes, even when one contains the other). `length`, the sequence's, tells a feature
+    across the origin from a spliced one."""
     genes: list[Gene] = []
     by_key: dict[tuple[str, str], list[Gene]] = {}
     for f in features:
@@ -741,14 +770,15 @@ def genes_from_genbank(features: list[RawFeature], default_table: int = DEFAULT_
             for key in ("gene", "locus_tag"):
                 if f.qualifiers.get(key):
                     by_key.setdefault((f.seq, f.qualifiers[key]), []).append(gene)
+    gene_features = list(genes)  # Not the genes made from a CDS or RNA without one
     for f in features:
         if f.type != "CDS" and f.type not in RNA_TYPES:
             continue
         keys = [(f.seq, f.qualifiers[k]) for k in ("locus_tag", "gene") if f.qualifiers.get(k)]
         candidates = [g for key in keys for g in by_key.get(key, []) if _overlaps(g.extent, f.location.parts)]
         if not candidates and not keys:
-            candidates = [g for g in genes if g.seq == f.seq and g.strand == f.location.strand
-                          and _overlaps(g.extent, f.location.parts)]
+            candidates = [g for g in gene_features if g.seq == f.seq and g.strand == f.location.strand
+                          and _contains(g.extent, f.location.parts)]
         if candidates:
             _attach(candidates[0], f, default_table, length)
         else:
@@ -787,7 +817,7 @@ def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TAB
         keys = {f.qualifiers[k] for k in ("locus_tag", "gene") if f.qualifiers.get(k)}
         for raw, gene in gene_features:
             if raw.seq != f.seq or raw.location.strand != f.location.strand \
-                    or not all(any(s <= ps and pe <= e for s, e in gene.extent) for ps, pe in f.location.parts):
+                    or not _contains(gene.extent, f.location.parts):
                 continue
             own = {raw.qualifiers[k] for k in ("locus_tag", "gene") if raw.qualifiers.get(k)}
             if not keys or keys & own:
@@ -816,7 +846,8 @@ def genes_from_gff3(features: list[RawFeature], default_table: int = DEFAULT_TAB
                 _attach(gene, f, default_table, length, exons)
             if f.id and f.type in RNA_TYPES:
                 rna_gene[f.id] = gene
-        elif f.type == "exon":
+    for f in features:  # Once every RNA has its gene: exon lines may come before their RNA's
+        if f.type == "exon":
             gene = ancestor(f) or next((rna_gene[p] for p in f.parents if p in rna_gene), None)
             if gene is not None and gene.kind != "CDS":
                 gene.exons = sorted(set(gene.exons) | set(f.location.parts))
@@ -856,9 +887,16 @@ def region_label(f: RawFeature) -> str | None:
             if match.group("ssc"):
                 return "SSC"
             return "IR" + (match.group("copy") or "").lower()
-    if f.type == "repeat_region" and f.qualifiers.get("rpt_type", "").lower() == "inverted":
+    if _is_inverted(f):
         return "IR"
     return None
+
+
+def _is_inverted(f: RawFeature) -> bool:
+    """Whether a feature is an inverted repeat: a GenBank `repeat_region` with `/rpt_type=inverted`, which NCBI's
+    GFF3 writes as an `inverted_repeat`."""
+    return f.type == "inverted_repeat" or (f.type == "repeat_region"
+                                           and f.qualifiers.get("rpt_type", "").lower() == "inverted")
 
 
 @dataclass
@@ -868,7 +906,7 @@ class _Repeat:
 
     pieces: list[tuple[int, int]]
     label: str  # "IRa", "IRb" or "IR"
-    inverted: bool = False  # A repeat_region with /rpt_type=inverted
+    inverted: bool = False  # A repeat_region with /rpt_type=inverted (GFF3: an inverted_repeat)
 
     def touches(self, pieces: list[tuple[int, int]], length: int) -> bool:
         return _overlaps([(max(s - 1, 1), min(e + 1, length)) for s, e in self.pieces], pieces) or (
@@ -901,7 +939,7 @@ def _inverted_repeats(features: list[RawFeature], length: int) -> list[_Repeat]:
         pieces = [(s, e) for s, e in f.location.parts if e <= length]
         if sum(e - s + 1 for s, e in pieces) < MIN_REGION_FEATURE:
             continue
-        inverted = f.type == "repeat_region" and f.qualifiers.get("rpt_type", "").lower() == "inverted"
+        inverted = _is_inverted(f)
         for repeat in repeats:
             if (repeat.label == label or "IR" in (repeat.label, label)) and repeat.touches(pieces, length):
                 repeat.pieces += pieces
@@ -917,9 +955,9 @@ def derive_regions(features: list[RawFeature], length: int) -> list[Region]:
     """The LSC/IRb/SSC/IRa band of a plastome from its annotated inverted repeats: the two repeats (named as the
     annotation names them, else by convention: IRb follows the LSC), and the single-copy regions as the gaps
     between them, the larger one being the LSC. One region may span the origin (a repeat given as
-    join(x..length,1..y) too). With more than two repeats annotated, the two `repeat_region /rpt_type=inverted`,
-    else the pair named IRa and IRb, else the two longest; without two (or with repeats that overlap or touch),
-    no regions."""
+    join(x..length,1..y) too). With more than two repeats annotated, the two `repeat_region /rpt_type=inverted`
+    (GFF3 `inverted_repeat`), else the pair named IRa and IRb, else the two longest; without two (or with repeats
+    that overlap or touch), no regions."""
     repeats = _inverted_repeats(features, length)
     if len(repeats) > 2:
         for chosen in ([r for r in repeats if r.inverted], [r for r in repeats if r.label != "IR"],
@@ -1374,14 +1412,15 @@ def _agree(annotated: list[Region], repeat: InvertedRepeat, length: int) -> bool
 
 
 def _organelle(features: list[RawFeature]) -> str:
-    """The organelle of a sequence, lower-case and without its kind (`plastid:chloroplast` -> `chloroplast`): a
-    GenBank source feature's /organelle, or an NCBI GFF3 region's genome= attribute; '' when not said."""
+    """The organelle of a sequence, lower-case, of the kind the INSDC names first (`plastid:chloroplast` ->
+    `plastid`, `mitochondrion:kinetoplast` -> `mitochondrion`, as NCBI's GFF3 `genome=kinetoplast`): a GenBank
+    source feature's /organelle, or an NCBI GFF3 region's genome= attribute; '' when not said."""
     for f in features:
         if f.type == "source" and f.qualifiers.get("organelle"):
-            value = f.qualifiers["organelle"].split("; ")[0].lower()
-            return value.partition(":")[2] or value
+            return f.qualifiers["organelle"].split("; ")[0].lower().partition(":")[0]
         if f.type == "region" and f.qualifiers.get("genome"):
-            return f.qualifiers["genome"].split("; ")[0].lower()
+            value = f.qualifiers["genome"].split("; ")[0].lower()
+            return "mitochondrion" if value == "kinetoplast" else value
     return ""
 
 
@@ -1392,7 +1431,7 @@ def _not_a_plastid(features: list[RawFeature]) -> str:
     for f in features:
         if f.type == "source" and f.qualifiers.get("organelle"):
             value = f.qualifiers["organelle"].split("; ")[0]
-            kind = value.lower().partition(":")[2] or value.lower()
+            kind = value.lower().partition(":")[0]
             return "" if kind in PLASTID_GENOMES else f"the source feature says organelle={value}"
         if f.type == "region" and f.qualifiers.get("genome"):
             value = f.qualifiers["genome"].split("; ")[0]
@@ -1423,7 +1462,8 @@ def find_regions(features: list[RawFeature], length: int, seq: str | None = None
     """The regions of a sequence: from its annotated inverted repeats (derive_regions) when they make a
     plastome layout (_layout_problem) that the inverted repeat found in the sequence confirms (_agree), or when
     the sequence is not given or has no detectable repeat; else from the detected repeat (regions_from_repeat),
-    with a warning (in `warnings`) when the annotation named inverted repeats. A repeat, annotated or detected,
+    with a warning (in `warnings`) when the annotation named inverted repeats (none for a sequence said not to be a
+    plastid genome: a plant mitochondrion's inverted repeats are no plastome's). A repeat, annotated or detected,
     that is not a plastome layout gives no regions: a RegionBand without regions (`none`) keeps the detected
     repeat and a note saying why, for run_info.json. None when nothing was found."""
     annotated = derive_regions(features, length) if features else []
@@ -1441,7 +1481,12 @@ def find_regions(features: list[RawFeature], length: int, seq: str | None = None
     found = "" if repeat is None else (f"{repeat.first[0]:,}–{repeat.first[1]:,} and {repeat.second[0]:,}–"
                                        f"{repeat.second[1]:,}")
     if repeat is None or detected_problem:
-        if warnings is not None and annotated:  # Then annotated_problem: a plausible annotation was returned
+        # Then annotated_problem: a plausible annotation was returned. Not worth a warning when the sequence is
+        # said not to be a plastid genome (the inverted repeats of a plant mitochondrion)
+        if annotated and not_plastid:
+            log.debug("%s: the annotated inverted repeats (%s) are not a plastome layout (%s)", name, copies,
+                      annotated_problem)
+        elif warnings is not None and annotated:
             warnings.append(f"{name}: the annotated inverted repeats ({copies}) are not a plastome layout "
                             f"({annotated_problem}); no regions from them")
         if repeat is None:
@@ -1535,6 +1580,22 @@ class Annotation:
         return any(s.regions for s in self.sequences.values())
 
 
+INTERNAL_STOP = "a stop codon inside the coding sequence"
+
+
+def _internal_stop(cds: Cds, seq: str) -> bool:
+    """Whether the coding sequence read from `seq` has a stop codon before its last codon, other than one with a
+    translational exception (/transl_except: selenocysteine): parts in a wrong order, or a wrong frame. Not looked
+    for in a coding sequence edited at the RNA level (U-to-C editing removes stop codons: hornworts, ferns) or
+    translated with a table BACoN does not know."""
+    if cds.edited or cds.transl_table not in TABLES:
+        return False
+    coding = cds.coding_sequence(seq)
+    excepted = {i // 3 for s, e in cds.transl_except for pos in range(s, e + 1) for i, _ in cds.indexes(pos)}
+    return any(translate(coding[3 * k:3 * k + 3], cds.transl_table) == "*"
+               for k in range(len(coding) // 3 - 1) if k not in excepted)
+
+
 def load_annotation(path: Path, sequences: list[tuple[str, int]], default_table: int = DEFAULT_TABLE,
                     seqs: dict[str, str] | None = None) -> Annotation:
     """Read a GenBank or GFF3 annotation and match it to the reference sequences (name, length). An unreadable
@@ -1542,7 +1603,8 @@ def load_annotation(path: Path, sequences: list[tuple[str, int]], default_table:
     features beyond the end of their sequence, are left out with a warning (in `warnings`). A single annotated
     sequence is taken for a single reference sequence of the same length, whatever its name. With the reference
     sequences themselves (`seqs`, by name), the regions of an annotated sequence without annotated inverted
-    repeats come from the inverted repeat detected in its sequence (find_regions)."""
+    repeats come from the inverted repeat detected in its sequence (find_regions), and a coding sequence with a
+    stop codon inside it (_internal_stop) gives no effects."""
     if not path.is_file():
         raise BaconError(f"Annotation file not found: {path}")
     fmt = annotation_format(path)
@@ -1604,8 +1666,12 @@ def load_annotation(path: Path, sequences: list[tuple[str, int]], default_table:
             is_circular = any(old in circular for old, new in rename.items() if new == name)
             band = find_regions(kept[name], length, (seqs or {}).get(name), name, warnings)
             table = MITOCHONDRIAL_TABLE if _organelle(kept[name]) == "mitochondrion" else default_table
-            annotation.sequences[name] = SequenceAnnotation(
-                name, length, builder(kept[name], table, length), band, is_circular)
+            genes = builder(kept[name], table, length)
+            seq = (seqs or {}).get(name)
+            for c in (c for g in genes if g.kind != "pseudogene" for c in g.cds):
+                if seq is not None and not c.unreadable and _internal_stop(c, seq):
+                    c.unreadable = INTERNAL_STOP
+            annotation.sequences[name] = SequenceAnnotation(name, length, genes, band, is_circular)
     if rename and not annotation.sequences:
         warnings.append(f"{path.name}: no feature on the reference sequences")
     unreadable = [g.name for s in annotation.sequences.values() for g in s.genes

@@ -261,6 +261,36 @@ def test_table_encodings(tmp_path, caplog):
     assert "not UTF-8" not in caplog.text  # Said once, when the sheet's samples are read
 
 
+def test_utf32_and_utf8_with_a_few_invalid_bytes(tmp_path, caplog):
+    text = "sample\torigin\ns1\tQu\u00e9bec\n"
+    for encoding in ("utf-32", "utf-32-le", "utf-32-be"):  # With a BOM; FF FE 00 00 also starts UTF-16-LE's BOM
+        path = tmp_path / f"{encoding}.tsv"
+        bom = {"utf-32-le": b"\xff\xfe\x00\x00", "utf-32-be": b"\x00\x00\xfe\xff"}.get(encoding, b"")
+        path.write_bytes(bom + text.encode(encoding))
+        assert read_metadata(path).rows == {"s1": {"origin": "Qu\u00e9bec"}}, encoding
+    assert not caplog.text
+    # UTF-8 with one invalid byte (a value pasted from elsewhere) stays UTF-8: its other characters are kept
+    path = tmp_path / "mixed.tsv"
+    path.write_bytes(text.encode() + b"s2\tMontr\xe9al\r\n")
+    assert read_metadata(path).rows == {"s1": {"origin": "Qu\u00e9bec"}, "s2": {"origin": "Montr\ufffdal"}}
+    assert f"Metadata file {path} is UTF-8 with invalid bytes, from line 3" in caplog.text
+    assert "Windows-1252" not in caplog.text
+    # A UTF-8 BOM and one invalid byte: the BOM does not stick to the first column's name (old Mac line ends)
+    caplog.clear()
+    path.write_bytes(b"\xef\xbb\xbfsample\tgroup\rs1\tA\xff\r")
+    assert read_metadata(path).rows == {"s1": {"group": "A\ufffd"}}
+    assert "invalid bytes, from line 2" in caplog.text
+
+
+def test_sample_sheet_in_utf8_with_an_invalid_byte_finds_its_files(tmp_path, caplog):
+    from bacon.samples import read_sample_sheet
+    (tmp_path / "\u00e9t\u00e9.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    sheet = tmp_path / "s.csv"
+    sheet.write_bytes("sample,file,note\ns1,\u00e9t\u00e9.fastq,ok\n".encode() + b"#s2,x.fastq,caf\xe9\n")
+    assert [f.name for f in read_sample_sheet(sheet)[0].files] == ["\u00e9t\u00e9.fastq"]
+    assert f"Sample sheet {sheet} is UTF-8 with invalid bytes, from line 3" in caplog.text
+
+
 def test_write_copy_replaces_a_file_in_another_encoding(tmp_path):
     path = tmp_path / "metadata.tsv"
     path.write_bytes("sample\torigin\ns1\tQu\u00e9bec\n".encode("latin-1"))  # Hand-made, not UTF-8

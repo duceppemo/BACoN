@@ -11,7 +11,7 @@ dependencies:
   - flye>=2.9.5         # de novo assembly (-a flye)
   - myloasm>=0.7        # de novo assembly (-a myloasm)
   - ska2>=0.5           # SNPs (--snp-method ska, the default)
-  - parsnp>=2.0         # SNPs (--snp-method parsnp)
+  - parsnp>=2.1.2       # SNPs (--snp-method parsnp)
   - harvesttools
   - fasttree>=2.1.11    # trees
   - iqtree>=2.2         # trees (--tree iqtree)

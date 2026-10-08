@@ -1340,8 +1340,7 @@ def test_a_sequence_said_not_to_be_a_plastid_gets_no_plastome_regions():
     assert band.source == "none" and band.regions == [] and band.repeat.lengths == (6000, 6000)
     assert band.note == "inverted repeat found but not a plastome layout (the source feature says " \
                         "organelle=mitochondrion)"
-    assert warnings == ["mt: the annotated inverted repeats (9,001–15,000, 19,001–25,000) are not a plastome layout "
-                        "(the source feature says organelle=mitochondrion); no regions from them"]
+    assert warnings == []  # No warning: inverted repeats are expected in a mitochondrion, and give no regions
     band = find_regions(mito, n, None, "mt", warnings)  # Without the sequence: the annotation alone, rejected
     assert band.source == "none" and band.repeat is None and band.regions == []
     assert band.note == "annotated inverted repeats but not a plastome layout (the source feature says " \
@@ -1685,3 +1684,180 @@ def test_junction_marks_are_not_merged_into_the_inverted_repeats():
     regions = derive_regions(features, 10000)
     assert [(r.name, r.start, r.end) for r in regions] == [
         ("IRb", 4001, 6000), ("SSC", 6001, 7000), ("IRa", 7001, 9000), ("LSC", 9001, 4000)]
+
+
+def test_ncbi_gff3_inverted_repeat_features_are_inverted_repeats(tmp_path):
+    # NCBI's GFF3 writes a GenBank `repeat_region /rpt_type=inverted` as an `inverted_repeat` (Phalaenopsis
+    # NC_007499.1: notes "repeat B" and "repeat A", no IR name): the same regions as from the GenBank record, and
+    # these two chosen over a longer feature named IR
+    from bacon.annotation import find_regions, region_label
+    gb = _features("""
+    repeat_region   4001..6000
+                    /note="repeat B"
+                    /rpt_type=inverted
+    repeat_region   7001..9000
+                    /note="repeat A"
+                    /rpt_type=inverted
+    misc_feature    500..2999
+                    /note="IR"
+    """)
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 10000\n"
+                   "ref.1\tt\tinverted_repeat\t4001\t6000\t.\t+\t.\tID=id-1;Note=repeat B;gbkey=repeat_region;"
+                   "rpt_type=inverted\n"
+                   "ref.1\tt\tinverted_repeat\t7001\t9000\t.\t+\t.\tID=id-2;Note=repeat A;gbkey=repeat_region;"
+                   "rpt_type=inverted\n"
+                   "ref.1\tt\tmisc_feature\t500\t2999\t.\t+\t.\tID=id-3;Note=IR\n")
+    features = read_gff3(gff)[0]
+    assert [region_label(f) for f in features] == ["IR", "IR", "IR"]
+    regions = [[(r.name, r.start, r.end) for r in derive_regions(fs, 10000)] for fs in (gb, features)]
+    assert regions[0] == regions[1] == [("IRb", 4001, 6000), ("SSC", 6001, 7000), ("IRa", 7001, 9000),
+                                        ("LSC", 9001, 4000)]
+    # A plant mitochondrion's inverted repeats (Arabidopsis NC_037304.1): no regions and, as from its GenBank
+    # record, no warning
+    seq = make_plastome()
+    n = len(seq)
+    mito = tmp_path / "mt.gff3"
+    mito.write_text(f"##gff-version 3\n##sequence-region ref.1 1 {n}\n"
+                    f"ref.1\tt\tregion\t1\t{n}\t.\t+\t.\tID=ref.1;genome=mitochondrion\n"
+                    "ref.1\tt\tinverted_repeat\t9001\t15000\t.\t+\t.\tID=id-1;rpt_type=inverted\n"
+                    "ref.1\tt\tinverted_repeat\t19001\t25000\t.\t+\t.\tID=id-2;rpt_type=inverted\n")
+    for sequence in (seq, None):
+        warnings: list[str] = []
+        band = find_regions(read_gff3(mito)[0], n, sequence, "mt", warnings)
+        assert band.source == "none" and band.regions == [] and warnings == []
+        assert band.note.endswith("(the region feature says genome=mitochondrion)")
+
+
+def test_genbank_rnas_join_the_gene_containing_them_and_the_cds_makes_the_kind(tmp_path):
+    # Arabidopsis mitochondrion NC_037304.1: an unnamed ncRNA overlapping the first bases of rrn26 is not part of
+    # it (the rRNA gene stayed an "ncRNA"), and an ncRNA in an intron of rps3 does not make it an exon (CDS)
+    features = """
+    gene            complement(40..100)
+                    /gene="rrnX"
+    ncRNA           complement(30..41)
+                    /ncRNA_class="other"
+    misc_RNA        complement(40..100)
+                    /gene="rrnX"
+                    /product="a transcript"
+    rRNA            complement(40..100)
+                    /gene="rrnX"
+                    /product="26S ribosomal RNA"
+    gene            1..32
+                    /gene="abc"
+    ncRNA           12..18
+                    /gene="abc"
+                    /ncRNA_class="other"
+                    /product="intronic RNA"
+    CDS             join(1..9,22..32)
+                    /gene="abc"
+                    /product="protein ABC"
+    ncRNA           complement(104..115)
+                    /note="cosRNA M212"
+    ncRNA           complement(104..110)
+                    /note="cosRNA M213, inside M212: a gene of its own (NCBI's GFF3 gives each a gene)"
+    """
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb(features))
+    genes = {g.name: g for g in load_annotation(gb, [("ref.1", 120)]).sequences["ref.1"].genes}
+    assert (genes["rrnX"].kind, genes["rrnX"].exons, genes["rrnX"].product) == ("rRNA", [(40, 100)],
+                                                                                 "26S ribosomal RNA")
+    assert (genes["abc"].kind, genes["abc"].exons, genes["abc"].product) == ("CDS", [(1, 9), (22, 32)], "protein ABC")
+    assert genes["abc"].context(15) == "intron"
+    assert (genes["ncRNA:30"].kind, genes["ncRNA:30"].extent) == ("ncRNA", [(30, 41)])
+    assert sorted(g.extent for g in load_annotation(gb, [("ref.1", 120)]).sequences["ref.1"].genes
+                  if g.name == "ncRNA:104") == [[(104, 110)], [(104, 115)]]
+    # The same from NCBI's GFF3 of such a record: the parentless ncRNA is a gene of its own
+    gff = tmp_path / "a.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tgene\t1\t32\t.\t+\t.\tID=gene-abc;gene=abc\n"
+                   "ref.1\tt\tCDS\t1\t9\t.\t+\t0\tID=cds-abc;Parent=gene-abc;gene=abc;product=protein ABC\n"
+                   "ref.1\tt\tCDS\t22\t32\t.\t+\t0\tID=cds-abc;Parent=gene-abc;gene=abc;product=protein ABC\n"
+                   "ref.1\tt\tncRNA\t12\t18\t.\t+\t.\tID=rna-1;Parent=gene-abc;gene=abc;product=intronic RNA\n"
+                   "ref.1\tt\tncRNA\t30\t41\t.\t-\t.\tID=rna-2\n"
+                   "ref.1\tt\tgene\t40\t100\t.\t-\t.\tID=gene-rrnX;gene=rrnX\n"
+                   "ref.1\tt\trRNA\t40\t100\t.\t-\t.\tID=rna-3;Parent=gene-rrnX;gene=rrnX;product=26S ribosomal RNA\n"
+                   "ref.1\tt\tgene\t104\t115\t.\t-\t.\tID=gene-1\n"
+                   "ref.1\tt\tncRNA\t104\t115\t.\t-\t.\tID=rna-4;Parent=gene-1\n"
+                   "ref.1\tt\tgene\t104\t110\t.\t-\t.\tID=gene-2\n"
+                   "ref.1\tt\tncRNA\t104\t110\t.\t-\t.\tID=rna-5;Parent=gene-2\n")
+    anns = [load_annotation(path, [("ref.1", 120)]) for path in (gb, gff)]
+    contexts = [[sorted(g.context(pos) for g in ann.sequences["ref.1"].genes_at(pos)) for pos in range(1, 121)]
+                for ann in anns]
+    assert contexts[0] == contexts[1]
+
+
+def test_sorted_gff3_part_written_beyond_the_origin(tmp_path):
+    # Rice rps12 (NC_001320.1) sorted, without part=: the 5' part written 130..138 (10..18) after 40..45 and
+    # 60..65. Whether the lines are sorted is told from the coordinates as written: a feature across the origin
+    # read downwards, as its GenBank location; trans-spliced, an unknown order (no effects, not wrong ones)
+    head = "##gff-version 3\n##sequence-region ref.1 1 120\nref.1\tt\tregion\t1\t120\t.\t+\t.\tID=ref.1;Is_circular=true\n"
+    lines = "".join(f"ref.1\tt\tCDS\t{s}\t{e}\t.\t-\t0\tID=c;gene=r\n" for s, e in ((40, 45), (60, 65), (130, 138)))
+    gff = tmp_path / "a.gff3"
+    gff.write_text(head + lines)
+    gb = tmp_path / "a.gb"
+    gb.write_text(_gb('CDS             complement(join(40..45,60..65,10..18))\n                /gene="r"\n'))
+    cds = [load_annotation(path, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0] for path in (gff, gb)]
+    assert cds[0].parts == cds[1].parts == [(10, 18), (60, 65), (40, 45)] and not cds[0].unreadable
+    gff.write_text(head + lines.replace("gene=r", "gene=r;exception=trans-splicing"))
+    ann = load_annotation(gff, [("ref.1", 120)])
+    assert ann.sequences["ref.1"].genes[0].cds[0].unreadable and _effects(ann, 15, SEQ[14], "A")[1] == []
+
+
+def test_gff3_exon_lines_before_their_parentless_rna(tmp_path):
+    rna = "ref.1\tt\ttRNA\t41\t60\t.\t-\t.\tID=rna-t;gene=trnX\n"
+    exons = "ref.1\tt\texon\t41\t45\t.\t-\t.\tID=e1;Parent=rna-t\nref.1\tt\texon\t52\t60\t.\t-\t.\tID=e2;Parent=rna-t\n"
+    for i, text in enumerate((rna + exons, exons + rna)):
+        gff = tmp_path / f"{i}.gff3"
+        gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n" + text)
+        gene, = load_annotation(gff, [("ref.1", 120)]).sequences["ref.1"].genes
+        assert (gene.kind, gene.exons, gene.context(48), gene.context(43)) == ("tRNA", [(41, 45), (52, 60)],
+                                                                               "intron", "tRNA")
+
+
+def test_organelle_kind_is_the_part_before_the_colon(tmp_path):
+    # A kinetoplast is a mitochondrion (INSDC: /organelle="mitochondrion:kinetoplast"): table 1 by default
+    from bacon.annotation import Location, RawFeature, _not_a_plastid, _organelle
+    features = """
+    source          1..120
+                    /organelle="mitochondrion:kinetoplast"
+    CDS             join(1..9,22..30)
+                    /gene="abc"
+    """
+    assert _ann(tmp_path / "k", features).tables == [1]
+    gff = tmp_path / "k.gff3"
+    gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                   "ref.1\tt\tregion\t1\t120\t.\t+\t.\tID=ref.1;genome=kinetoplast\n"
+                   "ref.1\tt\tCDS\t1\t9\t.\t+\t0\tID=c;gene=abc\nref.1\tt\tCDS\t22\t30\t.\t+\t0\tID=c;gene=abc\n")
+    assert load_annotation(gff, [("ref.1", 120)]).tables == [1]
+
+    def source(organelle):
+        return [RawFeature("source", "x", Location(1, [(1, 120)]), {"organelle": organelle})]
+    assert [_organelle(source(o)) for o in ("mitochondrion:kinetoplast", "plastid:chloroplast", "mitochondrion")] \
+        == ["mitochondrion", "plastid", "mitochondrion"]
+    assert _not_a_plastid(source("plastid:apicoplast")) == ""
+    assert _not_a_plastid(source("mitochondrion:kinetoplast")).endswith("organelle=mitochondrion:kinetoplast")
+
+
+def test_a_stop_codon_inside_the_coding_sequence_gives_no_effects(tmp_path):
+    # join(22..30,1..9): GGT CGA TAA ATG GCT AAA, parts in a wrong order (as a sorted GFF3 of a feature across the
+    # origin read wrongly would give): no effects, rather than wrong ones, when the sequence is known
+    gb = tmp_path / "a.gb"
+    seqs = {"ref.1": SEQ}
+
+    def cds(qualifiers=""):
+        gb.write_text(_gb('CDS             join(22..30,1..9)\n                /gene="w"\n' + qualifiers))
+        ann = load_annotation(gb, [("ref.1", 120)], seqs=seqs)
+        return ann, ann.sequences["ref.1"].genes[0].cds[0]
+    ann, c = cds()
+    assert c.unreadable == "a stop codon inside the coding sequence" and _effects(ann, 2, "T", "C")[1] == []
+    assert any("no SNP effects (a stop codon inside the coding sequence): w" in w for w in ann.warnings)
+    assert not load_annotation(gb, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0].unreadable  # No sequence
+    # Not when the stop codon has a translational exception, the CDS is edited, or the table is not known
+    for qualifiers in ('                /transl_except=(pos:28..30,aa:Sec)\n',
+                       '                /exception="RNA editing"\n', '                /transl_table=6\n'):
+        ann, c = cds(qualifiers)
+        assert not c.unreadable and _effects(ann, 2, "T", "C")[1] != [], qualifiers
+    # The final stop codon, and the stop codons of the genes of FEATURES, are not inside
+    ann = load_annotation(_ann(tmp_path / "f").file, [("ref.1", 120)], seqs=seqs)
+    assert not any(c.unreadable for g in ann.sequences["ref.1"].genes for c in g.cds) and not ann.warnings

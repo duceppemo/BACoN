@@ -42,15 +42,15 @@ class Metadata:
 
 def read_table(path: Path, what: str, comment_lines: bool = False,
                encoding_warning: bool = True) -> tuple[list[str], list[dict[str, str]]]:
-    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, UTF-16 with a BOM, or else Windows-1252
-    (with a warning, unless not `encoding_warning`); LF, CRLF or CR line ends (only those: other characters that
-    Python counts as line breaks, such as a form feed, are whitespace in a cell). Blank lines are ignored, and
-    lines starting with '#' before the header are comments (after it, they are data, unless `comment_lines`: a
-    sample sheet). A tab in the header makes it a TSV: cells are split on tabs only (no quote can swallow a row),
-    and a cell entirely in quotes loses them (`""` inside is one quote); otherwise a CSV, whose quoted values may
-    hold commas but not line breaks. Names and values are stripped (names also lose their inner whitespace);
-    columns with an empty name (a trailing separator) are dropped, and two columns of the same name (any case)
-    are an error."""
+    """Header and rows of a TSV or CSV file: UTF-8 with or without BOM, UTF-16 or UTF-32 with a BOM, or else
+    Windows-1252 (_decode; with a warning, unless not `encoding_warning`); LF, CRLF or CR line ends (only those:
+    other characters that Python counts as line breaks, such as a form feed, are whitespace in a cell). Blank lines
+    are ignored, and lines starting with '#' before the header are comments (after it, they are data, unless
+    `comment_lines`: a sample sheet). A tab in the header makes it a TSV: cells are split on tabs only (no quote
+    can swallow a row), and a cell entirely in quotes loses them (`""` inside is one quote); otherwise a CSV, whose
+    quoted values may hold commas but not line breaks. Names and values are stripped (names also lose their inner
+    whitespace); columns with an empty name (a trailing separator) are dropped, and two columns of the same name
+    (any case) are an error."""
     if not path.is_file():
         raise BaconError(f"{what} not found: {path}")
     try:
@@ -81,19 +81,38 @@ def read_table(path: Path, what: str, comment_lines: bool = False,
     return [c for c in header if c], rows
 
 
+# A valid multi-byte UTF-8 character: text with one is UTF-8 (with a few bad bytes), not Windows-1252, whose
+# accented letters seldom form such sequences.
+_UTF8_MULTIBYTE = re.compile(rb"[\xc2-\xdf][\x80-\xbf]|\xe0[\xa0-\xbf][\x80-\xbf]"
+                             rb"|[\xe1-\xec\xee\xef][\x80-\xbf]{2}|\xed[\x80-\x9f][\x80-\xbf]"
+                             rb"|\xf0[\x90-\xbf][\x80-\xbf]{2}|[\xf1-\xf3][\x80-\xbf]{3}|\xf4[\x80-\x8f][\x80-\xbf]{2}")
+
+
 def _decode(data: bytes, path: Path, what: str, warn: bool) -> str:
-    """The text of a table: UTF-16 when it starts with a UTF-16 byte order mark (as some spreadsheets save
+    """The text of a table: UTF-32 or UTF-16 when it starts with their byte order mark (as some spreadsheets save
     "Unicode text"), UTF-8 (with or without a BOM), or Windows-1252 (Excel's encoding on Windows) when it is not
-    valid UTF-8."""
+    valid UTF-8 and has no UTF-8 character beyond ASCII. UTF-8 with a few invalid bytes (a BOM, or valid
+    multi-byte characters elsewhere) stays UTF-8, the invalid bytes replaced (with a warning naming the first
+    line that has one)."""
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):  # Before UTF-16: FF FE starts both
+        return data.decode("utf-32", errors="replace")
     if data.startswith((b"\xff\xfe", b"\xfe\xff")):
         return data.decode("utf-16", errors="replace")
+    bom = data.startswith(b"\xef\xbb\xbf")
+    data = data[3:] if bom else data
     try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if not bom and not _UTF8_MULTIBYTE.search(data):
+            if warn:
+                log.warning("%s %s is not UTF-8: read as Windows-1252 (cp1252); if some characters look wrong, "
+                            "save it as UTF-8", what, path)
+            return data.decode("cp1252", errors="replace")
         if warn:
-            log.warning("%s %s is not UTF-8: read as Windows-1252 (cp1252); if some characters look wrong, save "
-                        "it as UTF-8", what, path)
-        return data.decode("cp1252", errors="replace")
+            before = data[:exc.start].replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            log.warning("%s %s is UTF-8 with invalid bytes, from line %d: they are read as \ufffd; save it as "
+                        "UTF-8", what, path, before.count(b"\n") + 1)
+        return data.decode("utf-8", errors="replace")
 
 
 _END = "\n"  # After the last line: a quoted value that reaches it was never closed

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from bacon import BaconError, __version__
 from bacon.metadata import MAX_COLOUR_VALUES
-from bacon.pipeline import STEPS, Settings, default_memory_gb, run, usable_cpus
+from bacon.pipeline import STEPS, Settings, default_memory_gb, os_error_message, run, usable_cpus
 
 log = logging.getLogger("bacon")
 
@@ -82,13 +82,15 @@ def build_parser() -> argparse.ArgumentParser:
                          "GenBank file.")
     io.add_argument("--metadata", metavar="FILE", type=Path,
                     help="Sample metadata, for the report only: a TSV/CSV with a 'sample' column naming the "
-                         "samples and any other columns (group, origin, year...), shown in the samples table "
-                         "and, for one column (--color-by), as colours in the tree and the heatmap. The extra "
-                         "columns of a sample sheet are metadata too. Adding or changing it reruns nothing.")
+                         "samples and any other columns (group, origin, year...), shown in the samples table; "
+                         "one column (--color-by) colours every genome in the report (tree, heatmap, bar charts, "
+                         "tables). The extra columns of a sample sheet are metadata too. Adding or changing it "
+                         "reruns nothing.")
     io.add_argument("--color-by", metavar="COLUMN",
-                    help="The metadata column that colours the tree and the heatmap, or 'none'. Default: the "
-                         f"first column with at most {MAX_COLOUR_VALUES} distinct values (each gets a colour and "
-                         "a shape) that is not free text.")
+                    help="The metadata column that colours every genome in the report (tree, heatmap, bar "
+                         "charts, tables), or 'none'. Default: the first column with at most "
+                         f"{MAX_COLOUR_VALUES} distinct values (each gets a colour and a shape) that is not free "
+                         "text.")
 
     bait = parser.add_argument_group("baiting")
     bait.add_argument("-b", "--baiting-method", choices=["minimap2", "bbduk"], default="minimap2",
@@ -231,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     except BaconError as exc:
         if not getattr(exc, "logged", False):  # run() logs the errors of a started run (in bacon.log too)
             log.error("%s", exc)
+        return 1
+    except OSError as exc:  # A path BACoN may not read or write (permissions)
+        if not getattr(exc, "logged", False):
+            log.error("%s", os_error_message(exc))
         return 1
     except KeyboardInterrupt as exc:
         if not getattr(exc, "logged", False):

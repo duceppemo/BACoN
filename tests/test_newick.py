@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from bacon import BaconError
-from bacon.newick import ladderize, midpoint_root, parse, to_newick, to_svg
+from bacon.newick import depths, ladderize, midpoint_root, parse, to_newick, to_svg
 
 
 def leaves(node):
@@ -116,3 +116,39 @@ def test_deep_tree_walks_are_iterative():
     rooted = midpoint_root(tree)
     assert leaves(rooted) == sorted(f"L{i}" for i in range(1000))
     assert to_svg(rooted).count("<text") >= 1000
+
+
+def _caterpillar(prefix, m):
+    """A caterpillar of `m` leaves whose internal nodes are all unnamed with length 0 (as FastTree writes the tree
+    of identical sequences)."""
+    return "(" * (m - 1) + f"{prefix}0:5" + "".join(f",{prefix}{i}:0.001):0" for i in range(1, m - 1)) \
+        + f",{prefix}{m - 1}:0.001)"
+
+
+def test_deep_tree_of_identical_internal_nodes():
+    # Two 3,000-leaf caterpillars whose internal nodes have the same name and length: nodes compared by value
+    # would recurse down the tree (RecursionError), and finding the path between the farthest leaves be quadratic
+    text = f"({_caterpillar('A', 3000)}:0,{_caterpillar('B', 3000)}:0);"
+    rooted = midpoint_root(parse(text))
+    assert len(rooted.leaves()) == 6000 and len(rooted.children) == 2
+    assert path_length(rooted, "A0", "B0") == pytest.approx(10)  # The longest path: the root halfway along it
+    depth = depths(rooted)
+    assert [depth[id(leaf)] for leaf in rooted.leaves() if leaf.name in ("A0", "B0")] == pytest.approx([5, 5])
+    ladderize(rooted)
+    assert to_svg(rooted).count("<text") >= 6000
+
+
+def test_nodes_are_equal_only_to_themselves():
+    a, b = parse("(A:1,B:1);"), parse("(A:1,B:1);")
+    assert a != b and a == a and a.children[0] in a.children and a.children[0] not in b.children
+
+
+@pytest.mark.parametrize("bad", ["(A:inf,B:1);", "(A:1,B:nan);", "(A:1,B:1e999);", "((A:1,B:1):-inf,C:1);",
+                                 "((A:1,B:1)inf:1,C:1);", "((A:1,B:1)1e999:1,C:1);", "(A:1,B:1)nan;"])
+def test_parse_rejects_non_finite_lengths_and_supports(bad):
+    with pytest.raises(BaconError, match="not a finite number"):
+        parse(bad)
+
+
+def test_parse_keeps_named_internal_nodes():
+    assert parse("((A:1,B:1)cladeX:1,C:1);").children[0].name == "cladeX"

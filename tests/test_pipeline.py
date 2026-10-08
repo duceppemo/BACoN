@@ -3,6 +3,7 @@
 import gzip
 import json
 import os
+import re
 import stat
 import sys
 import textwrap
@@ -45,6 +46,8 @@ STUBS = {
         out = args[args.index("--out-dir") + 1]
         if " " in os.path.abspath(args[args.index("--nano-hq") + 1]):  # As Flye
             sys.exit("ERROR: Path to reads contain spaces")
+        if "," in args[args.index("--nano-hq") + 1]:  # Flye splits the reads' paths on commas
+            sys.exit("ERROR: No such file")
         if " " in os.path.abspath(out):  # Flye runs samtools through a shell
             sys.exit("samtools view: failed to open")
         os.makedirs(out, exist_ok=True)
@@ -106,13 +109,20 @@ STUBS = {
             seq = seq.replace("\\n", "")
             out.write_text(f"{name}\\n{'N' * 10}{seq[10:]}\\n")
     """,
-    # Keeps reads whose name starts with "on"; reports BBDuk's counts; STUB_BBDUK_OOM: runs out of memory. Its
-    # arguments are split on whitespace, as bbduk.sh's `eval` splits them.
+    # Keeps reads whose name starts with "on"; reports BBDuk's counts; STUB_BBDUK_OOM: runs out of memory;
+    # STUB_BBDUK_FAIL: fails otherwise. Its arguments are split on whitespace, as bbduk.sh's `eval` splits them; it
+    # first prints its java command line, as bbduk.sh does (-eoom: -XX:+ExitOnOutOfMemoryError).
     "bbduk.sh": """
         import gzip, os, sys
+        sys.stderr.write("java -ea -XX:+ExitOnOutOfMemoryError -Xmx1g -Xms1g -cp /opt/bbmap/current/ "
+                         "bbduk.BBDukS " + " ".join(sys.argv[1:]) + "\\n")
         if any(len(a.split()) > 1 for a in sys.argv[1:]):
             sys.exit("Unknown parameter " + next(a for a in sys.argv[1:] if len(a.split()) > 1).split()[1])
         opts = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
+        if os.environ.get("STUB_BBDUK_FAIL"):  # After writing part of its output
+            open(opts["outm"], "w").write("partial")
+            sys.stderr.write('Exception in thread "main" java.lang.AssertionError: missing reference file\\n')
+            sys.exit(1)
         if os.environ.get("STUB_BBDUK_OOM"):
             sys.stderr.write("Allocating kmer table: Terminating due to java.lang.OutOfMemoryError: Java heap space\\n")
             sys.exit(3)
@@ -129,6 +139,17 @@ STUBS = {
     "Bandage": """
         import sys
         open(sys.argv[-1], "wb").write(b"PNG")
+    """,
+    # Splits -s on commas, as IQ-TREE does; writes PREFIX.contree, PREFIX relative to its working folder.
+    "iqtree3": """
+        import os, sys
+        args = sys.argv[1:]
+        alignment = args[args.index("-s") + 1]
+        if any(not os.path.isfile(part) for part in alignment.split(",")):
+            sys.exit("ERROR: File not found " + alignment.split(",")[0])
+        names = [l[1:].split()[0] for l in open(alignment) if l.startswith(">")]
+        open(args[args.index("--prefix") + 1] + ".contree", "w").write(
+            "(" + ",".join(f"{n}:0.{i + 1}" for i, n in enumerate(names)) + ");\\n")
     """,
     "FastTree": """
         import sys
@@ -601,6 +622,12 @@ def test_bbduk_counts_hdist_and_out_of_memory(stubs, dataset, tmp_path, monkeypa
         run(settings(ref, reads, tmp_path / "oom", baiting="bbduk", hdist=2, memory_gb=4, snp_method="none"))
     note = summary(tmp_path / "oom")["s1"]["Note"]
     assert "ran out of memory with 2 GB" in note and "--hdist 1" in note
+    monkeypatch.delenv("STUB_BBDUK_OOM")
+    monkeypatch.setenv("STUB_BBDUK_FAIL", "1")  # Its java command line has -XX:+ExitOnOutOfMemoryError
+    with pytest.raises(BaconError, match="All samples failed"):
+        run(settings(ref, reads, tmp_path / "fail", baiting="bbduk", snp_method="none"))
+    note = summary(tmp_path / "fail")["s1"]["Note"]
+    assert note.startswith("bbduk.sh failed with exit code 1 (baiting s1)") and "memory" not in note
 
 
 def test_added_genome_cannot_take_the_name_of_a_failed_sample(stubs, dataset, tmp_path):
@@ -1543,10 +1570,14 @@ def test_added_genomes_are_checked_before_any_step(stubs, dataset, tmp_path, cap
     (tmp_path / "notes.txt").write_text("not a genome\n")
     with pytest.raises(BaconError, match="--add-genomes: not a fasta file"):
         run(settings(ref, reads, out, add_genomes=[tmp_path / "notes.txt"]))
-    for name in ("s1.fasta", "none.fasta", "pub\n.fasta"):  # A sample's name (failed or not), an invalid name
+    for name in ("s1.fasta", "none.fasta", "reference.fasta"):  # A sample's name (failed or not), reserved
         (tmp_path / name).write_text(">x\nACGT\n")
-        with pytest.raises(BaconError, match="invalid or already used"):
+        with pytest.raises(BaconError, match="reserved or already used"):
             run(settings(ref, reads, out, add_genomes=[tmp_path / name]))
+    for name in ("pub\n", ".", "..", ".x"):  # Invalid names; '.' and '..' would be folders
+        (tmp_path / f"{name}.fasta").write_text(">x\nACGT\n")
+        with pytest.raises(BaconError, match="(?s)" + re.escape(f"invalid name {name!r}") + ".*not starting with a dot"):
+            run(settings(ref, reads, out, add_genomes=[tmp_path / f"{name}.fasta"]))
     assert calls(stubs) == [] and not (out / "1_extracted").exists()  # Before any step
     assert run(settings(ref, reads, out, add_genomes=[tmp_path / "typo.fasta"], snp_method="none")) == 0
     assert "--add-genomes is ignored: there is no comparison with --snp-method none" in caplog.text
@@ -1609,7 +1640,93 @@ def test_a_checkpoint_that_cannot_be_saved_stops_the_run_cleanly(stubs, dataset,
                 raise OSError(errno.ENOSPC, "No space left on device")
         return real(self, *args, **kwargs)
 
+    import bacon.tools
+    real_kill = bacon.tools.kill_running
+    monkeypatch.setattr(bacon.tools, "kill_running", lambda: max(1, real_kill()))  # A program still running
     monkeypatch.setattr(Path, "write_text", full_disk)
-    with pytest.raises(BaconError, match=r"Could not save the checkpoint .*bait\.json: No space left on device"):
+    with pytest.raises(BaconError, match=r"Could not save the checkpoint .*bait\.json: No space left on device "
+                                         r"\(is the disk full\?\); BACoN stopped"):
         run(settings(ref, reads, tmp_path / "out"))
     assert not (tmp_path / "out" / ".checkpoints" / "bait.tmp").exists()
+    assert "Interrupted" not in (tmp_path / "out" / "bacon.log").read_text()  # It was not
+    saves.clear()
+    error = OSError(errno.EACCES, "Permission denied")
+    monkeypatch.setattr(Path, "write_text", lambda self, *a, **k: (_ for _ in ()).throw(error)
+                        if self.name == "bait.tmp" else real(self, *a, **k))
+    with pytest.raises(BaconError, match=r"bait\.json: Permission denied; BACoN stopped"):  # Not a full disk
+        run(settings(ref, reads, tmp_path / "out2"))
+
+
+def test_failed_baiting_leaves_no_partial_or_temporary_files(stubs, dataset, tmp_path, monkeypatch):
+    import bacon.steps
+    ref, reads = dataset
+    _reads(reads / "bad.fastq.gz", [("on1", 900)])  # minimap2 (the stub) crashes on it
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    assert summary(out)["bad"]["Status"] == "failed (bait)"
+    left = sorted(p.name for p in (out / "1_extracted").iterdir())
+    assert left == ["s1.fastq.gz", "s2.fastq.gz", "s3.fastq.gz"]  # No .bad.paf, no reads of "none" or "bad"
+    (reads / "bad.fastq.gz").unlink()
+    real = bacon.steps.extract_reads
+
+    def disk_full(inputs, names, output):  # Fails while writing the reads
+        output.write_bytes(b"partial")
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(bacon.steps, "extract_reads", disk_full)
+    out = tmp_path / "bam"
+    with pytest.raises(BaconError, match="All samples failed"):
+        run(settings(ref, reads, out, keep_bam=True, snp_method="none"))
+    assert not [p.name for p in (out / "1_extracted").iterdir() if not p.name.endswith((".bam", ".bai"))]
+    monkeypatch.setattr(bacon.steps, "extract_reads", real)
+    # BBDuk: several files of a sample are merged first; the merged file is removed whatever fails
+    (reads / "s4").mkdir()
+    for i in (1, 2):
+        _reads(reads / "s4" / f"part{i}.fastq.gz", [("on1", 900)])
+    real_concatenate = bacon.steps.concatenate
+
+    def interrupted(inputs, output):
+        real_concatenate(inputs, output)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bacon.steps, "concatenate", interrupted)
+    out = tmp_path / "bbduk"
+    with pytest.raises(KeyboardInterrupt):
+        run(settings(ref, reads, out, baiting="bbduk", snp_method="none", parallel=1))
+    assert not [p.name for p in (out / "1_extracted").iterdir() if p.name.startswith(".")]
+    monkeypatch.setattr(bacon.steps, "concatenate", real_concatenate)
+    monkeypatch.setenv("STUB_BBDUK_FAIL", "1")
+    out = tmp_path / "bbduk_failed"
+    with pytest.raises(BaconError, match="All samples failed"):
+        run(settings(ref, reads, out, baiting="bbduk", snp_method="none"))
+    assert not list((out / "1_extracted").iterdir())
+
+
+def test_an_output_folder_with_a_comma(stubs, dataset, tmp_path):
+    """Flye splits its reads' paths on commas, IQ-TREE its alignment's (and the stubs do the same)."""
+    ref, reads = dataset
+    out = tmp_path / "x,y"
+    assert run(settings(ref, reads, out, tree="iqtree")) == 0
+    assert summary(out)["s1"]["Status"] == "ok" and (out / "3_assembled" / "s1" / "assembly.fasta").is_file()
+    assert (out / "4_compared" / "ska" / "tree.nwk").is_file()
+    assert f"$ (cd {out / '4_compared' / 'ska'} && " in (out / "logs" / "4_compare" / "iqtree.log").read_text()
+    stubs.unlink()
+    assert run(settings(ref, reads, out, tree="iqtree")) == 0
+    assert calls(stubs) == ["minimap2"]  # Only the failed sample is tried again
+
+
+def test_linked_files_are_named_after_the_link(stubs, dataset, tmp_path):
+    """A single input file, or an added genome, given as a link: named after the link, not after its target."""
+    ref, reads = dataset
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "x81f2.fasta").write_text(">chr\nACGTACGT\n")
+    (tmp_path / "pub.fasta").symlink_to(store / "x81f2.fasta")
+    (tmp_path / "links").mkdir()
+    (tmp_path / "links" / "s9.fastq.gz").symlink_to(reads / "s1.fastq.gz")
+    out = tmp_path / "out"
+    assert run(settings(ref, tmp_path / "links" / "s9.fastq.gz", out, snp_method="none")) == 0
+    assert list(summary(out)) == ["s9"]
+    assert run(settings(ref, reads, out, add_genomes=[tmp_path / "pub.fasta"])) == 0
+    dist = (out / "4_compared" / "ska" / "snp_distances.tsv").read_text().splitlines()[0]
+    assert dist.split("\t") == ["snp-dists", "Reference", "pub", "s1", "s2", "s3"]

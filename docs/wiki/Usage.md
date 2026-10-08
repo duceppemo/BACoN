@@ -72,8 +72,8 @@ gamma       B          2022  Shares beta's six SNPs, plus four of its own
 delta       NA         2023  Ten SNPs of its own; group unknown
 ```
 
-`--color-by COLUMN` chooses the column that colours the figures; `--color-by none` leaves them uncoloured (and
-needs no metadata). By
+`--color-by COLUMN` chooses the column that colours every genome in the report (tree, heatmap, bar charts,
+tables); `--color-by none` leaves them uncoloured (and needs no metadata). By
 default it is the first column that can be coloured: a column with at most 48 distinct values that does not
 look like free text, that is, whose distinct values are at most 30 characters long on average and, once 10 or
 more samples have a value, do not outnumber half of them (so 28 samples can have up to 14 values, and 48 values
@@ -113,8 +113,8 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--sample-sheet` | | TSV/CSV with `sample` and `file` columns; other columns are metadata |
 | `-o`, `--output` | | Output folder (required) |
 | `--annotation` | the reference, if GenBank | GenBank or GFF3 annotation of the reference, for the report only (genes, regions, SNP effects); never reruns a step |
-| `--metadata` | | TSV/CSV with a `sample` column and any other columns, for the report only (samples table, colours of the tree and heatmap); never reruns a step |
-| `--color-by` | first usable column | The metadata column that colours the tree and the heatmap (at most 48 distinct values, each with a colour and a shape; not free text), or `none` |
+| `--metadata` | | TSV/CSV with a `sample` column and any other columns, for the report only (samples table, colours of every genome in the report); never reruns a step |
+| `--color-by` | first usable column | Colours every genome in the report (tree, heatmap, bar charts, tables) by this metadata column (at most 48 distinct values, each with a colour and a shape; not free text), or `none` |
 | `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
 | `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |

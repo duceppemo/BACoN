@@ -866,6 +866,19 @@ def test_bar_chart_cuts_long_names_and_keeps_them_on_hover():
     assert name.startswith(label) and 0.58 * 11 * (len(label) + 1) <= 220 - 16
 
 
+@pytest.mark.parametrize("marks", [False, True])
+def test_bar_chart_never_cuts_a_name_that_fits_the_gutter(marks):
+    from bacon.report import MAX_NAME_GUTTER
+    for length in range(1, 41):  # The room sized from the longest name must fit it (4, 8, 16 or 17 characters failed)
+        names = ["s" * length, "t" * max(1, length - 1)]
+        out = bar_chart([Bar(n, 3 - i, "h") for i, n in enumerate(names)], "t",
+                        slots={n: 0 for n in names} if marks else None)
+        if 16 + 0.58 * 11 * length <= MAX_NAME_GUTTER:
+            assert "…" not in out and f">{names[0]}</text>" in out, length
+        else:
+            assert f"…<title>{names[0]}</title>" in out, length
+
+
 def test_bar_chart_of_zeros_has_no_made_up_scale():
     rows = [{"Sample": "a", "Status": "ok", "N_bases": "0"}, {"Sample": "b", "Status": "ok", "N_bases": "0"}]
     out = bar_chart(n_bars(rows), "N bases", integers=True)
@@ -1372,7 +1385,11 @@ def test_bars_snp_ticks_and_genes_use_the_colourblind_friendly_palette():
 def test_printed_figures_fit_a_page():
     from bacon.report import CSS
     printed = CSS[CSS.index("@media print"):]
-    assert "svg.fig{max-height:155mm;width:auto" in printed
+    assert "svg.fig{max-height:155mm;width:auto}" in printed
+    # A small figure keeps its own width on paper: no rule overrides the cap of each figure
+    assert "!important" not in printed and "max-width:100%" not in printed
+    svg = bar_chart([Bar("a", 1, "h")], "t", width=560)
+    assert 'width="100%" style="max-width:min(100%,560px)"' in svg
 
 
 CATERPILLAR = "".join("(" for _ in range(999)) + "L0:1" + "".join(f",L{i}:1):1" for i in range(1, 1000)) + ";"
@@ -1969,3 +1986,83 @@ def test_bars_caption_says_groups_beyond_the_twelfth_are_grey(tmp_path):
                                 summary=summary, matrix=matrix))
     assert "(beyond the 12th group, grey with a square); a grey bar without a square: in no group." in page
     assert re.search(r'rx="1.5" fill="var\(--muted\)" class="mk"><title>g24: group 13</title>', page)
+
+
+def _big_run(tmp_path, pairs=False, metadata=None):
+    """160 samples, an added genome (in the comparison, not in summary.tsv) and the reference: too many genomes for a
+    heatmap; with `pairs`, g0 and g1, g2 and g3... are identical."""
+    names = ["Reference"] + [f"g{i}" for i in range(160)] + ["added"]
+
+    def d(a, b):
+        if a == b or (pairs and a.startswith("g") and b.startswith("g") and int(a[1:]) // 2 == int(b[1:]) // 2):
+            return 0
+        return 4
+    matrix = "\t".join(["snp-dists", *names]) + "\n" + "".join(
+        "\t".join([a] + [str(d(a, b)) for b in names]) + "\n" for a in names)
+    summary = "Sample\tStatus\tEst_depth\n" + "".join(f"g{i}\tok\t{i + 1}\n" for i in range(160))
+    out = _folder(tmp_path, {"method": "ska", "tree_method": "fasttree", "core_snps": 5,
+                             "distances": "4_compared/ska/snp_distances.tsv", "tree": "4_compared/ska/tree.nwk"},
+                  summary=summary, matrix=matrix)
+    (out / "4_compared" / "ska" / "tree.nwk").write_text("(" + ",".join(f"{n}:0.01" for n in names) + ");\n")
+    if metadata is not None:
+        (out / "metadata.tsv").write_text(metadata)
+    return out
+
+
+def test_tree_caption_and_legend_without_a_heatmap_colour_column(tmp_path):
+    copy = "sample\tsite\n" + "".join(f"g{i}\ts{i % 3}\n" for i in range(160)) + "added\tonly_added\n"
+    page = build_report(_big_run(tmp_path, metadata=copy))
+    caption = re.search(r"<b>Figure 2\.</b>.*?</p>", page).group(0)  # The tree (no N chart)
+    assert "too many for a heatmap" in page and "heatmap" not in caption
+    assert "as in the legend under the bar charts (a hollow circle: no value)" in caption
+    legend = re.search(r'<p class="mkkey">.*?</p>', page).group(0)
+    # The added genome's value, which no sample has, and the reference's lack of one are in the legend
+    assert re.findall(r"</svg>(\w+)</span> (?:value )?\((\d+)\)", legend) == \
+        [("only_added", "1"), ("s0", "54"), ("s1", "53"), ("s2", "53"), ("no", "1")]
+    assert page.count('<p class="mkkey">') == 1
+
+
+def test_tree_legend_without_a_heatmap_nor_bar_charts(tmp_path):
+    out = _big_run(tmp_path, metadata="sample\tsite\n" + "".join(f"g{i}\ts{i % 3}\n" for i in range(160)))
+    (out / "summary.tsv").write_text("")  # No samples table, no bar charts: the legend follows the tree
+    page = build_report(out)
+    assert "as in the legend below (a hollow circle: no value)" in page
+    legend = re.search(r'<p class="mkkey">.*?</p>', page).group(0)
+    assert page.index("as in the legend below") < page.index(legend) < page.index("too many for a heatmap")
+    assert re.findall(r"</svg>(\w+)</span> (?:value )?\((\d+)\)", legend) == \
+        [("s0", "54"), ("s1", "53"), ("s2", "53"), ("no", "2")]
+
+
+def test_tree_caption_without_a_heatmap_groups_only(tmp_path):
+    page = build_report(_big_run(tmp_path, pairs=True))
+    caption = re.search(r"<b>Figure 2\.</b>.*?</p>", page).group(0)  # The tree (no N chart)
+    assert "too many for a heatmap" in page and "Identical genomes" in page
+    assert "(one colour per group, as in the list of identical genomes below)" in caption
+    assert "heatmap" not in caption
+
+
+def test_tree_caption_with_a_heatmap_names_its_legend(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tgroup\na\tx\nb\ty\n")
+    page = build_report(out)
+    assert "as in the legend of the heatmap below (a hollow circle: no value)" in page
+    out = _full_run(tmp_path / "groups")
+    assert "(one colour per group, as in the heatmap below)" in build_report(out)
+
+
+def test_a_tree_that_cannot_be_drawn_loses_its_figure_only(tmp_path, caplog):
+    # Finite branch lengths whose sum is not: the depth of a and of the Reference overflows the drawing
+    out = _full_run(tmp_path, tree="((a:1e308,Reference:1e308)0.9:1e308,b:0.003);\n")
+    with caplog.at_level("WARNING", logger="bacon.report"):
+        page = build_report(out)
+    assert "The tree could not be drawn (" in page and "fallback tree" in page  # The run's tree.svg instead
+    assert "Pairwise SNP distances" in page and "Genome map" in page  # The other figures stay
+    assert any("could not draw the tree" in r.getMessage() for r in caplog.records)
+
+
+def test_header_says_the_time_does_not_count_reused_steps(tmp_path):
+    out = _folder(tmp_path, {"method": "ska", "distances": "4_compared/ska/snp_distances.tsv"}, duration_s=0.0)
+    page = build_report(out)
+    assert "last run took 0.0 s, not counting reused steps" in page
+    assert "last run 0.0 s" not in page
+    out = _folder(tmp_path / "other", {"method": "ska", "distances": "4_compared/ska/snp_distances.tsv"})
+    assert "last run took ? s" in build_report(out)

@@ -15,7 +15,10 @@ log = logging.getLogger(__name__)
 
 # Folders that MinKNOW/Dorado write next to the barcode folders and that are not samples.
 SKIPPED_FOLDERS = {"unclassified", "mixed"}
-VALID_NAME = re.compile(r"[A-Za-z0-9._+-]+")  # The whole name: fullmatch
+# The whole name (fullmatch). Not starting with a dot: "." and ".." would name the step folder or its parent (a
+# sample's assembly folder is deleted before each assembly), and the files of hidden names are skipped in folders.
+VALID_NAME = re.compile(r"[A-Za-z0-9_+-][A-Za-z0-9._+-]*")
+NAME_RULE = "use only letters, digits and . _ + -, not starting with a dot"
 
 
 @dataclass
@@ -34,7 +37,7 @@ def _sequence_files(folder: Path) -> list[Path]:
 
 def _check_name(name: str, origin: object) -> None:
     if not VALID_NAME.fullmatch(name):
-        raise BaconError(f"Invalid sample name {name!r} (from {origin}): use only letters, digits and . _ + -")
+        raise BaconError(f"Invalid sample name {name!r} (from {origin}): {NAME_RULE}")
     if name.lower() in {"reference", "all_assemblies", "assembly_graphs"}:
         raise BaconError(f"Sample name {name!r} (from {origin}) is reserved; rename the file or folder")
 

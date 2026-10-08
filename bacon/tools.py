@@ -110,11 +110,13 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
     pipeline = [list(cmds)] if isinstance(cmds[0], str) else [list(c) for c in cmds]
     log_file.parent.mkdir(parents=True, exist_ok=True)
     full_env = {**os.environ, **env} if env else None
+    command = " | ".join(shlex.join(c) for c in pipeline)
+    if cwd is not None:  # The command line as it can be run again: from its working folder
+        command = f"(cd {shlex.quote(str(cwd))} && {command})"
     with open(log_file, "a") as log_fh:
-        log_fh.write("$ " + " | ".join(shlex.join(c) for c in pipeline)
-                     + (f" > {stdout}" if stdout else "") + "\n")
+        log_fh.write("$ " + command + (f" > {shlex.quote(str(stdout))}" if stdout else "") + "\n")
         log_fh.flush()
-        log.debug("Running: %s", " | ".join(shlex.join(c) for c in pipeline))
+        log.debug("Running: %s", command)
         procs: list[subprocess.Popen] = []
         prev = None
         try:

@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 from bacon import BaconError
 
 
-@dataclass
+@dataclass(eq=False)  # Nodes are equal only to themselves: comparing subtrees would recurse down a deep tree
 class Node:
     name: str = ""
     length: float = 0.0
@@ -72,6 +72,8 @@ def parse(text: str) -> Node:
                 length = float(text[start:pos])
             except ValueError:
                 raise BaconError(f"Bad branch length in Newick tree: {text[start:pos]!r}") from None
+            if not math.isfinite(length):
+                raise BaconError(f"Branch length not a finite number in Newick tree: {text[start:pos]!r}")
         return name.strip(), length
 
     def tree() -> Node:
@@ -95,6 +97,8 @@ def parse(text: str) -> Node:
                 pos += 1
                 node = opened.pop()
                 node.name, node.length = label()
+                if not _finite_support(node.name):
+                    raise BaconError(f"Support not a finite number in Newick tree: {node.name!r}")
             else:
                 return root
 
@@ -105,6 +109,15 @@ def parse(text: str) -> Node:
     if text[pos:] != ";":
         raise BaconError(f"Unexpected text after the Newick tree: {text[pos:pos + 20]!r}")
     return root
+
+
+def _finite_support(label: str) -> bool:
+    """Whether an internal node's label is not a number that is infinite or not a number (`inf`, `nan`, `1e999`):
+    a name, or a finite support value."""
+    try:
+        return math.isfinite(float(label))
+    except ValueError:
+        return True
 
 
 def to_newick(node: Node) -> str:
@@ -139,13 +152,13 @@ def _path(a: Node, b: Node) -> list[Node]:
     while n is not None:
         ancestors.append(n)
         n = n.parent
-    seen = {id(x) for x in ancestors}
+    index = {id(x): i for i, x in enumerate(ancestors)}
     down = []
     n = b
-    while id(n) not in seen:
+    while id(n) not in index:
         down.append(n)
         n = n.parent
-    return ancestors[: ancestors.index(n) + 1] + down[::-1]
+    return ancestors[: index[id(n)] + 1] + down[::-1]
 
 
 def _reroot_on_edge(child: Node, offset: float) -> Node:

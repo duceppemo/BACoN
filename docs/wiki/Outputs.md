@@ -82,7 +82,7 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   is claimed. Above 150 genomes the heatmap is left out (the distances are in `snp_distances.tsv`).
 - **Genome map**: each reference sequence with the positions of the SNPs of `snps.vcf` (the records that passed
   their filters: Parsnp's filtered SNPs are not in the distances, and the caption counts them), coloured by
-  whether every genome has a call there; for templated assemblies (whose coordinates follow the reference), the
+  whether every genome has a call there (blue) or some genome has none (red); for templated assemblies (whose coordinates follow the reference), the
   `N` bases per kb (coarser bins above 1.5 Mb) summed over the assemblies of the run's samples, at approximate
   positions: the
   insertions and deletions of a consensus shift the positions after them, so an assembly whose length differs
@@ -98,7 +98,8 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   where the band is for each sequence (above the genes, or under the axis for a sequence without annotation),
   and the hover of a SNP on a sequence without annotation gives its region. With an annotation (`--annotation`, or a GenBank reference),
   the map also shows: the genes of the + strand above a centre line and those of the − strand below
-  (protein-coding genes in green, tRNA and rRNA genes in violet, pseudogenes faint), each with its name, type
+  (protein-coding genes in green, tRNA and rRNA genes in purple, pseudogenes as a faint green fill with a green
+  outline, other genes in grey), each with its name, type
   and coordinates on hover; labels for the genes with two or more SNPs (at most 40, those with the most SNPs, on
   two rows; a gene without a symbol is labelled by its product when that is at most 12 characters, `tRNA-Val`,
   else by its locus tag, `LK299_pgr007`); and, on each SNP's hover, its gene, context and effect. Above 1,500 genes (a bacterial genome),
@@ -159,6 +160,8 @@ multiqc OUTPUT/ --ignore "*/logs/*"
   Filtlong logs for its own module's input and shows an error box (harmless; 1.35 does not).
 - MultiQC shortens sample names ending with usual file suffixes (such as `.trimmed`) in the table and bar graph,
   but not in the heatmap.
+- The heatmap's distances are whole numbers in recent MultiQC versions (1.35); older versions such as 1.19 ignore
+  the setting and show them with two decimals (`10.00`).
 
 Tested with MultiQC 1.19 and 1.35.
 

@@ -238,6 +238,7 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
     keep: list[int] = []
     ref_col: int | None = None
     records: dict[tuple[str, int], list[str]] = {}
+    seen = reference_not_0 = 0
     with open(raw) as fh:
         for line in fh:
             line = line.rstrip("\r\n")
@@ -262,7 +263,11 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
             if len(fields) < 9 + len(names):
                 raise BaconError(f"{raw}: truncated record: {line[:80]}")
             genotypes = fields[9:]
-            if genotypes[ref_col] != "0" or fields[3].upper() not in NUCLEOTIDES:  # The reference's base unknown
+            if fields[3].upper() not in NUCLEOTIDES:  # The reference's base unknown
+                continue
+            seen += 1
+            if genotypes[ref_col] != "0":
+                reference_not_0 += 1
                 continue
             alts = fields[4].split(",")
             remap, kept_alts = {}, []
@@ -287,6 +292,9 @@ def clean_vcf(raw: Path, out: Path, *, rename: dict[str, str], reference: Path, 
             records[(chrom, pos)] = row + [_genotype_fix(genotypes[i], remap) for i in keep]
     if header is None:
         raise BaconError(f"{raw}: no #CHROM header line")
+    if seen >= 2 and reference_not_0 > seen / 2:  # A few ambiguous split k-mers are normal; most is a shift
+        raise BaconError(f"{raw}: the reference does not carry its own allele in {reference_not_0} of {seen} "
+                         "records, so the positions are shifted (as with Parsnp 2.1.1): use Parsnp 2.1.2 or later")
     if not any(m.startswith("##FORMAT=<ID=GT,") for m in meta):
         meta.append('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">')
     order = {name: i for i, name in enumerate(lengths)}
@@ -359,8 +367,9 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
         elif method == "iqtree":
             exe = which("iqtree") or "iqtree"
             prefix = out_dir / "iqtree"
-            run([exe, "-s", str(safe), "-m", "MFP", "-B", "1000", "-T", str(threads), "--prefix", str(prefix),
-                 "-redo", "--seed", "12345"], log_dir / "iqtree.log", what="(IQ-TREE)")
+            # IQ-TREE splits -s on commas (several alignments): it runs in out_dir, on relative paths.
+            run([exe, "-s", safe.name, "-m", "MFP", "-B", "1000", "-T", str(threads), "--prefix", prefix.name,
+                 "-redo", "--seed", "12345"], log_dir / "iqtree.log", cwd=out_dir, what="(IQ-TREE)")
             shutil.copyfile(prefix.with_suffix(".contree"), raw)
         else:
             raise ValueError(method)

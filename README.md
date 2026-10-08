@@ -42,8 +42,8 @@ heatmap of the SNP distances, and a methods paragraph. The same results are in `
 `*_mqc.json` files. Rerunning the same command resumes where it stopped; changing a parameter reruns only the
 steps it affects. With `--annotation chloroplast.gb` (or a GenBank file as `-r`), the report also shows the
 genes and the effect of each SNP; with `--metadata samples.tsv` (a table with a `sample` column and any others,
-such as a group or a year), it shows the metadata in the samples table and colours the tree and the heatmap by
-one column (`--color-by`). Neither reruns a step.
+such as a group or a year), it shows the metadata in the samples table and colours every genome in the report
+(tree, heatmap, bar charts, tables) by one column (`--color-by`). Neither reruns a step.
 
 To check an installation, run the example (simulated reads with known SNPs; a few seconds). It is in the
 repository, not in the conda package:

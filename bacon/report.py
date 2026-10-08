@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import math
 import re
 import sys
@@ -54,14 +55,17 @@ MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longes
 # --c12), from published colourblind-safe palettes: Okabe & Ito's Color Universal Design (2008,
 # https://jfly.uni-koeln.de/color/) and Paul Tol's schemes (https://personal.sron.nl/~pault/, technical note
 # SRON/EPS/TN/09-002 3.2, 2021): yellow and dark blue of his high-contrast scheme, blue, red, teal, orange and
-# magenta of vibrant, green, wine and purple of muted, sky blue and reddish purple of Okabe-Ito; in the dark theme
-# four give way to colours with 3:1 on the dark surface (Okabe-Ito yellow; Tol's light cyan and pink for the dark
-# blue and the wine; Tol's bright yellow for the sky blue, whose pale-blue stand-in shared a shape with the cyan).
+# magenta of vibrant, green, wine and purple of muted, sky blue and reddish purple of Okabe-Ito. In the dark theme
+# the dark blue and the wine, under 3:1 on the dark surface, give way to Tol's light cyan and pink; the sky blue, a
+# second pale blue next to that cyan with which it shares a shape, to Tol's bright yellow; and the yellow, too like
+# that bright yellow (4.6 apart in OKLab, 1.9 under deuteranopia), to Okabe-Ito's yellow.
 # Chosen among those palettes to keep every pair as distinct as possible for colourblind readers (the smallest
 # CIEDE2000 or OKLab difference of any two colours under deuteranopia, protanopia and tritanopia simulated with
-# Machado et al. 2009 at severity 1), while staying at least 12 apart for normal vision, 2:1 against the light
-# surface (the markers have a dark edge there) and 3:1 against the dark one. The first ones are the most distinct
-# (a column with few values gets them), and colours four apart, which share a shape (MARKERS), stay distinct.
+# Machado et al. 2009 at severity 1: 5.9 in both themes), while staying at least 12 apart in OKLab for normal
+# vision (in CIEDE2000, at least 14.6 in the light theme and 10.3 in the dark one, between the two yellows), 2:1
+# against the light surface (the markers have a dark edge there) and 3:1 against the dark one. The first ones are
+# the most distinct (a column with few values gets them), and colours four apart, which share a shape (MARKERS),
+# stay distinct.
 PALETTE_LIGHT = ("#DDAA33", "#0077BB", "#CC3311", "#004488", "#117733", "#882255", "#AA4499", "#56B4E9", "#009988",
                  "#EE7733", "#CC79A7", "#EE3377")
 PALETTE_DARK = ("#F0E442", "#0077BB", "#CC3311", "#99DDFF", "#117733", "#FFAABB", "#AA4499", "#CCBB44", "#009988",
@@ -75,7 +79,7 @@ SHAPES = ("circle", "triangle", "square", "diamond", "triangle-down", "plus", "c
 # order). The next 36 were found by a search among the colours (each used at most 5 times) and the seven shapes
 # so that, for each number of values from 13 to 48, the two most alike values sharing a shape are as distinct as
 # possible in both themes, for normal vision and the three deficiencies: still at least 11 apart up to 25 values,
-# as within the first 12; then at least 9.4 up to 32 values, 8.6 up to 36, 7.7 up to 40, 7.3 up to 44 and 6.9
+# as within the first 12; then at least 9.4 up to 32 values, 8.6 up to 36, 7.6 up to 40, 7.3 up to 44 and 6.9
 # up to 48 (a value's legend entry and text still name it). Every value has a pair of its own, and consecutive
 # values differ in both colour and shape.
 MARKERS = (
@@ -106,6 +110,7 @@ NUMERIC = {"Raw_reads", "Baited_reads", "Baited_pct", "Filtered_reads", "Filtere
            "Circular_contigs", "Assembly_length", "Length_vs_reference", "N_bases"}
 
 esc = html.escape
+log = logging.getLogger(__name__)
 
 
 def _read_tsv(path: Path) -> list[dict[str, str]]:
@@ -367,8 +372,10 @@ def report_metadata(output: Path, info: dict) -> tuple[Metadata | None, Colourin
 # ---------------------------------------------------------------------------------------------------------------
 
 def _svg(width: float, height: float, title: str) -> str:
+    """The opening tag of a figure: the page's width, up to its own (on a printed page too, where the print
+    stylesheet lets its height shrink it: a small figure keeps its size)."""
     return (f'<svg class="fig" viewBox="0 0 {width:.0f} {height:.0f}" width="100%" '
-            f'style="max-width:{width:.0f}px" role="img"><title>{esc(title)}</title>')
+            f'style="max-width:min(100%,{width:.0f}px)" role="img"><title>{esc(title)}</title>')
 
 
 def _text_px(text: str, size: float = 11) -> float:
@@ -412,9 +419,10 @@ def _n(x: float) -> str:
 
 def _shortened(name: str, room: float, size: float) -> str:
     """A name escaped for an SVG text, cut with an ellipsis when it does not fit in `room` px (the full name is
-    then on hover)."""
-    fit = int(room / (0.58 * size))
-    if _text_px(name, size) <= room or fit < 2:
+    then on hover). Widths are compared with a small tolerance: a room computed from a name's own width (in
+    another order of operations) must fit that name."""
+    fit = int(room / (0.58 * size) + 1e-6)
+    if _text_px(name, size) <= room + 1e-6 or fit < 2:
         return esc(name)
     return f"{esc(name[:fit - 1])}…<title>{esc(name)}</title>"
 
@@ -444,7 +452,10 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
     slots = slots or {}
     marked_names = bool(slots) or colours is not None
     mark_px = 13 if marked_names else 0  # A 9 px marker and its gap, between the name and the axis
-    left = min(MAX_NAME_GUTTER, 16 + _text_px(max((b.name for b in bars), key=len, default=""), size)) + mark_px
+    # The room of the names: the longest one's width, up to the gutter's limit (computed once: the names are cut
+    # against the very value that sized the gutter)
+    room = min(MAX_NAME_GUTTER - 16, _text_px(max((b.name for b in bars), key=len, default=""), size))
+    left = 16 + room + mark_px
     plot = width - left - 80
     top = 26
     values = [b.value for b in bars if b.value is not None]
@@ -471,7 +482,7 @@ def bar_chart(bars: list[Bar], title: str, *, unit: str = "", threshold: float |
         y = top + i * row
         mark = sample_mark(b.name, slots, colours)
         parts.append(f'<text x="{_n(left - 6 - mark_px)}" y="{y + row - 4}" text-anchor="end" '
-                     f'class="t-small t-ink2">{_shortened(b.name, left - 16 - mark_px, size)}</text>')
+                     f'class="t-small t-ink2">{_shortened(b.name, room, size)}</text>')
         parts.append(mark.svg(left - 10.5, y + row / 2, 9))
         if b.failed:
             parts.append(f'<text x="{left}" y="{y + row - 4}" class="t-tiny t-muted"><tspan fill="var(--crit)">'
@@ -1422,7 +1433,7 @@ dd{{margin:0;word-break:break-all}}
   table.samples td.note,table.samples td.long,table.snps td.ctx{{min-width:0}}
   thead{{display:table-header-group}} tr{{break-inside:avoid}}
   h2{{break-after:avoid}} .figcap{{break-before:avoid}}
-  svg.fig{{max-height:155mm;width:auto;max-width:100%!important}}
+  svg.fig{{max-height:155mm;width:auto}}
 }}
 """
 
@@ -1577,8 +1588,7 @@ def build_report(output: Path) -> str:
            f"<title>BACoN report</title><style>{CSS}</style></head><body><main>",
            "<h1><b>BACoN</b> report</h1>",
            f'<p class="meta">{esc(Path(str(output)).name)} · {esc(str(info.get("started", "")))} · '
-           f'BACoN {esc(str(info.get("bacon_version", "")))}{_built_with(info)} · last run '
-           f'{info.get("duration_s", "?")} s</p>']
+           f'BACoN {esc(str(info.get("bacon_version", "")))}{_built_with(info)} · {_last_run(info)}</p>']
 
     # Overview
     tiles = [tile(f"{ok}/{len(rows)}", "samples assembled", f"{failed} failed" if failed else ""),
@@ -1619,11 +1629,12 @@ def build_report(output: Path) -> str:
                f'{LENGTH_RANGE[0]}–{LENGTH_RANGE[1]}x the reference</span>'
                '<span class="info">N bases</span>Click a column to sort.</p>')
     out.append(_samples_table(rows, metadata, colours, slots))
+    heatmap_drawn = bool(order) and len(order) <= MAX_HEATMAP_GENOMES
+    legend_under_bars = False  # Whether the colour column's legend is a line under the bar charts
     if rows:
         samples = [r.get("Sample", "") for r in rows]
         # The legend of the bars' markers is the heatmap's, or, when the heatmap does not show every value of the
         # bars (no heatmap; a value of failed samples only), a line under the charts
-        heatmap_drawn = bool(order) and len(order) <= MAX_HEATMAP_GENOMES
         own_legend = colours is not None and (not heatmap_drawn or bool(
             {colours.value(n) for n in samples} - {colours.value(n) for n in order}))
         if colours is not None:
@@ -1656,25 +1667,42 @@ def build_report(output: Path) -> str:
             n_part = '<p class="meta">No chart of N bases: they are counted for templated assemblies only.</p>'
         out.append(f'<div class="two"><div>{depth_part}</div><div>{n_part}</div></div>')
         if own_legend:
-            out.append(markers_legend(samples, colours))
+            # Without a heatmap, the line is the legend of the tree too: its genomes that are not samples (the
+            # reference, the added genomes) count as well, so that a value only they hold is explained
+            in_bars = set(samples)
+            keyed = samples if heatmap_drawn else samples + [n for n in order if n not in in_bars]
+            out.append(markers_legend(keyed, colours))
+            legend_under_bars = True
 
     # Comparison
     if order:
         data = "Parsnp core-genome alignment" if method == "parsnp" else f"{method_name} SNPs"
         svg = located("tree_svg")
         out.append("<h2>Tree</h2>")
+        sites = core_snps if method != "parsnp" and isinstance(core_snps, int) else None
+        drawn_tree = ""
         if tree is not None:
-            sites = core_snps if method != "parsnp" and isinstance(core_snps, int) else None
-            out.append(tree_svg(tree, slots, ref_name, sites, colours))
+            try:
+                drawn_tree = tree_svg(tree, slots, ref_name, sites, colours)
+            except Exception as exc:  # noqa: BLE001 - a tree that cannot be drawn loses its figure, not the report
+                log.warning("The report could not draw the tree: %s: %s", type(exc).__name__, exc)
+                notes.append(f"The tree could not be drawn ({type(exc).__name__}: {exc})")
+        if drawn_tree:
+            out.append(drawn_tree)
             squares = (" Squares mark the genomes with no SNP between them (one colour per group, as in the "
-                       "heatmap below)." if groups and not colours else "")
+                       f"{'heatmap' if heatmap_drawn else 'list of identical genomes'} below)."
+                       if groups and not colours else "")
+            legend = ("the legend of the heatmap below" if heatmap_drawn else
+                      "the legend under the bar charts" if legend_under_bars else "the legend below")
             circles = (f" Markers and the muted text after the names give each genome's <b>{esc(column)}</b>: "
-                       "each value has a colour and a shape of its own, as in the legend of the heatmap below (a "
-                       "hollow circle: no value)." if colours else "")
+                       f"each value has a colour and a shape of its own, as in {legend} (a hollow circle: no "
+                       "value)." if colours else "")
             bar_text = (" The scale bar is in substitutions per SNP site, with the equivalent number of SNPs."
                         if sites else " The scale bar is in substitutions per site.")
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted and ladderized. Numbers "
                                        f"on the internal branches are supports.{squares}{circles}{bar_text}"))
+            if colours and not heatmap_drawn and not legend_under_bars:  # No other legend (no summary.tsv)
+                out.append(markers_legend(order, colours))
         elif svg is not None and svg.exists():
             out.append(f'<div class="tree">{svg.read_text()}</div>')
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted; internal labels are "
@@ -1760,6 +1788,15 @@ def build_report(output: Path) -> str:
     out.append("</dl></main>")
     out.append(f"<script>{SORT_JS}</script></body></html>")
     return "\n".join(out) + "\n"
+
+
+def _last_run(info: dict) -> str:
+    """How long the last run took. run_info.json times the last run only, and a run that resumes the folder
+    reuses the steps already done (it does not record which): the time does not count them (a few seconds when
+    every step was reused)."""
+    duration = info.get("duration_s")
+    shown = esc(str(duration)) if duration is not None else "?"
+    return f"last run took {shown} s, not counting reused steps"
 
 
 def _built_with(info: dict) -> str:

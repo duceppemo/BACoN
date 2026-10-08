@@ -133,3 +133,16 @@ def test_sample_sheet_in_windows_1252_is_read_with_a_warning(tmp_path, caplog):
     sheet.write_bytes("sample,file\ns1,\u00e9t\u00e9.fastq\n".encode("cp1252"))
     assert [f.name for f in read_sample_sheet(sheet)[0].files] == ["\u00e9t\u00e9.fastq"]
     assert f"Sample sheet {sheet} is not UTF-8" in caplog.text
+
+
+@pytest.mark.parametrize("name", [".", "..", ".x"])
+def test_sample_names_cannot_start_with_a_dot(tmp_path, fastq, name):
+    """'..' would name the output folder, '.' the assembly step folder: both are deleted before an assembly."""
+    fastq("a.fastq.gz", [("a", "ACGT")])
+    sheet = tmp_path / "s.tsv"
+    sheet.write_text(f"sample\tfile\n{name}\ta.fastq.gz\n")
+    with pytest.raises(BaconError, match=f"Invalid sample name '{name}' .*not starting with a dot"):
+        read_sample_sheet(sheet)
+    if name == ".x":  # A file in a folder with such a name is hidden (skipped); a single file is checked
+        with pytest.raises(BaconError, match="Invalid sample name '.x'"):
+            discover(fastq(".x.fastq.gz", [("a", "ACGT")]))

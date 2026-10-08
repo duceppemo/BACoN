@@ -38,7 +38,7 @@ minimum versions:
 | Flye | de novo assembly (`-a flye`) | 2.9.5 |
 | myloasm | de novo assembly (`-a myloasm`) | 0.7 |
 | SKA2 | SNPs (`--snp-method ska`, default) | 0.5 |
-| Parsnp, HarvestTools | SNPs (`--snp-method parsnp`) | 2.0 |
+| Parsnp, HarvestTools | SNPs (`--snp-method parsnp`) | 2.1.2 (with 2.1.1, every SNP is one base off) |
 | FastTree | tree (default) | 2.1.11 |
 | IQ-TREE | tree (`--tree iqtree`) | 2.2 |
 | BBMap (BBDuk) | baiting (`-b bbduk`) | 39 |

@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -114,4 +115,32 @@ def test_changelog_has_this_version_and_the_citation_the_concept_doi():
 def test_color_by_help_gives_the_limit_of_values(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--help"])
-    assert "at most 48 distinct values (each gets a colour and a shape)" in " ".join(capsys.readouterr().out.split())
+    text = " ".join(capsys.readouterr().out.split())
+    assert "at most 48 distinct values (each gets a colour and a shape)" in text
+    # Not only the tree and the heatmap: every figure and table that shows the genomes
+    assert text.count("colours every genome in the report (tree, heatmap, bar charts, tables)") == 2
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads anything")
+def test_a_path_that_cannot_be_read_is_an_error_not_a_traceback(tmp_path, caplog, monkeypatch):
+    import bacon.pipeline
+    monkeypatch.setattr(bacon.pipeline, "require", lambda names: {})  # The programs are not needed here
+    (tmp_path / "ref.fasta").write_text(">r\nACGT\n")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    ref = str(tmp_path / "ref.fasta")
+    try:
+        for argv, path in ((["-i", str(locked / "reads"), "-o", str(tmp_path / "out")], locked / "reads"),
+                           (["-i", ref, "-o", str(locked / "out")], locked / "out")):
+            caplog.clear()
+            assert main(["-r", ref, *argv, "--snp-method", "none"]) == 1
+            assert [r.getMessage() for r in caplog.records] == [f"{path}: Permission denied"]
+        # In a started run, the error is in bacon.log too
+        caplog.clear()
+        out = tmp_path / "out"
+        assert main(["-r", str(locked / "ref.fasta"), "-i", ref, "-o", str(out), "--snp-method", "none"]) == 1
+        assert f"{locked / 'ref.fasta'}: Permission denied" in caplog.text
+        assert f"[ERROR] {locked / 'ref.fasta'}: Permission denied" in (out / "bacon.log").read_text()
+    finally:
+        locked.chmod(0o700)

@@ -109,3 +109,31 @@ def test_templated_assembly_notes_reference_sequences_without_reads(tmp_path, mo
     res = steps.assemble_samtools("s1", tmp_path / "reads.fq", reference, steps.AssemblyDirs(tmp_path / "asm"),
                                   tmp_path / "logs", fill_gaps=False, threads=1, reference_length=18)
     assert "no reads on reference sequence(s) plasmid: not in the assembly" in res.notes
+
+
+def test_only_a_sample_folder_in_the_step_folder_is_deleted(tmp_path):
+    import pytest
+
+    from bacon.steps import AssemblyDirs, SampleFailed
+    root = tmp_path / "out" / "3_assembled"
+    (root / "s1").mkdir(parents=True)
+    (root / "s1" / "old.fasta").write_text(">x\nA\n")
+    (tmp_path / "out" / "reads.fastq").write_text("@r\nA\n+\nI\n")
+    dirs = AssemblyDirs(root)
+    assert dirs.clear_work("s1") == root / "s1" and not (root / "s1").exists()
+    for name in ("..", ".", "s1/.."):
+        with pytest.raises(SampleFailed, match="refusing to delete"):
+            dirs.clear_work(name)
+    assert (tmp_path / "out" / "reads.fastq").is_file() and root.is_dir()
+
+
+def test_logged_command_line_can_be_run_again(tmp_path):
+    """The working folder of a program is in its logged command line."""
+    from bacon.tools import run
+    work = tmp_path / "my work"
+    work.mkdir()
+    run(["sh", "-c", "pwd"], tmp_path / "log", cwd=work)
+    run(["echo", "a b"], tmp_path / "log", stdout=tmp_path / "out put.txt")
+    lines = (tmp_path / "log").read_text().splitlines()
+    assert lines[:2] == [f"$ (cd '{work}' && sh -c pwd)", str(work)]
+    assert lines[2] == f"$ echo 'a b' > '{tmp_path / 'out put.txt'}'"

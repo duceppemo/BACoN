@@ -305,3 +305,13 @@ def test_real_tools_with_spaces_and_accents_in_the_paths(tmp_path, method):
     _, count = write_vcf(method, folder / "ref erence.fasta", out, folder / "lo gs", threads=1,
                          assemblies=assemblies, source="test")
     assert count == 3
+
+
+def test_clean_vcf_rejects_positions_shifted_by_old_parsnp(tmp_path):
+    """Parsnp 2.1.1 writes every SNP one base off: the reference then never carries its own allele."""
+    shifted = "".join(f"chr\t{p}\t.\tA\tC,G\t40\tPASS\tNA\tGT\t1\t{g}\t1\n" for p, g in ((11, 2), (21, 0), (31, 1)))
+    from bacon import BaconError
+    with pytest.raises(BaconError, match="Parsnp 2.1.2 or later"):
+        _clean(tmp_path, _vcf(tmp_path, shifted))
+    one_ambiguous = "chr\t11\t.\tA\tC\t40\tPASS\tNA\tGT\t1\t0\t1\nchr\t21\t.\tA\tC\t40\tPASS\tNA\tGT\t0\t0\t1\n"
+    assert _clean(tmp_path, _vcf(tmp_path, one_ambiguous))[0] == 1
