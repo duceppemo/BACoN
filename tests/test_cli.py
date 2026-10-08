@@ -109,3 +109,9 @@ def test_changelog_has_this_version_and_the_citation_the_concept_doi():
     # "Cite this repository" at a tag gives the top-level DOI: the concept DOI, which resolves to the latest version
     citation = (root / "CITATION.cff").read_text()
     assert "\ndoi: 10.5281/zenodo.22970412\n" in citation and "Concept DOI" in citation
+
+
+def test_color_by_help_gives_the_limit_of_values(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--help"])
+    assert "at most 48 distinct values (each gets a colour and a shape)" in " ".join(capsys.readouterr().out.split())

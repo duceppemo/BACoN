@@ -160,12 +160,15 @@ def test_restrict_to_the_samples_of_the_run():
 def test_unusable_reason():
     assert unusable_reason(["A", "B", "", "A"]) is None
     assert unusable_reason(["", "", ""]) == "no value"
-    assert "9 distinct" in unusable_reason([str(i) for i in range(9)])
+    assert unusable_reason([str(i) for i in range(9)]) is None  # 9 distinct values: more than the 8 of 0.3.6
     assert unusable_reason(["A"] * 9 + ["B"]) is None
-    assert unusable_reason([str(i) for i in range(8)]) is None  # 8 distinct values: the palette's size
+    assert unusable_reason([f"v{i}" for i in range(48)] * 2) is None  # 48 values (12 colours x 4 shapes), 96 samples
+    reason = unusable_reason([f"v{i}" for i in range(49)] * 2)
+    assert reason == "49 distinct values (at most 48 can be coloured: 12 colours × 4 shapes)"
+    assert "49 distinct" in unusable_reason([f"v{i}" for i in range(49)] * 9)  # The limit, before free text
     assert "free text" in unusable_reason([f"v{i % 6}" for i in range(10)])  # 6 distinct among 10
     assert unusable_reason([f"v{i % 5}" for i in range(10)]) is None  # 5 of 10 is still a category
-    assert unusable_reason([f"v{i}" for i in range(6)]) is None  # Below 10 samples, up to 8 distinct is fine
+    assert unusable_reason([f"v{i}" for i in range(6)]) is None  # Below 10 samples, any number of distinct values is fine
     assert "longer than 30" in unusable_reason(["a sentence that goes on and on and on", "and another one that is as long"])
     assert unusable_reason(["a sentence that goes on and on and on", "short"]) is None  # 21 characters on average
 
@@ -272,3 +275,10 @@ def test_quoted_values_survive_the_copy(tmp_path):
     path = tmp_path / "metadata.tsv"
     write_copy(path, m)
     assert read_metadata(path).rows == m.rows
+
+
+def test_a_column_of_twenty_values_colours_the_figures():
+    m = Metadata(["site"], {f"s{i}": {"site": f"site {i % 20}"} for i in range(40)})
+    assert choose_colour_column(m, None) == ("site", None)  # 20 values among 40 samples: 0.3.6 allowed 8
+    m = Metadata(["site"], {f"s{i}": {"site": f"site {i % 21}"} for i in range(40)})
+    assert "free text" in choose_colour_column(m, "site")[1]  # The free-text rule is unchanged

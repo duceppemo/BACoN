@@ -25,6 +25,18 @@
   band with a `note` saying why.
 
 ### Changed
+- The metadata column that colours the report may have up to 48 distinct values (was 8): each value gets a
+  marker of its own, a colour and a shape, in the tree (instead of the circle), in the heatmap's band and legend
+  (with its count), in the table of identical genomes by value and in the samples table, so that two values
+  whose colours look alike to a colourblind reader still differ by their shape. The 12 colours come from
+  published colourblind-safe palettes (Okabe & Ito; Paul Tol's high-contrast, vibrant, muted and light schemes),
+  chosen and ordered so that every pair stays as distinct as possible under simulated deuteranopia, protanopia
+  and tritanopia (Machado et al. 2009), the first ones, which a column with few values gets, the most; the four
+  shapes (circle, triangle, square, diamond) are taken in turn with the colours and move on by one after each
+  round of 12, so that consecutive values differ in both. A genome without a value keeps its hollow circle. The
+  groups of identical genomes take their colours from the same palette, 12 instead of 8 before the grey, and
+  keep their squares; with a colour column they stay grey. The free-text rule is unchanged (from 10 samples with
+  a value, a column with more distinct values than half of them is free text).
 - A gene without a symbol (no `/gene`, as in older RefSeq records: only `/locus_tag` and `/product`) is shown as
   `locus_tag (product)`, `LK299_pgr007 (23S ribosomal RNA)`, in the SNP table, the hovers, the intergenic
   contexts and the summary of the genes with the most SNPs (`LK299_pgr007 (23S ribosomal RNA; 4)`); on the map

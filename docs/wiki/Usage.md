@@ -73,12 +73,18 @@ delta       NA         2023  Ten SNPs of its own; group unknown
 
 `--color-by COLUMN` chooses the column that colours the figures; `--color-by none` leaves them uncoloured (and
 needs no metadata). By
-default it is the first column that can be coloured: a column with at most 8 distinct values (the report's
-palette) that does not look like free text, that is, whose distinct values are at most 30 characters long on
-average and, once 10 or more samples have a value, do not outnumber half of them. Numbers with few distinct
-values (years, batches) are categories like any other. A requested column that does not exist stops BACoN before
-any step; one that cannot be coloured gives a warning and uncoloured figures. The values are coloured in sorted
-order (numerically when they are all numbers).
+default it is the first column that can be coloured: a column with at most 48 distinct values that does not
+look like free text, that is, whose distinct values are at most 30 characters long on average and, once 10 or
+more samples have a value, do not outnumber half of them (so 28 samples can have up to 14 values, and 48 values
+need 96 samples). Numbers with few distinct values (years, batches) are categories like any other. A requested
+column that does not exist stops BACoN before any step; one that cannot be coloured gives a warning and
+uncoloured figures. The values are marked in sorted order (numerically when they are all numbers), each with a
+colour and a shape of its own, so that values whose colours look alike to a colourblind reader still differ: 12
+colours from the colourblind-safe palettes of Okabe & Ito and of Paul Tol, chosen and ordered to stay as distinct
+as possible under deuteranopia, protanopia and tritanopia (the first ones, which a column with few values gets,
+the most distinct), and four shapes (circle, triangle, square, diamond), taken in turn with the colours and moved
+on by one after each round of 12, so that consecutive values differ in both and each of the 12 × 4 values has a
+pair of its own. A genome without a value gets a hollow circle.
 
 **Reads**, as fastq or fasta, gzipped or not (`.fastq`, `.fq`, `.fasta`, `.fa`, `.fna`, `.fas`, with or
 without `.gz`). Three ways to give them:
@@ -102,7 +108,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `-o`, `--output` | | Output folder (required) |
 | `--annotation` | the reference, if GenBank | GenBank or GFF3 annotation of the reference, for the report only (genes, regions, SNP effects); never reruns a step |
 | `--metadata` | | TSV/CSV with a `sample` column and any other columns, for the report only (samples table, colours of the tree and heatmap); never reruns a step |
-| `--color-by` | first usable column | The metadata column that colours the tree and the heatmap (at most 8 distinct values, not free text), or `none` |
+| `--color-by` | first usable column | The metadata column that colours the tree and the heatmap (at most 48 distinct values, each with a colour and a shape; not free text), or `none` |
 | `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
 | `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |

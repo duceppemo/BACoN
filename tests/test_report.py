@@ -1,6 +1,8 @@
 import json
 import re
 
+import pytest
+
 from bacon.multiqc import distance_heatmap, reads_bargraph, sample_table
 from bacon.newick import ladderize, parse
 from bacon.report import (
@@ -66,13 +68,13 @@ def test_heatmap_groups_bins_and_legend():
     m["a"]["b"] = m["b"]["a"] = 0
     groups = identical_groups(names, m)
     out = heatmap(names, m, groups)
-    assert "group 1 (2)" in out and 'fill="var(--s1)"' in out  # The block on the right and the bands
+    assert "group 1 (2)" in out and 'fill="var(--c1)"' in out  # The block on the right and the bands
     assert out.count("<title>a: group 1</title>") == 2 and "c: group" not in out  # Bands on both axes; c alone
     assert "SNPs:" in out and ">0</text>" in out and ">12</text>" in out  # Legend labels
     assert 'class="q0"' in out and 'class="q4"' in out  # Zero and the largest class
     assert "<title>a – c: 12 SNPs</title>" in out
     without = heatmap(names, m)
-    assert "group" not in without and "var(--s" not in without
+    assert "group" not in without and "var(--c" not in without
 
 
 def test_heatmap_values_on_hover_only_for_many_genomes():
@@ -87,7 +89,7 @@ def test_heatmap_values_on_hover_only_for_many_genomes():
 def test_tree_svg_marks_groups_supports_and_scale():
     root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
     out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100)
-    assert out.count('fill="var(--s1)"') == 2 and "<title>group 1</title>" in out
+    assert out.count('fill="var(--c1)"') == 2 and "<title>group 1</title>" in out
     assert 'font-weight="600">Reference <tspan' in out and "ref.fa" in out
     assert ">0.95</text>" in out and ">0.80</text>" in out
     assert "substitutions per site (about 1 SNP)" in out  # 0.01 per site x 100 sites
@@ -621,7 +623,7 @@ def _colouring(values: dict[str, str], column="group"):
 def test_colouring_orders_values_and_colours_them():
     c = _colouring({"a": "10", "b": "9", "c": "", "d": "9"})
     assert c.values == ["9", "10"] and c.slot("b") == 0 and c.slot("a") == 1 and c.slot("c") is None
-    assert c.colour("b") == "var(--s1)" and c.colour("c") == "var(--muted)" and c.colour("zz") == "var(--muted)"
+    assert c.colour("b") == "var(--c1)" and c.colour("c") == "var(--muted)" and c.colour("zz") == "var(--muted)"
     assert c.title("a") == "a: group 10" and c.title("c") == "c: no group"
 
 
@@ -633,22 +635,28 @@ def test_heatmap_second_band_and_legend():
     colours = _colouring({"a": "x<1", "b": "y", "c": "x<1", "<d>": ""}, column="Site<s>")
     out = heatmap(names, m, groups, colours)
     assert out.count("<title>a: Site&lt;s&gt; x&lt;1</title>") == 2 and out.count("<title>a: group 1</title>") == 2
-    assert out.count("<title>&lt;d&gt;: no Site&lt;s&gt;</title>") == 2 and 'fill="var(--muted)"' in out
+    assert out.count('class="mk0"><title>&lt;d&gt;: no Site&lt;s&gt;</title>') == 2  # Hollow circles: no value
+    assert out.count('fill="var(--c1)" class="mk"><title>a: Site&lt;s&gt; x&lt;1</title></circle>') == 2
     assert "Site&lt;s&gt;:</text>" in out and "x&lt;1 (2)</text>" in out and "y (1)</text>" in out
     assert "no value (1)</text>" in out and "<d>" not in out and "x<1" not in out
     plain = heatmap(names, m, groups)
     assert "Site" not in plain and "no value" not in plain and len(plain) < len(out)
-    # The value band is outside the group band: at the far left, the group band 14 px from the cells
-    left_band = min(int(x) for x in __import__("re").findall(r'<rect x="(\d+)" y="\d+" width="10"', out))
-    assert f'<rect x="{left_band}"' in out and f'<rect x="{left_band + 14}"' in out
+    # The value band is outside the group band: its markers centred 5 px into the band, 14 px left of the group's
+    group_band = min(int(x) for x in re.findall(r'<rect x="(\d+)" y="\d+" width="10"', out))
+    value_band = {round(float(x)) for x in re.findall(r'<circle cx="([\d.]+)" cy="[\d.]+" r="[\d.]+" fill', out)}
+    assert group_band - 14 + 5 in value_band
+    assert '<path d="M' in out and 'fill="var(--c2)" class="mk"><title>b: Site&lt;s&gt; y</title></path>' in out
 
 
 def test_tree_svg_with_values():
     root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,'<c>':0.005)0.80:0.03);")
     colours = _colouring({"a": "x", "b": "y", "<c>": "<v>"})
     out = tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100, colours)
-    assert out.count("<circle") == 4 and 'r="4" fill="var(--s2)"><title>a: group x</title>' in out  # <v>, x, y
-    assert 'fill="none" stroke="var(--muted)"><title>Reference: no group</title>' in out  # Hollow: no value
+    # <v> a circle, x a triangle, y a square (value_marker); the Reference a hollow circle: no value
+    assert out.count("<circle") == 2 and 'r="4.5" fill="var(--c1)" class="mk"><title>&lt;c&gt;: group &lt;v&gt;' in out
+    assert 'fill="var(--c2)" class="mk"><title>a: group x</title></path>' in out
+    assert 'fill="var(--c3)" class="mk"><title>b: group y</title></rect>' in out
+    assert 'class="mk0"><title>Reference: no group</title></circle>' in out
     assert '>a <tspan class="t-muted" font-weight="400">x</tspan></text>' in out
     assert '>&lt;c&gt; <tspan class="t-muted" font-weight="400">&lt;v&gt;</tspan>' in out and "<v>" not in out
     assert "Reference <tspan" in out and "ref.fa" in out
@@ -663,7 +671,7 @@ def test_cross_table_counts():
     colours = _colouring({"a": "x", "b": "y", "c": "x", "d": "x", "<e>": "<y>"}, column="g")
     out = cross_table(groups, names, colours)
     rows = out.split("<tr>")[1:]
-    assert "&lt;y&gt;</th>" in rows[0] and "no value</th>" in rows[0] and "Total</th>" in rows[0]
+    assert "&lt;y&gt;</span></th>" in rows[0] and "no</span> value</th>" in rows[0] and "Total</th>" in rows[0]
     assert rows[1].count("<td") == 6 and ">1</td>" in rows[1] and ">3</td>" in rows[1]  # group 1: x 1, y 1, none 1
     assert ">2</td>" in rows[2] and rows[2].count('class="num zero">–</td>') == 3  # group 2: x 2
     assert "not in a group" in rows[3] and ">1</td>" in rows[3] and "<e>" not in out
@@ -689,11 +697,14 @@ def test_report_with_metadata_table_figures_and_escaping(tmp_path):
     assert head.index(">Sample<") < head.index('<th class="md">group</th>') < head.index('class="num md">n &lt;x&gt;<') \
         < head.index(">Status<")
     assert '<td class="num md" data-v="10">10</td>' in page and '<td class="num md" data-v="9.5">9.5</td>' in page
-    assert '<td class="md" data-v="G&lt;1&gt;"><span class="swatch" style="background:var(--s1)"></span>G&lt;1&gt;' \
-        in page
+    assert '<td class="md" data-v="G&lt;1&gt;"><span class="mkt"><svg class="mki"' in page
+    assert 'fill="var(--c1)" class="mk"/></svg>G&lt;1&gt;</span></td>' in page
     assert '<td class="md" data-v=""></td>' in page and "G<1>" not in page and "n <x>" not in page
     assert "Metadata from <b>meta &lt;m&gt;.tsv</b>: 3 columns (group, n &lt;x&gt;, note); 2 of 2 samples" in page
     assert "coloured by <b>group</b>" in page and "give each genome's <b>group</b>" in page
+    assert "coloured by <b>group</b> (a colour and a shape for each value)" in page  # Overview
+    assert "each value has a colour and a shape of its own" in page and "Circles" not in page  # Tree caption
+    assert "as a marker, a colour and a shape for each value (legend; a hollow circle: no value)" in page  # Heatmap
     assert "<title>a: group G&lt;1&gt;</title>" in page and "G&lt;1&gt; (1)</text>" in page  # Band and legend
     assert "no value (2)</text>" in page  # b and the Reference
     assert "Genomes of each group by <b>group</b>" in page and '<table class="cross">' in page
@@ -752,8 +763,8 @@ def test_with_a_colour_column_colour_means_the_metadata_only():
     matrix = {x: {y: (0 if {x, y} <= {"a", "b"} or x == y else 3) for y in names} for x in names}
     page = heatmap(names, matrix, [["a", "b"]], colours)
     assert 'fill="var(--ink2)"><title>a: group 1</title>' in page  # Grey group band
-    assert 'fill="var(--s1)"><title>a: group A</title>' in page  # Coloured metadata band
-    assert 'fill="var(--s1)"><title>a: group 1</title>' in heatmap(names, matrix, [["a", "b"]])  # Without metadata
+    assert 'fill="var(--c1)" class="mk"><title>a: group A</title>' in page  # Coloured metadata marker
+    assert 'fill="var(--c1)"><title>a: group 1</title>' in heatmap(names, matrix, [["a", "b"]])  # Without metadata
 
 
 def test_grey_group_bands_alternate_along_the_axes():
@@ -784,8 +795,9 @@ def test_cross_table_columns_only_for_values_of_the_genomes_shown():
     colours = _colouring({"a": "A", "b": "B", "z": "Z"})  # z failed: it is in no figure
     out = cross_table([["a", "b"]], ["Reference", "a", "b"], colours)
     head = out.split("</thead>")[0]
-    assert "Z</th>" not in head and "A</th>" in head and "B</th>" in head and "no value</th>" in head
-    assert 'style="background:var(--s2)"></span>B</th>' in head  # B keeps its slot colour of the legend
+    assert "Z</span>" not in head and "A</span>" in head and "B</span>" in head and "no</span> value" in head
+    assert 'fill="var(--c2)" class="mk"/></svg>B</span></th>' in head  # B keeps its marker of the legend
+    assert '<path d="M6.5,0.81L12.44,11.15L0.56,11.15Z"' in head  # B, the second value: a triangle
     assert out.split("<tr>")[2].count("<td") == 5  # group 1: A, B, no value, Total
 
 
@@ -1397,3 +1409,106 @@ def test_region_column_for_a_band_on_a_sequence_without_annotation_only(tmp_path
     page = build_report(out)
     assert "<th class=\"\">Region</th>" in page and '<td class="" data-v="IRb">IRb</td>' in page
     assert "By region: 1 in IRb." in page
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The categorical palette and the markers (a colour and a shape per value)
+# ---------------------------------------------------------------------------------------------------------------
+
+_MACHADO = {  # Machado, Oliveira & Fernandes 2009, severity 1, on linear RGB
+    "deutan": ((0.367322, 0.860646, -0.227968), (0.280085, 0.672501, 0.047413), (-0.011820, 0.042940, 0.968881)),
+    "protan": ((0.152286, 1.052583, -0.204868), (0.114503, 0.786281, 0.099216), (-0.003882, -0.048116, 1.051998)),
+    "tritan": ((1.255528, -0.076749, -0.178779), (-0.078411, 0.930809, 0.147602), (0.004733, 0.691367, 0.303900)),
+}
+
+
+def _oklab(hex_colour: str, vision: str = "normal") -> tuple[float, float, float]:
+    """OKLab (x 100) of a colour as seen with normal vision or a simulated colour vision deficiency."""
+    rgb = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    if vision != "normal":
+        lin = [min(1.0, max(0.0, sum(m * c for m, c in zip(row, lin)))) for row in _MACHADO[vision]]
+    r, g, b = lin
+    lms = [(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3),
+           (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3),
+           (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)]
+    rows = ((0.2104542553, 0.7936177850, -0.0040720468), (1.9779984951, -2.4285922050, 0.4505937099),
+            (0.0259040371, 0.7827717662, -0.8086757660))
+    return tuple(100 * sum(m * x for m, x in zip(row, lms)) for row in rows)
+
+
+def _closest(colours, vision: str) -> float:
+    import itertools
+    import math
+    return min(math.dist(_oklab(a, vision), _oklab(b, vision)) for a, b in itertools.combinations(colours, 2))
+
+
+def test_palette_twelve_colours_kept_apart_for_colourblind_readers():
+    from bacon.metadata import MARKER_SHAPES, MAX_COLOUR_VALUES, PALETTE_COLOURS
+    from bacon.report import GROUP_COLOURS, PALETTE_DARK, PALETTE_LIGHT, SHAPES, TOKENS_DARK, TOKENS_LIGHT
+    assert len(PALETTE_LIGHT) == len(PALETTE_DARK) == PALETTE_COLOURS == GROUP_COLOURS == 12
+    assert len(set(SHAPES)) == len(SHAPES) == MARKER_SHAPES and MAX_COLOUR_VALUES == 48
+    for palette, tokens, surface, floor in ((PALETTE_LIGHT, TOKENS_LIGHT, "#fcfcfb", 2), (PALETTE_DARK, TOKENS_DARK,
+                                                                                         "#1a1a19", 3)):
+        assert f"--surface:{surface}" in tokens and "--edge:" in tokens
+        assert all(f"--c{i}:{c}" in tokens for i, c in enumerate(palette, 1))
+        assert all(_wcag(c, surface) >= floor for c in palette)  # Light: 2:1, with the markers' dark edge
+        assert _closest(palette, "normal") >= 12
+        for vision in ("deutan", "protan", "tritan"):
+            assert _closest(palette, vision) >= 5.9  # Every pair, under every simulated deficiency
+            assert _closest(palette[:4], vision) >= 15  # The first four, which few values use, are the most distinct
+            for shape in range(4):  # Values sharing a shape in a round of colours are four colours apart
+                assert _closest(palette[shape::4], vision) >= 11
+    from bacon.report import CSS
+    assert sum(_wcag(c, "#fcfcfb") < 3 for c in PALETTE_LIGHT) == 4 and ".mk{stroke:var(--edge)" in CSS
+
+
+def test_value_markers_differ_in_colour_and_shape():
+    from bacon.report import SHAPES, value_marker
+    pairs = [value_marker(rank) for rank in range(48)]
+    assert len(set(pairs)) == 48  # 12 colours x 4 shapes: a pair of its own for each value
+    assert all(a[0] != b[0] and a[1] != b[1] for a, b in zip(pairs, pairs[1:]))  # Neighbours differ in both
+    assert [shape for _, shape in pairs[:4]] == list(SHAPES) and pairs[0] == ("var(--c1)", "circle")
+    assert pairs[12] == ("var(--c1)", "triangle") and pairs[4] == ("var(--c5)", "circle")
+
+
+def test_markers_shapes_hollow_and_escaped_titles():
+    from bacon.report import marker
+    assert marker("circle", 5, 5, 10, "var(--c1)") == '<circle cx="5" cy="5" r="5" fill="var(--c1)" class="mk"/>'
+    assert marker("square", 5, 5, 10, "var(--c3)").startswith('<rect x="0.7" y="0.7" width="8.6" height="8.6"')
+    assert marker("diamond", 5, 5, 10, "var(--c4)").startswith('<path d="M5,-1L10.1,5L5,11L-0.1,5Z"')
+    assert marker("hollow", 5, 5, 10, title="a") == '<circle cx="5" cy="5" r="4" class="mk0"><title>a</title></circle>'
+    c = _colouring({"a": "{0} <b>", "b": ""}, column="x{}")
+    assert c.marker("a", 1, 1, 8).endswith('class="mk"><title>a: x{} {0} &lt;b&gt;</title></circle>')
+    with pytest.raises(ValueError):
+        marker("star", 0, 0, 1)
+
+
+def test_groups_of_identical_genomes_have_twelve_colours():
+    from bacon.report import slot_colour
+    assert slot_colour(0) == "var(--c1)" and slot_colour(11) == "var(--c12)" and slot_colour(12) == "var(--muted)"
+    root = parse("((a:0.01,b:0.01)0.95:0.02,(Reference:0.005,c:0.005)0.80:0.03);")
+    assert '<rect x="' in tree_svg(root, {"a": 0, "b": 0}, "ref.fa", 100)  # Squares: never a value's shape there
+
+
+def test_heatmap_value_band_and_legend_with_forty_values():
+    names = [f"genome{i:03d}" for i in range(150)]
+    m = {x: {y: 0 if x == y else 3 for y in names} for x in names}
+    c = _colouring({n: f"site {i % 40:02d}" for i, n in enumerate(names[1:])} | {names[0]: ""}, column="site")
+    out = heatmap(names, m, [], c)
+    width = float(re.search(r'viewBox="0 0 ([\d.]+) ', out).group(1))
+    assert width < 24 + 120 + 150 * 10 + 40  # The legend wraps in rows instead of widening the figure
+    rows = {y for y in re.findall(r'<text x="\d+" y="(\d+)" class="t-small t-ink2">site \d\d \(\d\)</text>', out)}
+    assert len(rows) >= 3 and "no value (1)</text>" in out
+    # Each value's marker in the legend: site 01 (rank 1) a triangle in the second colour, then its label
+    assert re.search(r'fill="var\(--c2\)" class="mk"/><text x="\d+" y="\d+" class="t-small t-ink2">site 01 \(4\)', out)
+    # Band markers at 150 genomes (10 px cells): 8 px circles, diamonds... still drawn as shapes
+    assert out.count('r="4" fill="var(--c1)" class="mk"><title>genome001: site site 00</title>') == 2
+    assert out.count('class="mk0"><title>genome000: no site</title>') == 2
+
+
+def test_table_markers_stay_with_the_value_when_wrapped():
+    from bacon.report import CSS, marked
+    assert marked(None, "no <value>").startswith('<span class="mkt"><svg class="mki"')
+    assert marked(None, "no <value>").endswith('class="mk0"/></svg>no</span> &lt;value&gt;')
+    assert ".mkt{white-space:nowrap}" in CSS and "th,td{white-space:normal" in CSS.split("@media print")[1]

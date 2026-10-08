@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 from bacon import BaconError, __version__
+from bacon.metadata import MAX_COLOUR_VALUES
 from bacon.pipeline import STEPS, Settings, default_memory_gb, run, usable_cpus
 
 log = logging.getLogger("bacon")
@@ -86,7 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "columns of a sample sheet are metadata too. Adding or changing it reruns nothing.")
     io.add_argument("--color-by", metavar="COLUMN",
                     help="The metadata column that colours the tree and the heatmap, or 'none'. Default: the "
-                         "first column with at most 8 distinct values that is not free text.")
+                         f"first column with at most {MAX_COLOUR_VALUES} distinct values (each gets a colour and "
+                         "a shape) that is not free text.")
 
     bait = parser.add_argument_group("baiting")
     bait.add_argument("-b", "--baiting-method", choices=["minimap2", "bbduk"], default="minimap2",

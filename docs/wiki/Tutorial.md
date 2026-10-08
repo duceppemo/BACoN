@@ -114,8 +114,8 @@ sample	lineage
 ...
 ```
 
-The tree then shows the lineage after each cultivar's name with a coloured circle, the heatmap gets a band of
-lineage colours (the groups of identical genomes turn grey, so that colour means the lineage only), and a table
+The tree then shows the lineage after each cultivar's name with its marker (a colour and a shape for each
+lineage), the heatmap gets a band of lineage markers (the groups of identical genomes turn grey, so that colour means the lineage only), and a table
 under the identical genomes counts the cultivars of each lineage in each set of identical plastomes (lineage A
 is one set of 2; lineage B three sets of 11, 4 and 1; the T-type cultivars one set of 10). Real metadata
 (origin, breeding programme, year) is used the same way.

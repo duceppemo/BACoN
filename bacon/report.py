@@ -32,7 +32,9 @@ from bacon.annotation import (
 )
 from bacon.metadata import (
     COPY_NAME,
+    MARKER_SHAPES,
     MAX_VALUE_LENGTH,
+    PALETTE_COLOURS,
     Metadata,
     choose_colour_column,
     is_numeric,
@@ -48,7 +50,24 @@ LENGTH_RANGE = (0.8, 1.2)
 MAX_LABELLED_CELLS = 60  # Above this many genomes, heatmap cells show their value on hover only
 MAX_HEATMAP_GENOMES = 150  # Above this, no inline heatmap (the page would be tens of MB): see the TSV
 MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longest ones)
-GROUP_COLOURS = 8  # Groups of identical genomes with a colour of their own (--s1 to --s8); the others share grey
+# The categorical palette of the groups of identical genomes and of the values of the colour column (--c1 to
+# --c12), from published colourblind-safe palettes: Okabe & Ito's Color Universal Design (2008,
+# https://jfly.uni-koeln.de/color/) and Paul Tol's schemes (https://personal.sron.nl/~pault/, technical note
+# SRON/EPS/TN/09-002 3.2, 2021): yellow and dark blue of his high-contrast scheme, blue, red, teal, orange and
+# magenta of vibrant, green, wine and purple of muted, sky blue and reddish purple of Okabe-Ito; in the dark theme
+# four give way to colours of about the same hue (Okabe-Ito yellow; Tol's light cyan, pink and blue).
+# Chosen among those palettes to keep every pair as distinct as possible for colourblind readers (the smallest
+# CIEDE2000 or OKLab difference of any two colours under deuteranopia, protanopia and tritanopia simulated with
+# Machado et al. 2009 at severity 1), while staying at least 12 apart for normal vision, 2:1 against the light
+# surface (the markers have a dark edge there) and 3:1 against the dark one. The first ones are the most distinct
+# (a column with few values gets them), and colours four apart, which share a shape (value_marker), stay distinct.
+PALETTE_LIGHT = ("#DDAA33", "#0077BB", "#CC3311", "#004488", "#117733", "#882255", "#AA4499", "#56B4E9", "#009988",
+                 "#EE7733", "#CC79A7", "#EE3377")
+PALETTE_DARK = ("#F0E442", "#0077BB", "#CC3311", "#99DDFF", "#117733", "#FFAABB", "#AA4499", "#77AADD", "#009988",
+                "#EE7733", "#CC79A7", "#EE3377")
+# The shapes of the values' markers, the most distinct first; a hollow circle is a genome without a value
+SHAPES = ("circle", "triangle", "square", "diamond")
+GROUP_COLOURS = PALETTE_COLOURS  # Groups of identical genomes with a colour of their own; the others share grey
 N_LABELS = 5  # Bars labelled in the N-bases chart (the largest values)
 MAX_NAME_GUTTER = 220  # Room for the sample names of the bar charts, in px; longer names are cut
 MIN_LABELLED_RUN = 12  # A block of identical genomes on the heatmap's right is labelled from this height, in px
@@ -146,10 +165,61 @@ def group_slots(groups: list[list[str]]) -> dict[str, int]:
 
 
 def slot_colour(slot: int) -> str:
-    return f"var(--s{slot + 1})" if slot < GROUP_COLOURS else "var(--muted)"
+    """The colour of a group of identical genomes: its own up to GROUP_COLOURS groups, then grey."""
+    return f"var(--c{slot + 1})" if slot < GROUP_COLOURS else "var(--muted)"
 
 
 MISSING_COLOUR = "var(--muted)"  # A genome without a value of the colour column (3:1 or more on both surfaces)
+
+
+def value_marker(rank: int) -> tuple[str, str]:
+    """The colour and shape of the value of rank `rank` (0, 1...) in the legend: the colours in turn, and the
+    shapes in turn with them, moved on by one shape after each round of colours. Consecutive values differ in
+    both colour and shape, the first four values have four shapes, and each of the PALETTE_COLOURS x
+    MARKER_SHAPES values has a pair of its own; within a round of colours, the values sharing a shape are four
+    colours apart, which the palette's order keeps distinct."""
+    colour = rank % PALETTE_COLOURS
+    return f"var(--c{colour + 1})", SHAPES[(colour + rank // PALETTE_COLOURS) % MARKER_SHAPES]
+
+
+def marker(shape: str, cx: float, cy: float, size: float, fill: str = "", title: str = "") -> str:
+    """An SVG marker about `size` px across centred on (cx, cy): `shape` filled with `fill`, with a thin edge, or,
+    for 'hollow', the grey outline of a circle (no value); `title` (escaped by the caller) shows on hover."""
+    def element(tag: str, attributes: str) -> str:
+        return f"<{tag} {attributes}><title>{title}</title></{tag}>" if title else f"<{tag} {attributes}/>"
+
+    if shape == "hollow":
+        return element("circle", f'cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(size * 0.4)}" class="mk0"')
+    paint = f'fill="{fill}" class="mk"'
+    if shape == "circle":
+        return element("circle", f'cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(size * 0.5)}" {paint}')
+    if shape == "square":  # Areas roughly equal to the circle's
+        side = size * 0.86
+        return element("rect", f'x="{_n(cx - side / 2)}" y="{_n(cy - side / 2)}" width="{_n(side)}" '
+                               f'height="{_n(side)}" {paint}')
+    if shape == "triangle":  # Pointing up; centred between its box and its centroid
+        h, w = size * 0.94, size * 1.08
+        points = [(cx, cy - 0.55 * h), (cx + w / 2, cy + 0.45 * h), (cx - w / 2, cy + 0.45 * h)]
+    elif shape == "diamond":
+        r = size * 0.6
+        points = [(cx, cy - r), (cx + r * 0.85, cy), (cx, cy + r), (cx - r * 0.85, cy)]
+    else:
+        raise ValueError(f"unknown marker shape {shape!r}")
+    return element("path", f'd="M{"L".join(f"{_n(x)},{_n(y)}" for x, y in points)}Z" {paint}')
+
+
+def marker_html(rank: int | None, size: float = 11) -> str:
+    """The marker of the value of rank `rank` inline in a table (a hollow circle without a value)."""
+    colour, shape = value_marker(rank) if rank is not None else ("", "hollow")
+    box = _n(size + 2)
+    return (f'<svg class="mki" width="{box}" height="{box}" viewBox="0 0 {box} {box}" aria-hidden="true">'
+            f"{marker(shape, size / 2 + 1, size / 2 + 1, size, colour)}</svg>")
+
+
+def marked(rank: int | None, value: str) -> str:
+    """A value after its marker, escaped; the marker stays on the line of the value's first word."""
+    first, space, rest = value.partition(" ")
+    return f'<span class="mkt">{marker_html(rank)}{esc(first)}</span>{space}{esc(rest)}'
 
 
 def group_colour(slot: int, neutral: bool = False) -> str:
@@ -162,8 +232,8 @@ def group_colour(slot: int, neutral: bool = False) -> str:
 
 @dataclass
 class Colouring:
-    """The metadata column that colours the figures: its values in legend order (each with the slot colour of its
-    rank) and the value of each genome."""
+    """The metadata column that colours the figures: its values in legend order (each with the marker of its
+    rank: value_marker) and the value of each genome."""
     column: str
     values: list[str]
     of: dict[str, str]  # Genome -> value; "" or absent: no value
@@ -177,7 +247,13 @@ class Colouring:
 
     def colour(self, name: str) -> str:
         slot = self.slot(name)
-        return slot_colour(slot) if slot is not None else MISSING_COLOUR
+        return value_marker(slot)[0] if slot is not None else MISSING_COLOUR
+
+    def marker(self, name: str, cx: float, cy: float, size: float) -> str:
+        """The genome's marker (a hollow circle without a value), with its hover title."""
+        slot = self.slot(name)
+        colour, shape = value_marker(slot) if slot is not None else ("", "hollow")
+        return marker(shape, cx, cy, size, colour, self.title(name))
 
     def title(self, name: str) -> str:
         """'name: column value' for a hover, escaped."""
@@ -249,6 +325,11 @@ def _ticks(top: float, count: int = 5, minimum_step: float = 0.0) -> list[float]
 
 def _g(x: float) -> str:
     return f"{x:g}"
+
+
+def _n(x: float) -> str:
+    """A coordinate with at most two decimals, without trailing zeros."""
+    return f"{x:.2f}".rstrip("0").rstrip(".")
 
 
 def _shortened(name: str, room: float, size: float) -> str:
@@ -364,9 +445,9 @@ def n_bars(rows: list[dict[str, str]]) -> list[Bar]:
 
 def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: int | None = None,
              colours: Colouring | None = None) -> str:
-    """A rectangular phylogram: leaves with a square in the colour of their group of identical genomes, then,
-    with a colour column, a circle in the colour of their value and the value in muted text after the name; the
-    Reference in bold, supports on the internal branches, a scale bar in substitutions per site."""
+    """A rectangular phylogram: leaves with a square in the colour of their group of identical genomes, or, with
+    a colour column, the marker of their value (a colour and a shape) and the value in muted text after the name;
+    the Reference in bold, supports on the internal branches, a scale bar in substitutions per site."""
     leaves = root.leaves()
     row, size = (18, 12) if len(leaves) <= 80 else (14, 10.5)
     left, top, plot = 16.0, 14.0, 560.0
@@ -409,12 +490,7 @@ def tree_svg(root: Node, slots: dict[str, int], ref_name: str = "", snp_sites: i
         value = ""
         if colours is not None:
             value = colours.value(n.name)
-            if value:
-                texts.append(f'<circle cx="{x + 4.5:.1f}" cy="{yy:.1f}" r="4" fill="{colours.colour(n.name)}">'
-                             f'<title>{colours.title(n.name)}</title></circle>')
-            else:
-                texts.append(f'<circle cx="{x + 4.5:.1f}" cy="{yy:.1f}" r="3.5" fill="none" '
-                             f'stroke="{MISSING_COLOUR}"><title>{colours.title(n.name)}</title></circle>')
+            texts.append(colours.marker(n.name, x + 4.5, yy, 9))
             x += 13
         note = f' <tspan class="t-muted" font-weight="400">{esc(value)}</tspan>' if value else ""
         if n.name == "Reference":
@@ -471,7 +547,7 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
             colours: Colouring | None = None) -> str:
     """Distance matrix as an SVG heatmap: binned colours, groups of identical genomes as coloured bands on both
     axes and labelled blocks on the right, the exact distance on hover; with a colour column, an outer band on
-    both axes in the colour of each genome's value, with its legend."""
+    both axes with the marker of each genome's value (a colour and a shape), with its legend."""
     slots = group_slots(groups or [])
     n = len(names)
     top_value = max((matrix[a][b] for a in names for b in names), default=0)
@@ -489,6 +565,7 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
     font = min(10.5, cell * 0.55)
     name_px = _text_px(max(names, key=len, default=""), 11)
     band = (14 if slots else 0) + (14 if colours else 0)  # The group band inside, the value band outside
+    glyph = min(10, cell - 2)  # The size of the value markers in their band
     left = 24 + name_px + band
     top = 24 + name_px * 0.87 + band
     # Blocks of identical genomes on the right: (first row, last row, group, label), labelled when tall enough
@@ -508,17 +585,27 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
     right = 24 + max((_text_px(blocks[k][3], 11) for k in tall), default=0) if slots else 20
     labels = [f"{lo}" if lo == hi else f"{lo}–{hi}" for lo, hi in bins]
     legend_px = 44 + sum(16 + _text_px(label, 11) + 18 for label in labels)
-    counts: dict[str, int] = {}
-    if colours is not None:
-        for a in names:
-            counts[colours.value(a)] = counts.get(colours.value(a), 0) + 1
-        key = [(v, f"{v} ({counts[v]})") for v in colours.values if v in counts]
-        if "" in counts:
-            key.append(("", f"no value ({counts['']})"))
-        legend_px = max(legend_px, _text_px(colours.column + ":", 11) + 8
-                        + sum(16 + _text_px(label, 11) + 18 for _, label in key))
     width = max(left + n * cell + right, left + legend_px + 12)
-    height = top + n * cell + 44 + (18 if colours else 0)
+    # The legend of the colour column: its name, then each value's marker, the value and its count, in rows
+    key_rows: list[list[tuple[float, int | None, str]]] = []  # (x, rank or None for no value, label)
+    if colours is not None:
+        counts = Counter(colours.value(a) for a in names)
+        key = [(colours.values.index(v), f"{v} ({counts[v]})") for v in colours.values if v in counts]
+        if "" in counts:
+            key.append((None, f"no value ({counts['']})"))
+        start = left + _text_px(colours.column + ":", 11) + 8
+        room = max(width, left + 560) - 12
+        lx = start
+        key_rows.append([])
+        for rank, label in key:
+            step = 16 + _text_px(label, 11) + 18
+            if key_rows[-1] and lx + step - 18 > room:
+                key_rows.append([])
+                lx = start
+            key_rows[-1].append((lx, rank, label))
+            lx += step
+        width = max(width, max(x + 16 + _text_px(label, 11) for row in key_rows for x, _, label in row) + 12)
+    height = top + n * cell + 44 + 18 * len(key_rows)
     parts = [_svg(width, height, "Pairwise SNP distances")]
     # With a colour column the groups are grey: each run of one group along the axes takes the other grey than
     # the run before it (a group split by the tree's order gives several runs)
@@ -541,12 +628,9 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
                          f'<title>{title}</title></rect>')
             parts.append(f'<rect x="{x:.0f}" y="{top - 14:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
                          f'<title>{title}</title></rect>')
-        if colours is not None:
-            colour, title = colours.colour(a), colours.title(a)
-            parts.append(f'<rect x="{left - band:.0f}" y="{y:.0f}" width="10" height="{cell - 1}" fill="{colour}">'
-                         f'<title>{title}</title></rect>')
-            parts.append(f'<rect x="{x:.0f}" y="{top - band:.0f}" width="{cell - 1}" height="10" fill="{colour}">'
-                         f'<title>{title}</title></rect>')
+        if colours is not None:  # The value's marker, centred in a 10 px band outside the group band
+            parts.append(colours.marker(a, left - band + 5, y + (cell - 1) / 2, glyph))
+            parts.append(colours.marker(a, x + (cell - 1) / 2, top - band + 5, glyph))
         parts.append(f'<text x="{left - band - 6:.0f}" y="{y + cell / 2 + 4:.0f}" text-anchor="end" '
                      f'class="t-small t-ink2">{esc(a)}</text>')
         parts.append(f'<text transform="translate({x + cell / 2 + 3:.0f},{top - band - 6:.0f}) rotate(-60)" '
@@ -579,14 +663,15 @@ def heatmap(names: list[str], matrix: dict[str, dict[str, int]], groups: list[li
         parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{label}</text>')
         lx += 16 + _text_px(label, 11) + 18
     if colours is not None:
-        lx, ly = left, ly + 18
-        parts.append(f'<text x="{lx:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(colours.column)}:</text>')
-        lx += _text_px(colours.column + ":", 11) + 8
-        for value, label in key:
-            fill = slot_colour(colours.values.index(value)) if value else MISSING_COLOUR
-            parts.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="12" height="12" fill="{fill}"/>')
-            parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(label)}</text>')
-            lx += 16 + _text_px(label, 11) + 18
+        parts.append(f'<text x="{left:.0f}" y="{ly + 28:.0f}" class="t-small t-ink2">{esc(colours.column)}:'
+                     '</text>')
+        for row in key_rows:
+            ly += 18
+            for lx, rank, label in row:
+                colour, shape = value_marker(rank) if rank is not None else ("", "hollow")
+                parts.append(marker(shape, lx + 6, ly + 6, 11, colour))
+                parts.append(f'<text x="{lx + 16:.0f}" y="{ly + 10:.0f}" class="t-small t-ink2">{esc(label)}'
+                             '</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -605,10 +690,9 @@ def cross_table(groups: list[list[str]], names: list[str], colours: Colouring) -
     def swatch(colour: str) -> str:
         return f'<span class="swatch" style="background:{colour}"></span>' if colour else ""
 
-    head = ["<th></th>"] + [f'<th class="num">{swatch(slot_colour(colours.values.index(v)))}{esc(v)}</th>'
-                            for v in shown]
+    head = ["<th></th>"] + [f'<th class="num">{marked(colours.values.index(v), v)}</th>' for v in shown]
     if missing:
-        head.append(f'<th class="num">{swatch(MISSING_COLOUR)}no value</th>')
+        head.append(f'<th class="num">{marked(None, "no value")}</th>')
     head.append('<th class="num">Total</th>')
     body = []
     for label, members, colour in sets:
@@ -1158,6 +1242,10 @@ TOKENS_DARK = """color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--ink:#fff;--i
 --qt0:#c3c2b7;--qt1:#fff;--qt2:#fff;--qt3:#0b0b0b;--qt4:#0b0b0b;
 --bad-bg:#4a1f1f;--bad-fg:#ffb4ab;--warn-bg:#45371a;--warn-fg:#f5cf82;--info-bg:#1c3050;--info-fg:#a9c8f5;
 --pseudo-op:.72"""
+# The categorical colours, and the edge of the markers (dark on the light surface, where four colours are below
+# 3:1; on the dark surface every colour reaches 3:1 and the edge only separates touching markers)
+TOKENS_LIGHT += "".join(f";--c{i}:{c}" for i, c in enumerate(PALETTE_LIGHT, 1)) + ";--edge:rgba(11,11,11,.6)"
+TOKENS_DARK += "".join(f";--c{i}:{c}" for i, c in enumerate(PALETTE_DARK, 1)) + ";--edge:rgba(0,0,0,.5)"
 
 CSS = f"""
 :root{{{TOKENS_LIGHT}}}
@@ -1227,6 +1315,8 @@ table.snps td.gene{{font-style:italic}}table.snps td.ctx{{white-space:normal;min
 .info{{background:var(--info-bg);color:var(--info-fg)}}
 .key span{{display:inline-block;padding:1px 8px;border-radius:4px;margin-right:8px;font-size:13px}}
 .swatch{{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}}
+.mk{{stroke:var(--edge);stroke-width:.8px}}.mk0{{fill:none;stroke:var(--muted);stroke-width:1.3px}}
+.mki{{vertical-align:middle;margin:-2px 5px 0 0;overflow:visible}}.mkt{{white-space:nowrap}}
 .tree{{background:#fff;border-radius:8px;padding:8px;overflow-x:auto;border:1px solid var(--border)}}
 .tree svg{{max-width:100%;height:auto}}
 ul.groups li{{margin-bottom:4px}}
@@ -1283,7 +1373,7 @@ class _Figures:
 def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
                    colours: Colouring | None = None) -> str:
     """The summary columns, with the metadata columns after Sample (a column whose values are all numbers sorts
-    as numbers; a column with long values wraps; the colour column's values get their swatch)."""
+    as numbers; a column with long values wraps; the colour column's values get their marker)."""
     extra = []
     own = [name for pair in TABLE_COLUMNS for name in pair]  # A metadata column of these names is marked
     for c in (metadata.columns if metadata else []):
@@ -1306,10 +1396,10 @@ def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
         extras = []
         for column, cls in extra:
             value = metadata.value(r.get("Sample", ""), column) if metadata else ""
-            swatch = (f'<span class="swatch" style="background:{colours.colour(r.get("Sample", ""))}"></span>'
-                      if colours is not None and column == colours.column and value else "")
+            shown = (marked(colours.slot(r.get("Sample", "")), value)
+                     if colours is not None and column == colours.column and value else esc(value))
             sort_value = value if value or not cls.startswith("num") else "-Infinity"
-            extras.append(f'<td class="{cls}" data-v="{esc(sort_value)}">{swatch}{esc(value)}</td>')
+            extras.append(f'<td class="{cls}" data-v="{esc(sort_value)}">{shown}</td>')
         cells[1:1] = extras
         out.append("<tr>" + "".join(cells) + "</tr>")
     out.append("</tbody></table></div>")
@@ -1418,8 +1508,8 @@ def build_report(output: Path) -> str:
         text = (f"Metadata from {origin}: {len(metadata.columns)} "
                 f"column{'s' if len(metadata.columns) != 1 else ''} ({esc(', '.join(metadata.columns))}); "
                 f"{with_row} of {len(rows)} samples have a value. ")
-        text += (f"The tree and the heatmap are coloured by <b>{esc(column)}</b>." if colours else
-                 "No column colours the figures.")
+        text += (f"The tree and the heatmap are coloured by <b>{esc(column)}</b> (a colour and a shape for each "
+                 "value)." if colours else "No column colours the figures.")
         out.append(f'<p class="meta">{text}</p>')
     if comparison.get("failed") and isinstance(comparison["failed"], str):
         out.append(f'<p class="bad">The comparison failed: {esc(comparison["failed"])}</p>')
@@ -1458,8 +1548,9 @@ def build_report(output: Path) -> str:
             out.append(tree_svg(tree, slots, ref_name, sites, colours))
             squares = (" Squares mark the genomes with no SNP between them (one colour per group, as in the "
                        "heatmap below)." if groups and not colours else "")
-            circles = (f" Circles and the muted text after the names give each genome's <b>{esc(column)}</b> "
-                       "(a hollow circle: no value)." if colours else "")
+            circles = (f" Markers and the muted text after the names give each genome's <b>{esc(column)}</b>: "
+                       "each value has a colour and a shape of its own, as in the legend of the heatmap below (a "
+                       "hollow circle: no value)." if colours else "")
             bar_text = (" The scale bar is in substitutions per SNP site, with the equivalent number of SNPs."
                         if sites else " The scale bar is in substitutions per site.")
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted and ladderized. Numbers "
@@ -1480,14 +1571,14 @@ def build_report(output: Path) -> str:
             out.append(heatmap(order, matrix, groups, colours))
             if groups and colours:
                 bands = (" The inner grey bands on both axes and the blocks on the right mark the groups of "
-                         f"identical genomes; the outer coloured bands give each genome's <b>{esc(column)}</b> "
-                         "(legend; grey: no value).")
+                         f"identical genomes; the outer bands give each genome's <b>{esc(column)}</b> as a "
+                         "marker, a colour and a shape for each value (legend; a hollow circle: no value).")
             elif groups:
                 bands = (" Coloured bands on both axes and the blocks on the right mark the groups of identical "
                          "genomes.")
             elif colours:
-                bands = (f" The bands on both axes give each genome's <b>{esc(column)}</b> (legend; grey: no "
-                         "value).")
+                bands = (f" The bands on both axes give each genome's <b>{esc(column)}</b> as a marker, a colour "
+                         "and a shape for each value (legend; a hollow circle: no value).")
             else:
                 bands = ""
             out.append(figures.caption(f"Pairwise SNP distances, {order_text}. Colour classes are spread on a "

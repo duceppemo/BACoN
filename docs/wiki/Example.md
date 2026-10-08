@@ -109,8 +109,8 @@ metadata columns after the sample name; `group` colours the figures, so its valu
 ![Overview and samples](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_overview.png)
 
 **Tree.** alpha sits with the reference; beta and gamma form a clade (their 6 shared SNPs); delta is on its
-own branch. Each leaf gets a circle in the colour of its group and the group after its name; delta, without a
-value, gets a hollow circle.
+own branch. Each leaf gets the marker of its group, a colour and a shape (A a circle, B a triangle), and the
+group after its name; delta, without a value, gets a hollow circle.
 
 ![Tree](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_tree.png)
 
