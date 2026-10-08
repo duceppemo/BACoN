@@ -104,6 +104,14 @@ def _extension(path: Path) -> str:
     return path.name[len(parts[0]):] if parts else "".join(path.suffixes)
 
 
+def _content_extension(path: Path, fmt: str) -> str:
+    """'.fastq.gz', '.fasta', ...: the extension telling BBTools (which goes by the extension, case-sensitively)
+    what a reads file holds, from its content (as BACoN reads it), whatever its own name says."""
+    with open(path, "rb") as fh:
+        gzipped = fh.read(2) == b"\x1f\x8b"
+    return f".{fmt}{'.gz' if gzipped else ''}"
+
+
 _BBDUK_COUNTS = re.compile(r"^(Input|Contaminants):\s+(\d+) reads\s.*?(\d+) bases", re.M)
 
 
@@ -119,11 +127,11 @@ def bait_bbduk(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, th
     start = log_file.stat().st_size if log_file.exists() else 0
     # bbduk.sh passes its arguments through `eval`: a path with a space (or a shell character) breaks it. BBDuk
     # runs in out_dir, on links named after the sample.
-    links = {"in": out_dir / f".{sample.name}.input{_extension(source)}",
-             "ref": out_dir / f".{sample.name}.reference.fasta"}
+    links = {"ref": out_dir / f".{sample.name}.reference.fasta"}
     try:
         if merged is not None:
             concatenate(sample.files, merged)
+        links["in"] = out_dir / f".{sample.name}.input{_content_extension(source, sample.fmt)}"
         for link, target in ((links["in"], source), (links["ref"], reference)):
             link.unlink(missing_ok=True)
             link.symlink_to(target.resolve())

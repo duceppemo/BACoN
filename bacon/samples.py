@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,10 +30,20 @@ class Sample:
 
 
 def _sequence_files(folder: Path) -> list[Path]:
-    """The sequence files in a folder and its subfolders, hidden ones (and those in hidden folders) excepted."""
-    return sorted(p for p in folder.rglob("*")
-                  if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
-                  and split_extension(p.name))
+    """The sequence files in a folder and its subfolders, hidden ones (and those in hidden folders) excepted.
+    Linked subfolders are followed (Path.rglob does not follow them before Python 3.13), each folder once: a
+    link to a folder already read (or to a folder above it) is skipped."""
+    files, seen = [], set()
+    for root, folders, names in os.walk(folder, followlinks=True):
+        real = os.path.realpath(root)
+        if real in seen:
+            folders[:] = []
+            continue
+        seen.add(real)
+        folders[:] = sorted(f for f in folders if not f.startswith("."))  # In order: a folder's first link wins
+        files += [path for name in names if not name.startswith(".") and split_extension(name)
+                  and (path := Path(root) / name).is_file()]
+    return sorted(files)
 
 
 def _check_name(name: str, origin: object) -> None:
@@ -79,6 +90,7 @@ def discover(path: Path) -> list[Sample]:
             if entry.is_dir():
                 files = _sequence_files(entry)
                 if not files:
+                    log.info("Skipping folder %s: no fasta/fastq files", entry)
                     continue
                 if entry.name in SKIPPED_FOLDERS:
                     log.info("Skipping folder %s (reads without a barcode)", entry)

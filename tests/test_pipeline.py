@@ -59,6 +59,17 @@ STUBS = {
             f"contig_1\\t{len(seq)}\\t30\\tY\\tN\\t1\\t*\\t1\\n")
         open(os.path.join(out, "assembly_graph.gfa"), "w").write("H\\tVN:Z:1.0\\n")
     """,
+    # Writes a one-contig circular assembly made of the first read, named as myloasm names its contigs.
+    "myloasm": """
+        import gzip, os, sys
+        args = sys.argv[1:]
+        out = args[args.index("--output-dir") + 1]
+        os.makedirs(out, exist_ok=True)
+        with gzip.open(args[0], "rt") as fh:
+            seq = fh.read().splitlines()[1]
+        open(os.path.join(out, "assembly_primary.fa"), "w").write(
+            f">u1ctg_len-{len(seq)}_circular-yes_depth-30 mult=1\\n{seq}\\n")
+    """,
     # ska build: reads its file list as SKA2 does (each line split on whitespace: a name and a file); ska align: an
     # alignment of every genome in the build table (last base = sample index).
     "ska": """
@@ -326,7 +337,24 @@ def test_fewer_than_three_assemblies_skips_comparison(stubs, dataset, tmp_path):
     out = tmp_path / "out"
     assert run(settings(ref, reads, out)) == 0
     assert not (out / "4_compared").exists()
-    assert json.loads((out / "run_info.json").read_text())["comparison"] == {"skipped": "only 2 assemblies"}
+    skipped = json.loads((out / "run_info.json").read_text())["comparison"]
+    assert skipped == {"skipped": "a tree needs at least three assemblies (2 available)"}
+    assert "The comparison was skipped: a tree needs at least three assemblies (2 available)." in \
+        (out / "report.html").read_text()
+
+
+def test_a_comparison_missing_its_tree_or_alignment_is_made_again(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    info = json.loads((out / "run_info.json").read_text())["comparison"]
+    for name in ("tree", "alignment"):
+        Path(info[name]).unlink()
+        stubs.unlink()
+        assert run(settings(ref, reads, out)) == 0
+        assert "ska" in calls(stubs) and "FastTree" in calls(stubs)
+        assert Path(info[name]).is_file()
+        assert "not found" not in (out / "report.html").read_text()
 
 
 def test_all_samples_failing_is_an_error(stubs, dataset, tmp_path):
@@ -405,6 +433,24 @@ def test_adding_or_changing_a_sample_reruns_only_that_sample(stubs, dataset, tmp
     run(settings(ref, reads, out))
     made = calls(stubs)
     assert made.count("filtlong") == 1 and made.count("flye") == 1
+
+
+def test_a_sample_left_out_of_a_run_keeps_its_checkpoints(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    _reads(reads / "s4.fastq.gz", [("on1", 900), ("on2", 800)])
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    (reads / "s4.fastq.gz").rename(tmp_path / "s4.fastq.gz")  # Left out (as a line commented out of a sheet)
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert calls(stubs).count("minimap2") == 1 and "flye" not in calls(stubs)  # Only the failed sample
+    (tmp_path / "s4.fastq.gz").rename(reads / "s4.fastq.gz")  # Back, unchanged: not done again
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    made = calls(stubs)
+    assert made.count("minimap2") == 1 and "filtlong" not in made and "flye" not in made
+    assert "ska" in made  # Compared with the other three again
+    assert summary(out)["s4"]["Status"] == "ok" and summary(out)["s4"]["Filtered_reads"] == "2"
 
 
 def test_add_genomes(stubs, dataset, tmp_path):
@@ -797,17 +843,70 @@ def test_sigterm_kills_the_programs_still_running(stubs, dataset, tmp_path):
         raise AssertionError("the program started by Flye outlived BACoN")
 
 
-def test_checkpoints_of_0_3_2_are_reused(stubs, dataset, tmp_path):
+def _as_0_3_7(out: Path, assembler: str = "flye", keep_bam: bool = False) -> None:
+    """Rewrite the fingerprints of a run's checkpoints (made with the settings of settings()) as BACoN 0.3.7 computed
+    them: --keep-bam in the baiting's parameters (as 0.3.2 for minimap2) and Flye's options in the assembly's,
+    whatever the assembler."""
     import hashlib
 
     from bacon.pipeline import _fingerprint
+    md5 = hashlib.md5((out / "reference.fasta").read_bytes()).hexdigest()
+    fingerprints = {"bait": _fingerprint("0", {"reference": md5, "method": "minimap2", "kmer": None,
+                                               "keep_bam": keep_bam})}
+    fingerprints["filter"] = _fingerprint(fingerprints["bait"], {"min_length": 100, "keep_percent": 95.0,
+                                                                 "target_depth": 100, "genome_size": 1000})
+    fingerprints["assemble"] = _fingerprint(fingerprints["filter"], {
+        "assembler": assembler, "read_type": "nano-hq", "min_size": None, "iterations": 3, "genome_size": 1000,
+        "template_gaps": "n" if assembler == "samtools" else None})
+    fingerprints["compare"] = _fingerprint(fingerprints["assemble"], {
+        "method": "ska", "tree": "fasttree", "ska_min_freq": 1.0, "assemblies": ["s1", "s2", "s3"], "added": {}})
+    for step, fingerprint in fingerprints.items():
+        checkpoint = out / ".checkpoints" / f"{step}.json"
+        data = json.loads(checkpoint.read_text())
+        for res in data["results"].values():
+            if isinstance(res, dict):
+                res.pop("bam", None)  # Not recorded by 0.3.7
+        checkpoint.write_text(json.dumps({**data, "fingerprint": fingerprint}))
+
+
+@pytest.mark.parametrize("assembler, keep_bam", [("flye", False), ("samtools", False), ("myloasm", True)])
+def test_checkpoints_of_0_3_7_are_reused(stubs, dataset, tmp_path, assembler, keep_bam):
     ref, reads = dataset
     out = tmp_path / "out"
-    run(settings(ref, reads, out))
-    md5 = hashlib.md5((out / "reference.fasta").read_bytes()).hexdigest()
-    params_032 = {"reference": md5, "method": "minimap2", "kmer": None, "keep_bam": False}  # As in BACoN 0.3.2
-    saved = json.loads((out / ".checkpoints" / "bait.json").read_text())
-    assert saved["fingerprint"] == _fingerprint("0", params_032)
+    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam))
+    assert summary(out)["s1"]["Status"] == "ok"
+    _as_0_3_7(out, assembler, keep_bam)
+    stubs.unlink()
+    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam))
+    made = sorted(calls(stubs))  # Only the sample that failed at baiting is tried again (samtools: its BAM)
+    assert made == ["minimap2"] + ["samtools"] * (3 if keep_bam else 0)  # In any order (parallel samples)
+    if keep_bam:  # Made with --keep-bam, resumed without: nothing to do either
+        _as_0_3_7(out, assembler, keep_bam)
+        stubs.unlink()
+        run(settings(ref, reads, out, assembler=assembler))
+        assert calls(stubs) == ["minimap2"]
+
+
+def test_options_that_change_no_output_rerun_nothing(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, assembler="samtools"))
+    stubs.unlink()
+    # Flye's options, with another assembler
+    run(settings(ref, reads, out, assembler="samtools", read_type="nano-raw", min_size=2000, flye_iterations=1))
+    assert calls(stubs) == ["minimap2"]
+    stubs.unlink()
+    run(settings(ref, reads, out, assembler="samtools", keep_bam=True))  # Baiting again for the BAMs only
+    made = calls(stubs)
+    assert made.count("minimap2") == 4 + 3 and all((out / "1_extracted" / f"s{i}.bam").exists() for i in (1, 2, 3))
+    stubs.unlink()
+    run(settings(ref, reads, out, assembler="samtools"))  # Without --keep-bam: nothing to do
+    assert calls(stubs) == ["minimap2"]
+    stubs.unlink()
+    (out / "1_extracted" / "s2.bam").unlink()
+    run(settings(ref, reads, out, assembler="samtools", keep_bam=True))  # The BAMs that are there are kept
+    made = calls(stubs)
+    assert made.count("minimap2") == 2 + 1 and (out / "1_extracted" / "s2.bam").exists()
 
 
 def test_a_moved_output_folder_resumes_with_its_own_files(stubs, dataset, tmp_path):
@@ -1375,6 +1474,75 @@ def test_copies_not_written_by_bacon_are_kept(stubs, dataset, tmp_path, caplog):
     assert run(settings(ref, reads, out, snp_method="none")) == 0
     assert not (out / "metadata.tsv").exists() and not (out / "annotation.gff3").exists()
     assert "not written by BACoN" not in caplog.text
+
+
+def test_inputs_in_the_output_folder_are_not_overwritten(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    out.mkdir()
+    mine = out / "reference.fasta"
+    mine.write_text(">ref\n" + "acgt" * 250 + "\n")  # BACoN's copy would be upper case
+    with pytest.raises(BaconError, match=r"-r/--reference .*reference\.fasta .* would be overwritten"):
+        run(settings(mine, reads, out))
+    assert mine.read_text() == ">ref\n" + "acgt" * 250 + "\n"
+    meta = out / "metadata.tsv"
+    meta.write_text("sample\tgroup\ns1\tA\nzz\tB\n")  # BACoN's copy would leave out zz, which matches no sample
+    with pytest.raises(BaconError, match=r"--metadata .*metadata\.tsv .* would be overwritten"):
+        run(settings(ref, reads, out, metadata=meta))
+    assert meta.read_text() == "sample\tgroup\ns1\tA\nzz\tB\n"
+    ann = out / "annotation.gff3"
+    ann.write_bytes(gzip.compress(b"##gff-version 3\nref\t.\tgene\t10\t300\t.\t+\t.\tID=g1\n"))  # Copied unzipped
+    with pytest.raises(BaconError, match=r"--annotation .*annotation\.gff3 .* would be overwritten"):
+        run(settings(ref, reads, out, annotation=ann))
+    assert gzip.decompress(ann.read_bytes()).startswith(b"##gff-version 3")
+    added = out / "4_compared" / "added_genomes" / "x.fasta"
+    added.parent.mkdir(parents=True)
+    added.write_text(">x_contig\nACGT\n")
+    with pytest.raises(BaconError, match="is BACoN's copy of an added genome"):
+        run(settings(ref, reads, out, add_genomes=[added]))
+    sheet = out / "summary.tsv"
+    sheet.write_text(f"sample\tfile\ns1\t{reads / 's1.fastq.gz'}\n")
+    for option, path in (("sample_sheet", sheet), ("reference", out / "bacon.log"), ("annotation", out / "report.html")):
+        path.touch()
+        before = path.read_bytes()
+        kw = {"input": None, option: path} if option == "sample_sheet" else {option: path}
+        with pytest.raises(BaconError, match=f"is a file BACoN writes in the output folder \\({path.name}\\)"):
+            run(settings(ref, reads, out, **kw))
+        assert path.read_bytes() == before
+    assert not (out / "run_info.json").exists() and not step_checkpoints(out)  # Before any step
+
+
+def test_inputs_that_are_bacons_copies_are_kept(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    stubs.unlink()
+    # BACoN's normalised copy of the reference, given as the reference: it would not change, nothing reruns
+    assert run(settings(out / "reference.fasta", reads, out, snp_method="none")) == 0
+    assert calls(stubs) == ["minimap2"]
+    # An annotation and a metadata file of the user's, already as BACoN would copy them: kept as they are ...
+    gff = "##gff-version 3\nref\t.\tgene\t10\t300\t.\t+\t.\tID=g1;Name=geneA\n"
+    (out / "annotation.gff3").write_text(gff)
+    table = "sample\tgroup\nnone\t\ns1\tA\ns2\tB\ns3\t\n"  # Every sample, in order
+    (out / "metadata.tsv").write_text(table)
+    assert run(settings(ref, reads, out, snp_method="none", annotation=out / "annotation.gff3",
+                        metadata=out / "metadata.tsv")) == 0
+    assert "coloured by <b>group</b>" in (out / "report.html").read_text()
+    # ... and not deleted as BACoN's copies by a run without them
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    assert (out / "annotation.gff3").read_text() == gff
+    assert (out / "metadata.tsv").read_text() == table
+    # BACoN's copy of a GenBank reference, given as the reference with another annotation, is not removed as a
+    # stale copy
+    gb, ann = tmp_path / "ref.gb", tmp_path / "ann.gff3"
+    gb.write_text(_genbank_of(ref))
+    ann.write_text(gff)
+    out2 = tmp_path / "out2"
+    assert run(settings(gb, reads, out2, snp_method="none")) == 0
+    caplog.clear()
+    assert run(settings(out2 / "annotation.gb", reads, out2, snp_method="none", annotation=ann)) == 0
+    assert (out2 / "annotation.gb").read_text() == gb.read_text() and (out2 / "annotation.gff3").exists()
+    assert f"Annotation {out2 / 'annotation.gb'} is given with -r/--reference: kept" in caplog.text
 
 
 def test_a_copied_output_folder_without_the_files_times_resumes(stubs, dataset, tmp_path):

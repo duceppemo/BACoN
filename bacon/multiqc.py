@@ -10,6 +10,7 @@ being merged (MultiQC merges sections with the same id, and keeps only one heatm
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -58,8 +59,18 @@ def _number(value: str) -> float | int | str | None:
             return value
 
 
+def _slug(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
+
+
 def _run_id(run: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_]+", "_", run).strip("_") or "run"
+    """The output folder's name in the section ids: as it is when it is made of letters, digits and underscores,
+    else made so with a short hash of the name added, so that folders whose names differ only in punctuation
+    (run-1, run_1, run 1) keep separate sections."""
+    slug = _slug(run)
+    if slug == run:
+        return run or "run"
+    return f"{slug or 'run'}_{hashlib.sha256(run.encode()).hexdigest()[:6]}"
 
 
 def sample_table(rows: list[dict[str, str]], run: str = "", metadata: Metadata | None = None) -> dict:
@@ -67,9 +78,11 @@ def sample_table(rows: list[dict[str, str]], run: str = "", metadata: Metadata |
     headers: dict[str, dict] = {}
     columns = {}
     for column in (metadata.columns if metadata else []):
-        key = f"meta_{_run_id(column).lower()}"
-        if key in headers:  # Two names differing only in punctuation or case
-            key = f"{key}_{len(headers) + 1}"
+        key = base = f"meta_{_slug(column).lower() or 'run'}"
+        suffix = 1
+        while key in headers:  # Two names differing only in punctuation or case (or like a suffixed key)
+            suffix += 1
+            key = f"{base}_{suffix}"
         title = shown_name(column, ["Sample", *SAMPLE_HEADERS, *(h["title"] for h in SAMPLE_HEADERS.values())])
         headers[key] = {"title": title, "description": f"Metadata: {column}"}
         columns[key] = column

@@ -14,6 +14,19 @@ With `--snp-method ska`, core SNPs must have their context in every genome. One 
 assembly is enough to remove every site. Look at `Contigs` and `Length_vs_reference` in `summary.tsv`, remove
 the poor samples, or use `--ska-min-freq 0.9` to keep SNPs missing from a few genomes.
 
+**"No tree: no genome differs from the others at any position compared"**
+The VCF of the SNPs (all of them, whatever `--ska-min-freq`) is empty: the genomes are identical at every
+position SKA2 compared, so there is nothing to build a tree on, and `--ska-min-freq` would not change that. The
+distances are all 0.
+
+**What does `--ska-min-freq` below 1 do?**
+SKA2 then keeps the SNP sites that some genomes lack (they get a gap in the alignment), as long as at least that
+fraction of the genomes has them: a pan-genome SNP alignment instead of core SNPs. It helps when core SNPs are few
+or none: fragmented assemblies, gaps, indels or other SNPs within 15 bases of a site, genomes of another
+structure. The cost is missing data: each pair of genomes is compared on the sites both have, and a genome
+missing many sites looks closer to the others than it is. `snps.vcf` is the same whatever the value. Details in
+[Methods](Methods#4-comparison).
+
 **The de novo assembly is 1.3–2 times the reference length.**
 Reads from other genomes were baited with the target: mitochondrial and nuclear sequences similar to the
 plastome (for example plastid DNA inserted in the mitochondrion), or contamination. The extra contigs are

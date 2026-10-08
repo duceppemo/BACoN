@@ -108,6 +108,12 @@ ref.1\ttest\tCDS\t70\t84\t.\t-\t0\tID=cds-rev;Parent=gene-rev;gene=rev;product=r
     ("<1..>100", 1, [(1, 100)], (True, True), None),
     ("complement(<5..80)", -1, [(5, 80)], (True, False), None),
     ("join(<1..9,22..>32)", 1, [(1, 9), (22, 32)], (True, True), None),
+    # Across the origin: the partial ends are those of the first and last parts as listed, not by coordinate
+    ("join(<2950..3000,1..135)", 1, [(1, 135), (2950, 3000)], (True, False), [(2950, 3000), (1, 135)]),
+    ("complement(join(2897..3000,1..>199))", -1, [(1, 199), (2897, 3000)], (False, True),
+     [(1, 199), (2897, 3000)]),
+    ("join(complement(1..>199),complement(<2897..3000))", -1, [(1, 199), (2897, 3000)], (True, True),
+     [(1, 199), (2897, 3000)]),
     ("42", 1, [(42, 42)], (False, False), None),
     ("12^13", 1, [(12, 13)], (False, False), None),
     ("join(J00194.1:100..202,1..10)", 1, [(1, 10)], (False, False), None),  # The remote part is skipped
@@ -1861,3 +1867,71 @@ def test_a_stop_codon_inside_the_coding_sequence_gives_no_effects(tmp_path):
     # The final stop codon, and the stop codons of the genes of FEATURES, are not inside
     ann = load_annotation(_ann(tmp_path / "f").file, [("ref.1", 120)], seqs=seqs)
     assert not any(c.unreadable for g in ann.sequences["ref.1"].genes for c in g.cds) and not ann.warnings
+
+
+@pytest.mark.parametrize("change", ["deletion", "insertion", "N run"])
+def test_repeat_detected_whole_with_the_origin_next_to_an_indel_in_a_copy(change):
+    # The origin a few bases from an indel (or a run of N) inside IRa: the copy seeded on one side of the origin
+    # ends at the indel, short of the origin; the search again from between the copies gets the whole repeat
+    from bacon.annotation import _shift_interval, detect_inverted_repeat
+    edit = {"deletion": lambda ira: ira[:3000] + ira[3010:],
+            "insertion": lambda ira: ira[:3000] + "ACGTTGCAAC" * 5 + ira[3000:],
+            "N run": lambda ira: ira[:3000] + "N" * 50 + ira[3050:]}[change]
+    seq = make_plastome(edit=edit, mismatches=2)
+    expected = detect_inverted_repeat(seq)
+    assert expected is not None and expected.differences == 3
+    n = len(seq)
+    for d in (-40, -20, -5, 5, 20, 40):
+        offset = 19000 + 3000 + d
+        repeat = detect_inverted_repeat(seq[offset:] + seq[:offset])
+        assert repeat is not None, d
+        copies = sorted(zip((_shift_interval(c, offset, n) for c in (repeat.first, repeat.second)), repeat.lengths))
+        assert copies == sorted(zip((expected.first, expected.second), expected.lengths)), d
+        assert repeat.differences == expected.differences, d
+
+
+def test_only_trans_splicing_exceptions_make_a_cds_trans_spliced(tmp_path):
+    # INSDC /exception values that contain "trans" without being trans-splicing: the parts of a sorted file are
+    # read in coordinate order, as for any CDS
+    for exception, trans in (("annotated by transcript or proteomic data", False),
+                             ("mismatches in translation", False), ("unclassified transcription discrepancy", False),
+                             ("trans-splicing", True), ("Trans splicing", True)):
+        gff = tmp_path / "a.gff3"
+        gff.write_text("##gff-version 3\n##sequence-region ref.1 1 120\n"
+                       f"ref.1\tt\tCDS\t10\t18\t.\t+\t0\tID=c;gene=g;exception={exception}\n"
+                       f"ref.1\tt\tCDS\t40\t45\t.\t+\t0\tID=c;gene=g;exception={exception}\n")
+        cds = load_annotation(gff, [("ref.1", 120)]).sequences["ref.1"].genes[0].cds[0]
+        assert cds.trans_spliced == trans and bool(cds.unreadable) == trans, exception
+
+
+def test_partial_ends_of_a_cds_across_the_origin(tmp_path):
+    # join(<51..60,1..20): the '<' is on the part listed first, the last by coordinate; CTG is not a start codon
+    from bacon.annotation import reverse_complement
+    cds = "CTGGCTAAAGGTCGAGCTAAAGCTGCATAA"  # L A K G R A K A A *
+    seq = cds[10:] + "A" * 30 + cds[:10]
+    ann = _ann(tmp_path / "plus", 'CDS             join(<51..60,1..20)\n                /gene="p"\n', seq)
+    assert _effects(ann, 52, "T", "C", seq)[1] == [("p", "CTG>CCG", "L1P", "missense")]
+    # On the reverse strand, complement(join(51..60,1..>20)): read from 20 down; the '>' is its 5' end
+    seq = reverse_complement(cds[:20]) + "A" * 30 + reverse_complement(cds[20:])
+    ann = _ann(tmp_path / "minus", 'CDS             complement(join(51..60,1..>20))\n                /gene="m"\n', seq)
+    assert _effects(ann, 19, "A", "G", seq)[1] == [("m", "CTG>CCG", "L1P", "missense")]
+    cds = ann.sequences["ref.1"].genes[0].cds[0]
+    assert (cds.partial5, cds.partial3) == (True, False)
+
+
+def test_intergenic_neighbours_of_a_gene_across_the_origin(tmp_path):
+    # Its parts are its ends: 10 and 100, not 120 and 1 (its hull); genes inside its parts are not nearer
+    ann = _ann(tmp_path, '''
+    gene            join(100..120,1..10)
+                    /gene="o"
+    gene            3..8
+                    /gene="in1"
+    gene            30..40
+                    /gene="a"
+    gene            80..90
+                    /gene="b"
+    gene            110..115
+                    /gene="in2"
+    ''')
+    assert _effects(ann, 15, SEQ[14], "A" if SEQ[14] != "A" else "C")[0].context == "intergenic between o and a"
+    assert _effects(ann, 95, SEQ[94], "A" if SEQ[94] != "A" else "C")[0].context == "intergenic between b and o"

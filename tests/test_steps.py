@@ -1,3 +1,7 @@
+import shutil
+
+import pytest
+
 from bacon.steps import _fill_from, _flye_info, count_circular
 
 
@@ -94,6 +98,41 @@ def test_no_program_starts_once_bacon_is_stopping(tmp_path):
     run(["true"], tmp_path / "log")
 
 
+def test_a_second_interruption_during_the_kill_leaves_no_program_running(tmp_path, monkeypatch):
+    import signal
+    import subprocess
+    import threading
+
+    import pytest
+
+    from bacon import tools
+    real_kill, seen = tools._kill, []
+
+    def kill(proc):  # A second Ctrl-C arrives once the first program is killed, before the second one is
+        seen.append(proc)
+        if len(seen) == 2:
+            raise KeyboardInterrupt
+        real_kill(proc)
+
+    monkeypatch.setattr(tools, "_kill", kill)
+    timer = threading.Timer(0.5, signal.pthread_kill, (threading.main_thread().ident, signal.SIGINT))
+    timer.start()  # The first Ctrl-C
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            tools.run([["sleep", "30"], ["sleep", "30"]], tmp_path / "log")
+    finally:
+        timer.cancel()
+        monkeypatch.setattr(tools, "_kill", real_kill)
+    assert len(seen) == 2
+    tools.kill_running()  # As BACoN does at the end of an interrupted run
+    for proc in seen:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            real_kill(proc)
+            raise AssertionError(f"{proc.args} still running") from None
+
+
 def test_templated_assembly_notes_reference_sequences_without_reads(tmp_path, monkeypatch):
     from pathlib import Path
 
@@ -137,3 +176,31 @@ def test_logged_command_line_can_be_run_again(tmp_path):
     lines = (tmp_path / "log").read_text().splitlines()
     assert lines[:2] == [f"$ (cd '{work}' && sh -c pwd)", str(work)]
     assert lines[2] == f"$ echo 'a b' > '{tmp_path / 'out put.txt'}'"
+
+
+@pytest.mark.skipif(not shutil.which("bbduk.sh"), reason="BBDuk is not installed")
+@pytest.mark.parametrize("names", [["v.FASTQ.GZ"], ["y.FQ.GZ"], ["z.fastq"], ["x.fastq.gz"], ["w.fq.gz"],
+                                   ["a.FQ.GZ", "b.fastq"]])
+def test_bbduk_reads_files_whatever_their_extension_says(tmp_path, names):
+    """BBTools picks the format and compression from the extension (case-sensitively); BACoN from the content."""
+    import gzip
+    import random
+
+    from bacon.samples import Sample
+    from bacon.steps import bait_bbduk
+    rng = random.Random(1)
+    genome = "".join(rng.choice("ACGT") for _ in range(3000))
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(f">r\n{genome}\n")
+    files = []
+    for i, name in enumerate(names):
+        reads = "".join(f"@r{i}_{j}\n{genome[j * 100:j * 100 + 300]}\n+\n{'I' * 300}\n" for j in range(5))
+        path = tmp_path / name
+        # Gzipped or not, against what the name says, for the two lower-case cases
+        compressed = name.upper().endswith(".GZ") != (name in ("z.fastq", "x.fastq.gz"))
+        path.write_bytes(gzip.compress(reads.encode()) if compressed else reads.encode())
+        files.append(path)
+    result = bait_bbduk(Sample("s", files, "fastq"), ref, tmp_path / "out", tmp_path, threads=1, kmer=31,
+                        hdist=0, memory_gb=1)
+    assert result.stats["Baited_reads"] == 5 * len(names)
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["s.fastq.gz"]  # No link left behind

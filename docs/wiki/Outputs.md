@@ -121,8 +121,10 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   drew its genes, with the translation table when SNPs were annotated with it, and, when the report shows the LSC/IRb/SSC/IRa band, where the regions come from: the
   annotated inverted repeats, or the one detected in the reference sequence, with the copies' size and
   identity), ready to adapt for a paper.
-- **Run**: command, reference (with the MD5 of the file as given), output folder, the metadata file and the
-  colour column when there are any, and the version and path of every program.
+- **Run**: command, reference (with the MD5 of the file as given), the annotation when there is one (the file as
+  given, `--annotation` or the GenBank reference, with its MD5 and BACoN's copy), output folder, the metadata file
+  and the colour column when there are any (`not applied` when the folder's `metadata.tsv` was edited since and
+  can no longer colour the figures; a note says why), and the version and path of every program.
 
 It is written at the end of every run, from the files of the output folder; `python -m bacon.report OUTPUT`
 rebuilds it, also after the folder was moved. Examples: the
@@ -155,7 +157,9 @@ multiqc OUTPUT/ --ignore "*/logs/*"
 ```
 
 - The sections are named after the output folder ("BACoN *folder*: samples"), so the files of several BACoN runs
-  in one MultiQC search path give separate sections, as long as the output folders have different names.
+  in one MultiQC search path give separate sections, as long as the output folders have different names. The
+  section ids keep a name of letters, digits and underscores as it is; any other name gets a short hash of
+  itself, so that names differing only in punctuation (`run-1`, `run_1`, `run 1`) do not merge.
 - `--ignore "*/logs/*"` keeps MultiQC away from the programs' logs in `logs/`: MultiQC 1.19 mistakes BACoN's
   Filtlong logs for its own module's input and shows an error box (harmless; 1.35 does not).
 - MultiQC shortens sample names ending with usual file suffixes (such as `.trimmed`) in the table and bar graph,
@@ -234,7 +238,8 @@ k-mer occurs with different middle bases, in repeats).
 `tree.nwk` is rooted at the midpoint of the longest path and ladderized; internal labels are the supports
 (SH-like local supports from 100 resamples for FastTree, ultrafast bootstraps for IQ-TREE). `tree.svg` draws it with a scale in
 substitutions per site. When no SNP site is shared by all the genomes, the distances are written but no tree
-is built; lower `--ska-min-freq` (see [FAQ](FAQ)).
+is built; lower `--ska-min-freq` (see [FAQ](FAQ)), unless the genomes do not differ at all (an empty VCF; the
+report says so).
 
 ## run_info.json
 

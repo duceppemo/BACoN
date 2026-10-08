@@ -95,16 +95,45 @@ Limits of the de novo assemblies:
   SNPs are not in the SNP alignment, so not in the distances or the tree; the report shows the `PASS` records
   only and says how many others `snps.vcf` has. SKA2's VCF has no filter (`.`): every record is shown.
 
+**Core or pan-genome SNPs (`--ska-min-freq`, SKA2 only).** SKA2 keeps a SNP site when at least this fraction of
+the genomes (the reference and the genomes of `--add-genomes` included) has its split k-mer: the same 15 bases on
+either side of it. At 1 (default), every genome must have it: a core-SNP alignment, with a nucleotide for every
+genome in every column. Below 1 (0.5: at least half of the genomes), the sites missing from some genomes are kept,
+with a gap (`-`) for those genomes: a pan-genome SNP alignment, the role kSNP3 had in BACoN 0.1. The results go
+to `4_compared/ska_<value>/` instead of `4_compared/ska/`.
+
+A genome lacks the split k-mer of a site when:
+
+- the site is within 15 bases of the end of a contig or of a run of `N`: fragmented de novo assemblies (Flye or
+  myloasm at low depth), gaps of a templated assembly;
+- another SNP or an indel lies within 15 bases of it in that genome (its flanks differ, so its split k-mer is
+  another one);
+- the region is missing or rearranged in that genome (a deletion, a published genome with another structure).
+
+With core SNPs, one such genome removes the site for all; when that happens to every site, no tree is built
+("No SNP site is shared by all the genomes"). A lower `--ska-min-freq` keeps those sites, at a cost: the
+alignment has missing data, and as the distances count only the positions where both genomes have a nucleotide,
+each pair is compared on its own set of sites. A genome missing many sites then looks closer to the others than
+it is, and distances between different pairs are less directly comparable. FastTree and IQ-TREE treat the gaps
+as missing data. In the [validation](Validation), `--ska-min-freq 0.5` gave the same exact distances as core SNPs
+on the simulated plastid set.
+
+`--ska-min-freq` does not change `snps.vcf`, which lists every SNP relative to the reference (from `ska map`),
+nor genomes that do not differ at any position compared (an empty VCF): those give no tree whatever the value.
+Parsnp has no equivalent: it aligns the core genome.
+
 **Distances.** `snp_distances.tsv` counts, for each pair of genomes, the positions of the SNP alignment where
 both have a nucleotide and they differ.
 
 **Tree.** FastTree (GTR, SH-like local supports from 100 resamples; default) or IQ-TREE (`--tree iqtree`: ModelFinder and 1000
-ultrafast bootstraps), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
+ultrafast bootstraps; with fewer than four distinct sequences IQ-TREE makes no bootstrap, and its maximum-likelihood tree
+is shown without supports), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
 at the midpoint of its longest path, ladderized, and drawn as SVG. With SKA2, branch lengths are in
 substitutions per variable site.
 
 At least three assemblies are needed for a comparison. When no SNP site is shared by all the genomes (for
-example with fragmented assemblies), the distances are written but no tree is built.
+example with fragmented assemblies), or when the genomes do not differ at any position compared, the distances are
+written but no tree is built.
 
 ## 5. SNP effects
 

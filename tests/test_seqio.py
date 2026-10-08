@@ -130,3 +130,17 @@ def test_reading_stops_when_bacon_is_interrupted(fastq):
         list(read_records(path))
     tools.allow_programs()
     assert len(list(read_records(path))) == 10
+
+
+def test_a_utf8_bom_is_skipped(tmp_path):
+    import gzip
+    bom = b"\xef\xbb\xbf"
+    (tmp_path / "r.fasta").write_bytes(bom + b">a\nACGT\n")
+    (tmp_path / "r.fastq.gz").write_bytes(gzip.compress(bom + b"@r1\nACGT\n+\nIIII\n"))
+    assert sniff_format(tmp_path / "r.fasta") == "fasta" and sniff_format(tmp_path / "r.fastq.gz") == "fastq"
+    assert [(r.name, r.seq) for r in read_records(tmp_path / "r.fasta")] == [("a", "ACGT")]
+    assert [(r.name, r.qual) for r in read_records(tmp_path / "r.fastq.gz")] == [("r1", "IIII")]
+    assert check_reference(tmp_path / "r.fasta") == [("a", 4)]
+    (tmp_path / "x.fasta").write_bytes(b"\xef\xbb>a\nACGT\n")  # Not a BOM: still not fasta
+    with pytest.raises(BaconError, match="neither fasta nor fastq"):
+        sniff_format(tmp_path / "x.fasta")

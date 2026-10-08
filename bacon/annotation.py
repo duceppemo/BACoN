@@ -70,8 +70,8 @@ def annotation_format(path: Path) -> str | None:
 class Location:
     strand: int  # 1 or -1
     parts: list[tuple[int, int]]  # 1-based, inclusive, in ascending order
-    partial_low: bool = False  # '<' before the lowest coordinate
-    partial_high: bool = False  # '>' after the highest coordinate
+    partial_low: bool = False  # The low end is partial: the 5' end on the + strand, the 3' end on the -
+    partial_high: bool = False  # The high end is partial
     listed: list[tuple[int, int, int]] | None = None  # GenBank: (start, end, strand) in the order written
     dropped: bool = False  # Parts on another sequence (remote references) were left out
     unordered: bool = False  # The order of translation of the parts is unknown (GFF3, see _order_parts)
@@ -143,10 +143,15 @@ def parse_location(text: str) -> Location | None:
     if not pieces:
         return None
     listed = [(s, e, strand) for s, e, strand, *_ in pieces]
-    pieces.sort()
     # The strand of the feature: that of most of its bases (a trans-spliced CDS can have parts on both strands)
     strand = 1 if sum((e - s + 1) * strand for s, e, strand in listed) >= 0 else -1
-    return Location(strand, [(s, e) for s, e, *_ in pieces], pieces[0][3], pieces[-1][4], listed, ":" in text)
+    # The partial ends: the 5' end of the part listed first and the 3' end of the one listed last (the order of
+    # translation: by coordinate, they may be any parts across the origin), '<' on the + strand, '>' on the -
+    first, last = pieces[0], pieces[-1]
+    partial5 = first[3] if first[2] > 0 else first[4]
+    partial3 = last[4] if last[2] > 0 else last[3]
+    low, high = (partial5, partial3) if strand > 0 else (partial3, partial5)
+    return Location(strand, sorted((s, e) for s, e, *_ in pieces), low, high, listed, ":" in text)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -654,8 +659,13 @@ def _transl_except(text: str) -> list[tuple[int, int]]:
     return ranges
 
 
+_TRANS_SPLICING = re.compile(r"trans[-_ ]?splic", re.I)
+
+
 def _is_trans_spliced(f: RawFeature) -> bool:
-    return "trans_splicing" in f.qualifiers or "trans" in f.qualifiers.get("exception", "").lower()
+    """/trans_splicing, or /exception="trans-splicing" (not the other exceptions with "trans" in them, such as
+    "annotated by transcript or proteomic data" or "mismatches in translation")."""
+    return "trans_splicing" in f.qualifiers or bool(_TRANS_SPLICING.search(f.qualifiers.get("exception", "")))
 
 
 def _spliced_apart(loc: Location, length: int) -> bool:
@@ -1261,10 +1271,9 @@ def _shift_interval(interval: tuple[int, int], offset: int, n: int) -> tuple[int
 
 
 def _may_continue(seq: str, a: int, b_end: int, k: int) -> bool:
-    """Whether copies reaching the origin (the first starting at the first base, or the second ending at the
-    last) may go on beyond it after an indel: a k-mer of the bases after the second copy matches, read on the
-    other strand, one of the bases before the first (IR_MAX_INDEL + k bases each, fewer when the copies would
-    meet)."""
+    """Whether copies ending at or near the origin (the first starting there, or the second ending there) may go
+    on after an indel: a k-mer of the bases after the second copy matches, read on the other strand, one of the
+    bases before the first (IR_MAX_INDEL + k bases each, around the origin, fewer when the copies would meet)."""
     n = len(seq)
     w = min(IR_MAX_INDEL + k, (a + n - b_end) // 2)
     if w < k:
@@ -1291,10 +1300,11 @@ def detect_inverted_repeat(seq: str, _rotated: bool = False) -> InvertedRepeat |
     indels and runs of N, each once: _stretch_differences), the chain is trimmed to its part scoring most
     (_best_subchain, which drops diverged flanks) and extended base by base at both ends (through a mismatch
     followed by IR_LOOKAHEAD matching bases). A repeat found across the origin of the sequence, or ending at it
-    with matching k-mers beyond (_may_continue), is searched again in the sequence rotated to start between the
-    copies, where the whole of each copy is seeded; that result is taken when it is the same pair of copies.
-    Sequences shorter than two copies or longer than MAX_DETECTION_LENGTH are not searched. Linear in the length:
-    about a tenth of a second for a plastome, a second for 2 Mb."""
+    or short of it (within IR_MAX_INDEL + k bases: an indel next to the origin stops the extension) with matching
+    k-mers beyond (_may_continue), is searched again in the sequence rotated to start between the copies, where
+    the whole of each copy is seeded; that result is taken when it is the same pair of copies. Sequences shorter
+    than two copies or longer than MAX_DETECTION_LENGTH are not searched. Linear in the length: about a tenth of
+    a second for a plastome, a second for 2 Mb."""
     seq = seq.upper()
     n = len(seq)
     k = IR_K
@@ -1334,7 +1344,11 @@ def detect_inverted_repeat(seq: str, _rotated: bool = False) -> InvertedRepeat |
             break
     repeat = InvertedRepeat((a % n + 1, (a_end - 1) % n + 1), (b % n + 1, (b_end - 1) % n + 1),
                             (a_end - a, b_end - b), differences)
-    if not _rotated and (a < 0 or b_end > n or ((a == 0 or b_end == n) and _may_continue(seq, a, b_end, k))):
+    # Copies ending at the origin, or short of it (an indel or a run of N a few bases from it stops the
+    # extension), with matching k-mers beyond: searched again
+    near = IR_MAX_INDEL + k
+    if not _rotated and (a < 0 or b_end > n
+                         or ((a < near or b_end > n - near) and _may_continue(seq, a, b_end, k))):
         offset = (a_end + b) // 2 % n
         found = detect_inverted_repeat(seq[offset:] + seq[:offset], _rotated=True)
         if found is not None:
@@ -1523,9 +1537,14 @@ class SequenceAnnotation:
         else:
             self.band = RegionBand(regions, "annotation") if regions else None
         self.regions = self.band.regions if self.band else []
-        self._starts = [g.start for g in self.genes]
-        self._by_end = sorted(self.genes, key=lambda g: (g.end, g.start))
-        self._ends = [g.end for g in self._by_end]
+        # The parts of the genes, for their neighbours: a gene across the origin ends at the end of its first
+        # part, not at the end of the sequence
+        parts = sorted((s, e, k) for k, g in enumerate(self.genes) for s, e in g.extent)
+        self._starts = [s for s, _, _ in parts]
+        self._by_start = [self.genes[k] for _, _, k in parts]
+        parts.sort(key=lambda p: (p[1], p[0]))
+        self._ends = [e for _, e, _ in parts]
+        self._by_end = [self.genes[k] for _, _, k in parts]
         self._bins: dict[int, list[Gene]] = {}
         for g in self.genes:
             for s, e in g.extent:
@@ -1542,14 +1561,14 @@ class SequenceAnnotation:
         return found
 
     def neighbours(self, pos: int) -> tuple[Gene | None, Gene | None]:
-        """The nearest gene ending before `pos` and the nearest starting after it (around the origin when the
-        sequence is circular)."""
+        """The gene with the nearest part ending before `pos` and that with the nearest part starting after it
+        (around the origin when the sequence is circular)."""
         if not self.genes:
             return None, None
         i = bisect_left(self._ends, pos)
         before = self._by_end[i - 1] if i > 0 else (self._by_end[-1] if self.circular else None)
         j = bisect_right(self._starts, pos)
-        after = self.genes[j] if j < len(self.genes) else (self.genes[0] if self.circular else None)
+        after = self._by_start[j] if j < len(self._starts) else (self._by_start[0] if self.circular else None)
         return before, after
 
     def region_at(self, pos: int) -> str:

@@ -41,6 +41,7 @@ def kill_running() -> int:
     with _RUNNING_LOCK:
         _STOPPING.set()
         procs = [p for p in _RUNNING if p.poll() is None]
+        _RUNNING.intersection_update(procs)  # Programs that ended (killed earlier) are forgotten
     for p in procs:
         _kill(p)
     return len(procs)
@@ -147,8 +148,10 @@ def run(cmds: Sequence[Sequence[str]] | Sequence[str], log_file: Path, *, stdout
                 _kill(p)
             raise
         finally:
+            # A program still running stays listed: a second Ctrl-C can stop the loop above before it was killed,
+            # and kill_running() must still find it.
             with _RUNNING_LOCK:
-                _RUNNING.difference_update(procs)
+                _RUNNING.difference_update(p for p in procs if p.poll() is not None)
     failed = [(cmd, code) for cmd, code in zip(pipeline, codes) if code != 0]
     if failed:
         # In a pipeline, a program killed by SIGPIPE (-13) only reports that a later one stopped reading:

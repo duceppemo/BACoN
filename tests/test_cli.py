@@ -68,6 +68,61 @@ def test_argument_errors(argv, message, capsys):
     assert message in capsys.readouterr().err
 
 
+def test_hdist_with_minimap2_is_ignored_with_a_warning(tmp_path, caplog, monkeypatch):
+    import bacon.cli
+    seen = []
+    monkeypatch.setattr(bacon.cli, "run", lambda s: seen.append(s.hdist) or 0)
+    base = ["-r", "r.fa", "-i", str(tmp_path), "-o", str(tmp_path / "o")]
+    assert main([*base, "--hdist", "2"]) == 0
+    assert "--hdist only applies to --baiting-method bbduk: ignored with minimap2" in caplog.text
+    caplog.clear()
+    assert main([*base, "-b", "bbduk", "--hdist", "2"]) == 0
+    assert main([*base, "-b", "bbduk"]) == 0
+    assert main(base) == 0
+    assert "--hdist" not in caplog.text
+    assert seen == [2, 2, 1, 1]
+
+
+def test_an_interrupted_run_kills_the_programs_left_running(tmp_path, monkeypatch):
+    import subprocess
+
+    import bacon.cli
+    from bacon import tools
+    proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    with tools._RUNNING_LOCK:
+        tools._RUNNING.add(proc)  # A program a second Ctrl-C kept the first one's cleanup from killing
+
+    def interrupted(settings):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bacon.cli, "run", interrupted)
+    try:
+        assert main(["-r", "r.fa", "-i", str(tmp_path), "-o", str(tmp_path / "o")]) == 130
+        assert proc.wait(timeout=5) == -9
+    finally:
+        proc.kill()
+        with tools._RUNNING_LOCK:
+            tools._RUNNING.discard(proc)
+
+
+def test_after_the_run_ctrl_c_ends_the_program_without_a_traceback(tmp_path):
+    import subprocess
+    import sys
+    # Run as a program (no arguments given to main): Python's exit, which waits for the threads, is not
+    # interrupted by a KeyboardInterrupt
+    code = ("import signal, sys, bacon.cli\n"
+            "bacon.cli.run = lambda s: (_ for _ in ()).throw(KeyboardInterrupt)\n"
+            f"sys.argv = ['bacon', '-r', 'r.fa', '-i', {str(tmp_path)!r}, '-o', {str(tmp_path / 'o')!r}]\n"
+            "print(bacon.cli.main(), signal.getsignal(signal.SIGINT) is signal.SIG_DFL)\n")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    assert out.split() == ["130", "True"]
+    # Called with arguments (as here), main leaves the handler of Ctrl-C as it was
+    import signal
+    before = signal.getsignal(signal.SIGINT)
+    main(["-r", str(tmp_path / "missing.fa"), "-i", str(tmp_path), "-o", str(tmp_path / "o2"), "--snp-method", "none"])
+    assert signal.getsignal(signal.SIGINT) is before
+
+
 def test_bacon_error_exits_1(tmp_path, capsys):
     code = main(["-r", str(tmp_path / "missing.fa"), "-i", str(tmp_path), "-o", str(tmp_path / "o"),
                  "--snp-method", "none"])

@@ -38,13 +38,22 @@ def split_extension(filename: str) -> tuple[str, str] | None:
     return None
 
 
+UTF8_BOM = b"\xef\xbb\xbf"
+
+
 def open_text(path: Path) -> io.TextIOBase:
-    """Open a text file for reading, decompressing it if it is gzipped (detected from its content)."""
+    """Open a text file for reading, decompressing it if it is gzipped (detected from its content), without the
+    UTF-8 byte order mark that some editors write at its start (it would hide the first line's '>' or '@')."""
     with open(path, "rb") as fh:
         magic = fh.read(2)
-    if magic == b"\x1f\x8b":
-        return _gzip.open(path, "rt", encoding="ascii", errors="replace")
-    return open(path, encoding="ascii", errors="replace")
+    binary = _gzip.open(path, "rb") if magic == b"\x1f\x8b" else open(path, "rb")  # noqa: SIM115 - returned
+    try:
+        if binary.read(len(UTF8_BOM)) != UTF8_BOM:
+            binary.seek(0)
+    except BaseException:
+        binary.close()
+        raise
+    return io.TextIOWrapper(binary, encoding="ascii", errors="replace")
 
 
 def open_write(path: Path) -> io.TextIOBase:

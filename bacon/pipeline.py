@@ -119,12 +119,14 @@ class Checkpoints:
     def path(self, step: str) -> Path:
         return self.folder / f"{step}.json"
 
-    def load(self, step: str, fingerprint: str) -> dict | None:
+    def load(self, step: str, fingerprint: str, *older: str) -> dict | None:
+        """The checkpoint of a step, if it was made with these parameters: `fingerprint`, or one of the `older`
+        fingerprints that earlier versions gave the same parameters (data["fingerprint"] says which)."""
         try:
             data = json.loads(self.path(step).read_text())
         except (OSError, ValueError):
             return None
-        if data.get("fingerprint") != fingerprint:
+        if data.get("fingerprint") not in (fingerprint, *older):
             return None
         root = data.get("root") or _guess_root(data.get("results"))  # No root before 0.3.4
         if root and root != self.root:  # A moved or copied output folder: its own files
@@ -354,6 +356,9 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
     tmp = local.with_suffix(".tmp")
     write_fasta(tmp, records)
     if not local.exists() or local.read_bytes() != tmp.read_bytes():
+        if (option := _given_as(s, local)) is not None:  # The copy would change an input: refused
+            tmp.unlink()
+            raise _overwritten(s, option, local)
         tmp.replace(local)
     else:
         tmp.unlink()
@@ -361,6 +366,62 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
 
 
 ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")
+# The files BACoN writes at the top of the output folder, and the temporary files they are written to
+OUTPUT_FILES = ("reference.fasta", "reference.tmp", *ANNOTATION_COPIES, "annotation.tmp", md.COPY_NAME,
+                "metadata.tmp", "summary.tsv", "summary.tsv.tmp", "run_info.json", "run_info.json.tmp",
+                "report.html", "report.html.tmp", "bacon.log", ".bacon.lock",
+                *(f"bacon_{name}_mqc.json{tmp}" for name in ("samples", "reads", "distances")
+                  for tmp in ("", ".tmp")))
+# The copies BACoN makes of an input, which may be that input itself when they leave it as it is (e.g. -r
+# OUTPUT/reference.fasta of an earlier run): checked again before they are written.
+OWN_COPIES = {"-r/--reference": ("reference.fasta", "annotation.gb"), "--annotation": ANNOTATION_COPIES,
+              "--metadata": (md.COPY_NAME,)}
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:  # One of them does not exist
+        return False
+
+
+def _inputs(s: Settings) -> list[tuple[str, Path]]:
+    """The input files of the run (but the reads), with the option that gives each."""
+    given = [("-r/--reference", s.reference), ("--annotation", s.annotation), ("--metadata", s.metadata),
+             ("--sample-sheet", s.sample_sheet), *(("--add-genomes", p) for p in s.add_genomes)]
+    return [(option, path) for option, path in given if path is not None]
+
+
+def _given_as(s: Settings, path: Path) -> str | None:
+    """The option giving `path` (the same file, through a link or not) as an input of this run, or None."""
+    return next((option for option, given in _inputs(s) if _same_file(path, given)), None)
+
+
+def _overwritten(s: Settings, option: str, path: Path) -> BaconError:
+    return BaconError(f"{option} {_input_path(s, option, path)} is the file {path.name} that BACoN writes in the "
+                      f"output folder, and would be overwritten: move it out of {s.output}, or use another output "
+                      "folder")
+
+
+def _input_path(s: Settings, option: str, path: Path) -> Path:
+    """The input given with `option` that is the file `path`."""
+    return next((given for o, given in _inputs(s) if o == option and _same_file(path, given)), path)
+
+
+def _check_inputs_kept(s: Settings) -> None:
+    """Refuse, before anything is written, an input that BACoN would overwrite or delete: one of the files it
+    writes at the top of the output folder (but the copy it makes of that input, OWN_COPIES), or the copy of an
+    added genome."""
+    for option, path in _inputs(s):
+        for name in OUTPUT_FILES:
+            if name not in OWN_COPIES.get(option, ()) and _same_file(path, s.output / name):
+                raise BaconError(f"{option} {path} is a file BACoN writes in the output folder ({name}): move it "
+                                 f"out of {s.output}, or use another output folder")
+    for path in s.add_genomes:
+        parts = split_extension(path.name)
+        if parts and _same_file(path, s.output / FOLDERS["compare"] / "added_genomes" / f"{parts[0]}.fasta"):
+            raise BaconError(f"--add-genomes {path} is BACoN's copy of an added genome (its sequences renamed), "
+                             "rewritten by each run: give the original file")
 
 
 def _open_bytes(path: Path):
@@ -405,10 +466,13 @@ def _recorded_copy(s: Settings, key: str) -> str | None:
 
 
 def _remove_copy(s: Settings, path: Path, recorded: str | None, what: str) -> None:
-    """Remove the copy of an earlier run when it was BACoN's; otherwise leave it and say so."""
+    """Remove the copy of an earlier run when it was BACoN's (and is not an input of this run); otherwise leave it
+    and say so."""
     if not path.exists():
         return
-    if path.name == recorded:
+    if (option := _given_as(s, path)) is not None:
+        log.info("%s %s is given with %s: kept", what, path, option)
+    elif path.name == recorded:
         path.unlink()
     else:
         log.info("%s %s was not written by BACoN: kept (the report uses it; delete it if it is stale)", what, path)
@@ -457,11 +521,15 @@ def _prepare_annotation(s: Settings, reference: Path) -> tuple[dict[str, object]
     with _open_bytes(source) as src, open(tmp, "wb") as dst:  # The bytes as they are (non-ASCII text included)
         for chunk in iter(lambda: src.read(1 << 20), b""):
             dst.write(chunk)
+    given = _given_as(s, copy)  # An input that is the copy itself: the user's file, kept if it would not change
     if copy.exists() and copy.read_bytes() == tmp.read_bytes():
         tmp.unlink()
+    elif given is not None:
+        tmp.unlink()
+        raise _overwritten(s, given, copy)
     else:
         tmp.replace(copy)
-    _record_copy(s, "annotation", copy.name)
+    _record_copy(s, "annotation", None if given else copy.name)  # None: not to be removed as BACoN's
     log.info("Annotation %s: %d gene(s) on %d of the reference's %d sequence(s)", source.name, annotation.genes,
              len(annotation.sequences), len(sequences))
     return ({"file": str(source), "format": annotation.format, "copy": copy.name, "genes": annotation.genes,
@@ -499,8 +567,18 @@ def _prepare_metadata(s: Settings, samples: list[Sample]) -> dict[str, object] |
     column, why_not = md.choose_colour_column(metadata, s.color_by)  # BaconError on an unknown column
     if why_not:
         log.warning("Metadata: %s", why_not)
-    md.write_copy(copy, metadata)
-    _record_copy(s, "metadata", copy.name)
+    given = _given_as(s, copy)  # An input that is the copy itself: the user's file, kept if it would not change
+    if given is None:
+        md.write_copy(copy, metadata)
+    else:
+        probe = s.output / ".checkpoints" / md.COPY_NAME  # The copy, written aside to compare it
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        md.write_copy(probe, metadata)
+        changed = probe.read_bytes() != copy.read_bytes()
+        probe.unlink()
+        if changed:
+            raise _overwritten(s, given, copy)
+    _record_copy(s, "metadata", None if given else copy.name)  # None: not to be removed as BACoN's
     with_row = sum(1 for n in names if n in merged.rows)
     added_with_row = sum(1 for n in added if n in merged.rows)
     log.info("Metadata: %d column(s) (%s); %d of %d samples have a row%s; %s", len(metadata.columns),
@@ -580,6 +658,7 @@ def run(s: Settings) -> int:
         raise BaconError(f"The output folder {s.output} cannot be the input folder or inside it")
     if s.output.exists() and not s.output.is_dir():
         raise BaconError(f"The output folder {s.output} is a file")
+    _check_inputs_kept(s)
     try:
         s.output.mkdir(parents=True, exist_ok=True)
         lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
@@ -649,16 +728,23 @@ def _run(s: Settings, started: float) -> int:
     # Each sample's input files (path, size, time), checked per sample: adding or changing one sample's reads
     # reruns that sample only.
     inputs = {x.name: [_file_signature(f) for f in x.files] for x in samples}
+    # The parameters that change a step's outputs: not --keep-bam, which only adds a BAM (a sample whose BAM is
+    # missing is baited again), nor Flye's options with another assembler.
+    flye_options = {"read_type": s.read_type, "min_size": s.min_size, "iterations": s.flye_iterations}
     params = {
         "bait": {"reference": _md5(reference),
-                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None, "keep_bam": s.keep_bam,
-                 **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},  # Same checkpoints as 0.3.2 for minimap2
+                 "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None,
+                 **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
                    "target_depth": s.target_depth, "genome_size": genome_size},
-        "assemble": {"assembler": s.assembler, "read_type": s.read_type, "min_size": s.min_size,
-                     "iterations": s.flye_iterations, "genome_size": genome_size,
-                     "template_gaps": s.template_gaps if s.assembler == "samtools" else None},
+        "assemble": {"assembler": s.assembler, "genome_size": genome_size,
+                     "template_gaps": s.template_gaps if s.assembler == "samtools" else None,
+                     **(flye_options if s.assembler == "flye" else {})},
     }
+    # BACoN <= 0.3.7 also recorded --keep-bam and Flye's options whatever the assembler (as 0.3.2 for minimap2):
+    # the checkpoints of a folder it made are reused when nothing else changed, made with --keep-bam or without.
+    older = {keep_bam: {"bait": {**params["bait"], "keep_bam": keep_bam}, "filter": params["filter"],
+                        "assemble": {**params["assemble"], **flye_options}} for keep_bam in (False, True)}
 
     baiting = {"samples": len(states)}  # Samples to bait in this run
 
@@ -695,47 +781,63 @@ def _run(s: Settings, started: float) -> int:
               "assemble": {"samtools": "Building the templated consensus with samtools",
                            "flye": "Assembling with Flye", "myloasm": "Assembling with myloasm"}[s.assembler]}
     fingerprint = __version__.split(".")[0]
+    older_fingerprints = {keep_bam: fingerprint for keep_bam in older}
     refreshed: set[str] = set()  # Samples whose output changed in this run: their later steps must run again
     for i, step in enumerate(STEPS[:-1]):
         fingerprint = _fingerprint(fingerprint, params[step])
-        saved = None if i >= redo_from else checkpoints.load(step, fingerprint)
+        older_fingerprints = {k: _fingerprint(fp, older[k][step]) for k, fp in older_fingerprints.items()}
+        saved = None if i >= redo_from else checkpoints.load(step, fingerprint, *older_fingerprints.values())
         relocated = bool(saved and saved.get("relocated"))  # A moved or copied folder: sizes alone are compared
+        # With --keep-bam (minimap2), a sample's baiting is reused only if it left its BAM: recorded in its result,
+        # or by the fingerprint of a checkpoint of BACoN <= 0.3.7 made with --keep-bam.
+        bam = step == "bait" and s.keep_bam and s.baiting == "minimap2"
+        made_with_bam = saved is not None and saved["fingerprint"] == older_fingerprints[True]
+        if step == "bait" and s.baiting == "minimap2" and made_with_bam:
+            for res in saved["results"].values():  # type: ignore[index]
+                res["bam"] = not res.get("failed")
         # What each sample's step reads: its input files (bait), or the output of the previous step.
         upstream = {st.sample.name: inputs[st.sample.name] if step == "bait" else _output_signature(st.reads)
                     for st in states}
         reads = {st.sample.name: st.reads for st in states}
+        # The samples left out of this run (a line of the sample sheet commented out) keep their results: when
+        # they come back, those are checked against their input as any other.
+        absent = {name: res for name, res in (saved or {}).get("results", {}).items() if name not in inputs}
         # Reuse the samples that succeeded with the same parameters and the same input; run the others (new,
         # failed before, or whose input changed).
         results = {name: res for name, res in (saved or {}).get("results", {}).items()
                    if name in inputs and not res.get("failed") and name not in refreshed
                    and (_same_files(res.get("input"), inputs[name]) if step == "bait"
                         else _same_input(res, upstream.get(name), reads.get(name), relocated))
-                   and _outputs_exist({name: res})}
+                   and _outputs_exist({name: res})
+                   and (not bam or res.get("bam") and (folder["bait"] / f"{name}.bam").is_file())}
         for name, res in results.items():  # The input's signature, as it is here: a copy's files, earlier versions
             res["input" if step == "bait" else "upstream"] = upstream[name]
         todo = [st for st in states if not st.failed and st.sample.name not in results]
         if not todo:
             log.info("%s: already done, skipping", labels[step])
-            checkpoints.save(step, fingerprint, results)  # With the signatures and the folder of this version
+            checkpoints.save(step, fingerprint, {**absent, **results})  # With the signatures of this version
         else:
             if results:
                 log.info("%s: resuming, %d sample(s) already done", labels[step], len(results))
             log.info("%s...", labels[step])
             # Saved at once: a checkpoint left by other parameters must not outlive the start of the step (an
             # interruption could leave outputs made with these parameters under it).
-            checkpoints.save(step, fingerprint, results)
+            checkpoints.save(step, fingerprint, {**absent, **results})
             lock = threading.Lock()
 
             def done(name: str, res: dict, step: str = step, fp: str = fingerprint, results: dict = results,
-                     upstream: dict = upstream, lock: threading.Lock = lock) -> None:
+                     absent: dict = absent, upstream: dict = upstream, bam: bool = bam,
+                     lock: threading.Lock = lock) -> None:
                 # Saved as each sample finishes: an interruption loses only the samples still running.
                 if step == "bait":
                     res["input"] = inputs[name]
+                    if bam and not res.get("failed"):
+                        res["bam"] = True
                 elif not res.get("failed"):
                     res["upstream"] = upstream[name]
                 with lock:
                     results[name] = res
-                    checkpoints.save(step, fp, results)
+                    checkpoints.save(step, fp, {**absent, **results})
 
             if step == "bait":
                 baiting["samples"] = len(todo)
@@ -752,7 +854,8 @@ def _run(s: Settings, started: float) -> int:
 
     try:
         comparison = _compare(s, states, reference, folder["compare"], logs / "4_compare", checkpoints,
-                              fingerprint, bool(refreshed) or redo_from <= STEPS.index("compare"))
+                              [fingerprint, *older_fingerprints.values()],
+                              bool(refreshed) or redo_from <= STEPS.index("compare"))
     except Exception as exc:  # The assemblies are still worth reporting
         message = str(exc).splitlines()[0] if isinstance(exc, BaconError) else f"{type(exc).__name__}: {exc}"
         _finish(s, states, tools, {"failed": message}, started, annotation, metadata, regions)
@@ -764,7 +867,9 @@ def _run(s: Settings, started: float) -> int:
 
 
 def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path, log_dir: Path,
-             checkpoints: Checkpoints, fingerprint: str, force: bool) -> dict | None:
+             checkpoints: Checkpoints, fingerprints: list[str], force: bool) -> dict | None:
+    """The comparison of the assemblies; `fingerprints`: of the steps before it, this version's first, then those
+    of earlier versions for the same parameters."""
     if s.snp_method == "none":
         log.info("Comparison skipped (--snp-method none)")
         return None
@@ -772,17 +877,18 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     added = _prepare_added_genomes(s, root, {st.sample.name for st in states})  # Failed samples' names too
     assemblies.update(added)
     if len(assemblies) < 3:
-        log.warning("Comparison skipped: a tree needs at least three assemblies (%d available)", len(assemblies))
-        return {"skipped": f"only {len(assemblies)} assemblies"}
-    fingerprint = _fingerprint(fingerprint, {"method": s.snp_method, "tree": s.tree,
-                                             "ska_min_freq": s.ska_min_freq, "assemblies": sorted(assemblies),
-                                             "added": {k: _md5(v) for k, v in added.items()}})
+        why = f"a tree needs at least three assemblies ({len(assemblies)} available)"
+        log.warning("Comparison skipped: %s", why)
+        return {"skipped": why}  # The report: "The comparison was skipped: {why}."
+    params = {"method": s.snp_method, "tree": s.tree, "ska_min_freq": s.ska_min_freq,
+              "assemblies": sorted(assemblies), "added": {k: _md5(v) for k, v in added.items()}}
+    fingerprint, *older = [_fingerprint(fp, params) for fp in fingerprints]
     signatures = {k: _output_signature(v) for k, v in sorted(assemblies.items())}
-    saved = None if force else checkpoints.load("compare", fingerprint)
+    saved = None if force else checkpoints.load("compare", fingerprint, *older)
     if saved is not None and not _same_assemblies(saved["results"].pop("inputs", None), signatures, assemblies,
                                                   saved["results"].get("distances"), bool(saved.get("relocated"))):
         saved = None  # An assembly changed since (made again, then interrupted before the comparison)
-    if saved is not None and Path(saved["results"].get("distances", "")).is_file():
+    if saved is not None and _comparison_files_exist(saved["results"]):
         log.info("Comparison with %s: already done, skipping", s.snp_method)
         result = saved["results"]
         checkpoints.save("compare", fingerprint, {**result, "inputs": signatures})  # Signatures of this version
@@ -825,6 +931,13 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
     log.info("SNP sites: %s; distances: %s; tree: %s", result["core_snps"], result["distances"],
              result["tree"] or "none")
     return result
+
+
+def _comparison_files_exist(result: dict) -> bool:
+    """Whether a saved comparison's files are still there: its distances, its alignment and its tree (when it made
+    one: not without a SNP site shared by all the genomes)."""
+    return Path(result.get("distances") or "").is_file() and all(
+        Path(result[key]).is_file() for key in ("alignment", "tree") if result.get(key))
 
 
 def _same_assemblies(saved: dict | None, signatures: dict, assemblies: dict[str, Path | None],

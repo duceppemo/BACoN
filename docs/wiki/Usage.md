@@ -98,7 +98,7 @@ without `.gz`). Three ways to give them:
 | Input | Samples |
 |---|---|
 | `-i sample.fastq.gz` | one sample, named after the file (`sample`) |
-| `-i folder/` | each sequence file directly in the folder is a sample named after the file; each subfolder is a sample named after the subfolder, made of all the sequence files it contains, in any depth. MinKNOW's `fastq_pass/` works as is (`barcode01/`, `barcode02/`, ...); `unclassified/` and `mixed/` are skipped |
+| `-i folder/` | each sequence file directly in the folder is a sample named after the file; each subfolder is a sample named after the subfolder, made of all the sequence files it contains, in any depth (linked subfolders included; a subfolder without any is skipped, with a message). MinKNOW's `fastq_pass/` works as is (`barcode01/`, `barcode02/`, ...); `unclassified/` and `mixed/` are skipped |
 | `--sample-sheet samples.tsv` | a TSV or CSV file with the columns `sample` and `file`; several files per sample separated by `;` or on several rows; relative paths start from the sheet's folder; blank lines and lines starting with `#` are ignored; any other column is sample metadata (above) |
 
 Sample names may contain letters, digits and `.` `_` `+` `-`. Two inputs giving the same sample name, or a
@@ -117,7 +117,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--color-by` | first usable column | Colours every genome in the report (tree, heatmap, bar charts, tables) by this metadata column (at most 48 distinct values, each with a colour and a shape; not free text), or `none` |
 | `-b`, `--baiting-method` | `minimap2` | `minimap2`: reads with an alignment to the reference; `bbduk`: reads sharing a k-mer (with `--hdist` mismatches) |
 | `-k`, `--kmer-size` | 31 | BBDuk k-mer size (at most 31) |
-| `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample |
+| `--hdist` | 1 | BBDuk: mismatches allowed in a k-mer (0, 1 or 2). Each one multiplies BBDuk's memory: with 2, a 155 kb plastome needs about 14 GB per sample (ignored, with a warning, with `-b minimap2`) |
 | `--keep-bam` | off | Keep the sorted BAM of the baited reads (minimap2) |
 | `--min-read-length` | 500 | Shorter reads are discarded |
 | `--keep-percent` | 95 | Filtlong keeps the best reads, up to this percentage of the bases (fastq only: fasta reads have no qualities and are selected by length) |
@@ -128,7 +128,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--min-size` | automatic | Flye minimum read overlap |
 | `-s`, `--size` | reference length | Expected genome size, for Flye and for `--target-depth` |
 | `--snp-method`, `-snp` | `ska` | `ska` (SKA2 split k-mers), `parsnp` (core-genome alignment), `none` (stop after the assembly) |
-| `--ska-min-freq` | 1.0 | SKA2: fraction of the genomes that must contain a variant's context; 1 = core SNPs, lower = pan-genome SNPs (like kSNP) |
+| `--ska-min-freq` | 1.0 | SKA2: fraction of the genomes that must contain a variant's context; 1 = core SNPs, lower = pan-genome SNPs (like kSNP); see [Methods](Methods#4-comparison) |
 | `--add-genomes` | | Finished genomes (fasta) to include in the comparison, such as published plastomes; named after their file |
 | `--tree` | `fasttree` | `fasttree` (GTR, SH-like supports from 100 resamples) or `iqtree` (model selection, 1000 ultrafast bootstraps) |
 | `--redo` | | Rerun this step and the following ones: `bait`, `filter`, `assemble`, `compare` |
@@ -142,8 +142,9 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 ## Resuming and changing parameters
 
 Each step records the parameters it ran with in `OUTPUT/.checkpoints/`. Running the same command again skips
-every finished step; changing a parameter reruns that step and the ones after it, and only them. For example,
-after a first run with the defaults:
+every finished step; changing a parameter reruns that step and the ones after it, and only them (Flye's options
+with another assembler rerun nothing, and `--keep-bam` only adds BAMs: it reruns only the samples without one).
+For example, after a first run with the defaults:
 
 ```bash
 bacon -r ref.fasta -i reads/ -o out/ -a flye              # reuses baiting and filtering, assembles with Flye
@@ -153,8 +154,9 @@ bacon -r ref.fasta -i reads/ -o out/ -a flye --snp-method parsnp   # reuses the 
 Each comparison is written to its own folder (`4_compared/ska/`, `4_compared/parsnp/`,
 `4_compared/ska_0.5/`), so several can be kept side by side. A sample that failed is retried on the next run;
 samples added to the input are processed without redoing the others' baiting and filtering (their
-assemblies are compared again). The files of a sample removed from the input stay in the output folder, unused;
-after switching from a de novo to the templated assembly, the de novo assembly graphs of each sample are
+assemblies are compared again). The files of a sample removed from the input (or whose line of the sample
+sheet is commented out) stay in the output folder, unused, and are reused if it comes back unchanged; after
+switching from a de novo to the templated assembly, the de novo assembly graphs of each sample are
 removed.
 
 `--redo STEP` forces a step to run again, for example after installing a newer assembler.
@@ -163,6 +165,16 @@ A run stopped with Ctrl-C (or SIGTERM, SIGHUP: `kill`, a closed terminal, a job 
 the programs it started; each sample finished before the interruption is recorded, so the next run redoes only
 the samples that were still running. A run started with `nohup` keeps running when the terminal is closed. Two
 runs cannot use the same output folder at the same time: the second one stops with an error.
+
+A run killed with SIGKILL (`kill -9`, the kernel's out-of-memory killer) cannot stop the programs it started:
+each runs in its own process group, and they keep running (and writing to the output folder) until they end.
+Their command lines name the output folder: list them with `pgrep -af /full/path/to/out` (or
+`ps -ef | grep /full/path/to/out`) and, once the list holds only them, stop them with `pkill -f /full/path/to/out`
+before running BACoN again on that folder.
+
+An input file in the output folder that BACoN would overwrite (`-r`, `--annotation`, `--metadata`,
+`--sample-sheet` named as one of the files BACoN writes there, e.g. `reference.fasta` or `metadata.tsv`) is an
+error, unless it is already exactly the copy BACoN would write (`-r out/reference.fasta` of an earlier run).
 
 An output folder can be moved or copied and resumed from its new place, whether or not the copy kept the files'
 times (`cp -r`, `scp`, `rsync` without `-t`, an archive): BACoN recognizes each step's input by its size and

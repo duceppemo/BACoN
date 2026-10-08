@@ -315,3 +315,28 @@ def test_clean_vcf_rejects_positions_shifted_by_old_parsnp(tmp_path):
         _clean(tmp_path, _vcf(tmp_path, shifted))
     one_ambiguous = "chr\t11\t.\tA\tC\t40\tPASS\tNA\tGT\t1\t0\t1\nchr\t21\t.\tA\tC\t40\tPASS\tNA\tGT\t0\t0\t1\n"
     assert _clean(tmp_path, _vcf(tmp_path, one_ambiguous))[0] == 1
+
+
+@pytest.mark.parametrize("case", ["one_site", "n_rich", "two_unique"])
+def test_iqtree_on_tiny_or_near_identical_alignments(tmp_path, case):
+    """IQ-TREE cannot guess DNA from a handful of SNP sites, and skips its bootstrap (no .contree) below four
+    distinct sequences: the tree is still built, and its title does not claim bootstrap supports it lacks."""
+    import shutil
+
+    from bacon.compare import build_tree
+    from bacon.newick import parse
+    if not shutil.which("iqtree3") and not shutil.which("iqtree"):
+        pytest.skip("IQ-TREE is not installed")
+    seqs = {"one_site": ["A", "A", "C", "C"],
+            "n_rich": ["ACGTNNACGT", "ACGANNACGT", "TCGANNNCGA", "TCGTNNACNA", "ACGTNNACGA"],
+            "two_unique": ["ACGTACGTAC", "TGCATGCATG", "TGCATGCATG", "TGCATGCATG"]}[case]
+    aln = tmp_path / "aln.fasta"
+    aln.write_text("".join(f">s{i}\n{s}\n" for i, s in enumerate(seqs)))
+    (tmp_path / "logs").mkdir()
+    tree = build_tree(aln, tmp_path, tmp_path / "logs", method="iqtree", threads=1)
+    assert sorted(leaf.name for leaf in parse(tree.read_text()).leaves()) == [f"s{i}" for i in range(len(seqs))]
+    title = (tmp_path / "tree.svg").read_text()
+    if case == "two_unique":
+        assert "no bootstrap" in title and "ultrafast bootstrap" not in title
+    else:
+        assert "ultrafast bootstrap" in title

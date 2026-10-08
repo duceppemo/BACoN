@@ -357,6 +357,9 @@ def report_metadata(output: Path, info: dict) -> tuple[Metadata | None, Colourin
     recorded = info.get("metadata")
     if isinstance(recorded, dict) and "color_by" in recorded:
         column = recorded["color_by"] if recorded["color_by"] in metadata.columns else None
+        if recorded["color_by"] and column is None:  # The copy was edited since the run: the column is gone
+            return metadata, None, (f"The metadata column {recorded['color_by']!r} recorded to colour the figures "
+                                    f"is not in {COPY_NAME}; the figures are not coloured")
         # The run checked the column, but the copy may have been edited since (too many values to mark each one)
         reason = unusable_reason(metadata.values(column)) if column else None
         if reason:
@@ -863,6 +866,15 @@ def read_vcf(path: Path) -> tuple[list[Snp], int]:
     return snps, genomes
 
 
+def _vcf_is_empty(path: Path) -> bool:
+    """Whether a VCF has no record (read up to the first one); False when it cannot be read."""
+    try:
+        with open(path) as fh:
+            return not any(line.strip() and not line.startswith("#") for line in fh)
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def _call_kind(sample: str) -> str:
     """'missing', 'alt' or 'ref' for a sample column of a VCF record (the genotype is before the first colon):
     plain genotypes without a regex, the rest (0/1, 1|0, ./.) split on / and |."""
@@ -1220,9 +1232,11 @@ def _regions_methods(bands: dict[str, RegionBand] | None) -> str:
 
 
 def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
-                 bands: dict[str, RegionBand] | None = None, genes: MapGenes | None = None) -> str:
+                 bands: dict[str, RegionBand] | None = None, genes: MapGenes | None = None,
+                 supports: bool = True) -> str:
     """A methods paragraph built from the settings and program versions of the run (and the regions of the
-    genome map, `bands`, when the report drew one; the annotation, `genes`, when the map drew its genes)."""
+    genome map, `bands`, when the report drew one; the annotation, `genes`, when the map drew its genes;
+    `supports`: False when the tree has none, as IQ-TREE's with fewer than four distinct sequences)."""
     s = info.get("settings") or {}
     ref = info.get("reference") or {}
     comparison = info.get("comparison") or {}
@@ -1268,12 +1282,12 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
                      f"{'' if s.get('flye_iterations') == 1 else 's'}{overlap}).")
     elif assembler == "myloasm":
         parts.append(f"Each sample was assembled de novo with myloasm{_tool(info, 'myloasm')}.")
-    added = s.get("add_genomes") or []
-    if added:
-        parts.append(f"{len(added)} finished genome{'s were' if len(added) > 1 else ' was'} added to the "
-                     "comparison.")
     method = s.get("snp_method")
     compared = comparison.get("distances") and not comparison.get("failed") and not comparison.get("skipped")
+    added = s.get("add_genomes") or []
+    if added and compared:  # No comparison (--snp-method none, skipped, failed): nothing they were added to
+        parts.append(f"{len(added)} finished genome{'s were' if len(added) > 1 else ' was'} added to the "
+                     "comparison.")
     circular = sum(int(r["Circular_contigs"]) for r in rows or [] if r.get("Circular_contigs", "").isdigit())
     if method == "ska" and compared:
         freq = _num(s.get("ska_min_freq"), 1.0)
@@ -1294,7 +1308,11 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
         parts.append(f"The SNPs of each genome relative to the reference were written to a VCF file {how}.")
     if comparison.get("tree"):
         on = "the core-genome alignment" if method == "parsnp" else "the SNP alignment"
-        if s.get("tree") == "iqtree":
+        if s.get("tree") == "iqtree" and not supports:
+            parts.append(f"A tree was built on {on} with IQ-TREE{_tool(info, 'iqtree')} (ModelFinder; with fewer "
+                         "than four distinct sequences IQ-TREE makes no bootstrap: its maximum-likelihood tree is "
+                         "shown, without supports) and rooted at its midpoint.")
+        elif s.get("tree") == "iqtree":
             parts.append(f"A tree was built on {on} with IQ-TREE{_tool(info, 'iqtree')} (ModelFinder, 1000 "
                          "ultrafast bootstraps; the bootstrap consensus tree is shown) and rooted at its "
                          "midpoint.")
@@ -1438,9 +1456,9 @@ dd{{margin:0;word-break:break-all}}
 """
 
 SORT_JS = """
-document.querySelectorAll('table.sortable th').forEach(function (th, i) {
+document.querySelectorAll('table.sortable th').forEach(function (th) {
   th.addEventListener('click', function () {
-    var table = th.closest('table'), body = table.tBodies[0], rows = Array.from(body.rows);
+    var table = th.closest('table'), body = table.tBodies[0], rows = Array.from(body.rows), i = th.cellIndex;
     var ascending = th.dataset.asc !== '1', numeric = th.classList.contains('num');
     table.querySelectorAll('th').forEach(function (h) { h.dataset.asc = ''; });
     th.dataset.asc = ascending ? '1' : '0';
@@ -1581,6 +1599,8 @@ def build_report(output: Path) -> str:
     method = comparison.get("method", "")
     method_name = {"ska": "SKA2", "parsnp": "Parsnp"}.get(method, method)
     tree_tool = {"fasttree": "FastTree", "iqtree": "IQ-TREE"}.get(comparison.get("tree_method", ""), "")
+    # IQ-TREE makes no bootstrap with fewer than four distinct sequences: its tree has no supports
+    supports = tree is None or any(n.name for n in preorder(tree) if n.children)
 
     out = ["<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">",
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
@@ -1677,6 +1697,10 @@ def build_report(output: Path) -> str:
     # Comparison
     if order:
         data = "Parsnp core-genome alignment" if method == "parsnp" else f"{method_name} SNPs"
+        vcf = located("vcf")
+        # No SNP site, and no SNP at all in the VCF (all of them, not only those shared by every genome): the
+        # genomes do not differ anywhere they were compared
+        identical = core_snps == 0 and vcf is not None and _vcf_is_empty(vcf)
         svg = located("tree_svg")
         out.append("<h2>Tree</h2>")
         sites = core_snps if method != "parsnp" and isinstance(core_snps, int) else None
@@ -1699,14 +1723,20 @@ def build_report(output: Path) -> str:
                        "value)." if colours else "")
             bar_text = (" The scale bar is in substitutions per SNP site, with the equivalent number of SNPs."
                         if sites else " The scale bar is in substitutions per site.")
-            out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted and ladderized. Numbers "
-                                       f"on the internal branches are supports.{squares}{circles}{bar_text}"))
+            out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted and ladderized."
+                                       + (" Numbers on the internal branches are supports." if supports else
+                                          " No supports: IQ-TREE makes no bootstrap with fewer than four "
+                                          "distinct sequences." if tree_tool == "IQ-TREE" else " No supports.")
+                                       + f"{squares}{circles}{bar_text}"))
             if colours and not heatmap_drawn and not legend_under_bars:  # No other legend (no summary.tsv)
                 out.append(markers_legend(order, colours))
         elif svg is not None and svg.exists():
             out.append(f'<div class="tree">{svg.read_text()}</div>')
             out.append(figures.caption(f"{esc(data)}; {esc(tree_tool)}, midpoint-rooted; internal labels are "
                                        "supports."))
+        elif core_snps == 0 and identical:
+            out.append("<p>No tree: no genome differs from the others at any position compared (the VCF of the "
+                       "SNPs has none).</p>")
         elif core_snps == 0:
             why = ("no SNP site is shared by all the genomes; see --ska-min-freq"
                    if method == "ska" else "the alignment has no SNP site")
@@ -1736,7 +1766,9 @@ def build_report(output: Path) -> str:
             shown = distances.relative_to(output) if distances.is_relative_to(output) else distances
             out.append(f"<p>{len(order)} genomes: too many for a heatmap in this page; the distances are in "
                        f"<code>{esc(str(shown))}</code>.</p>")
-        if core_snps == 0:
+        if identical:
+            out.append("<p>No SNP: the genomes do not differ at any position compared.</p>")
+        elif core_snps == 0:
             out.append("<p>No SNP site was compared: the distances say nothing about identity.</p>")
         else:
             if groups:
@@ -1758,7 +1790,6 @@ def build_report(output: Path) -> str:
                        "compared.</p>")
 
         # Genome map
-        vcf = located("vcf")
         reference = output / "reference.fasta"
         if vcf is not None and vcf.exists() and reference.exists():
             drawn = _genome_map_section(output, vcf, reference, settings, figures, len(order),
@@ -1770,18 +1801,29 @@ def build_report(output: Path) -> str:
         out.append(f'<p class="warn">{esc(note)}.</p>')
 
     # Methods and provenance
-    out.append(f'<h2>Methods</h2><p class="methods">{methods_text(info, rows, map_bands, map_genes)}</p>')
+    methods = methods_text(info, rows, map_bands, map_genes, supports)
+    out.append(f'<h2>Methods</h2><p class="methods">{methods}</p>')
     out.append("<h2>Run</h2><dl>")
     prov = [("Command", " ".join(info.get("command_line") or [])),
             ("Reference", f"{ref.get('file') or ''} ({ref.get('sequences') or '?'} sequence(s), "
                           f"MD5 {ref.get('md5') or '?'})"),
             ("Output", str(output)), ("Python", f"{info.get('python', '')} on {info.get('platform', '')}")]
+    annotation = info.get("annotation")
+    if isinstance(annotation, dict) and annotation.get("file"):
+        # The file given (--annotation, or the GenBank reference itself), BACoN's copy and the given file's MD5
+        what = ["the reference's own annotation"] if annotation["file"] == ref.get("file") else []
+        if isinstance(annotation.get("genes"), int):
+            what.append(f"{annotation['genes']} genes on {annotation.get('sequences', '?')} sequence(s)")
+        what.append(f"copy {annotation.get('copy') or '?'}, MD5 {annotation.get('md5') or '?'}")
+        prov.insert(2, ("Annotation", f"{annotation['file']} ({'; '.join(what)})"))
     if isinstance(info.get("metadata"), dict):
         recorded = info["metadata"]
         sources = ([str(recorded["file"])] if recorded.get("file") else []) \
             + (["the sample sheet"] if recorded.get("sample_sheet_columns") else [])
+        # The recorded column, and whether this report could use it (an edited copy may have lost it)
+        applied = "" if not recorded.get("color_by") or recorded["color_by"] == column else ", not applied"
         prov.append(("Metadata", f"{' and '.join(sources) or '?'} (copy {recorded.get('copy', COPY_NAME)}; "
-                                 f"colours by {recorded.get('color_by') or 'none'})"))
+                                 f"colours by {recorded.get('color_by') or 'none'}{applied})"))
     prov += [(name, f"{(t or {}).get('version') or '?'} — {(t or {}).get('path', '')}")
              for name, t in (info.get("tools") or {}).items()]
     out.append("".join(f"<dt>{esc(k)}</dt><dd><code>{esc(v)}</code></dd>" for k, v in prov))

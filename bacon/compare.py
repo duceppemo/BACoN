@@ -359,6 +359,7 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
     safe = out_dir / "tree_input.fasta"
     write_fasta(safe, [Record(key, rec.seq) for key, rec in zip(names, records)])
     raw = out_dir / f"{method}.tree"
+    bootstrap = True
     try:
         if method == "fasttree":
             exe = which("FastTree") or "FastTree"
@@ -367,10 +368,19 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
         elif method == "iqtree":
             exe = which("iqtree") or "iqtree"
             prefix = out_dir / "iqtree"
-            # IQ-TREE splits -s on commas (several alignments): it runs in out_dir, on relative paths.
-            run([exe, "-s", safe.name, "-m", "MFP", "-B", "1000", "-T", str(threads), "--prefix", prefix.name,
-                 "-redo", "--seed", "12345"], log_dir / "iqtree.log", cwd=out_dir, what="(IQ-TREE)")
-            shutil.copyfile(prefix.with_suffix(".contree"), raw)
+            consensus = prefix.with_suffix(".contree")
+            consensus.unlink(missing_ok=True)  # Not to take an earlier run's for this one's
+            # IQ-TREE splits -s on commas (several alignments): it runs in out_dir, on relative paths. -st DNA:
+            # it cannot tell the data type of a few SNP sites, or of a column of Ns, on its own.
+            run([exe, "-s", safe.name, "-st", "DNA", "-m", "MFP", "-B", "1000", "-T", str(threads),
+                 "--prefix", prefix.name, "-redo", "--seed", "12345"], log_dir / "iqtree.log", cwd=out_dir,
+                what="(IQ-TREE)")
+            if consensus.is_file():
+                shutil.copyfile(consensus, raw)
+            else:  # Fewer than 4 distinct sequences: IQ-TREE skips the bootstrap, and only writes its ML tree
+                log.warning("Fewer than 4 distinct sequences: IQ-TREE made no bootstrap; its tree has no supports")
+                shutil.copyfile(prefix.with_suffix(".treefile"), raw)
+                bootstrap = False
         else:
             raise ValueError(method)
     finally:
@@ -385,6 +395,7 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
     ladderize(tree)
     out = out_dir / "tree.nwk"
     out.write_text(to_newick(tree) + "\n")
-    label = "SH-like support (FastTree)" if method == "fasttree" else "ultrafast bootstrap (IQ-TREE)"
+    label = ("SH-like support (FastTree)" if method == "fasttree" else "ultrafast bootstrap (IQ-TREE)" if bootstrap
+             else "no bootstrap (IQ-TREE: fewer than 4 distinct sequences)")
     (out_dir / "tree.svg").write_text(to_svg(tree, f"{alignment.name} — midpoint-rooted, {label}"))
     return out

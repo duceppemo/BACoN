@@ -146,3 +146,26 @@ def test_sample_names_cannot_start_with_a_dot(tmp_path, fastq, name):
     if name == ".x":  # A file in a folder with such a name is hidden (skipped); a single file is checked
         with pytest.raises(BaconError, match="Invalid sample name '.x'"):
             discover(fastq(".x.fastq.gz", [("a", "ACGT")]))
+
+
+def test_linked_subfolders_are_followed_and_folders_without_reads_are_reported(tmp_path, fastq, caplog):
+    import logging
+    (tmp_path / "elsewhere" / "pass").mkdir(parents=True)
+    fastq("elsewhere/pass/chunk_0.fastq.gz", [("a", "ACGT")])
+    fastq("elsewhere/pass/chunk_1.fastq.gz", [("b", "ACGT")])
+    d = tmp_path / "in"
+    (d / "barcode01").mkdir(parents=True)
+    (d / "barcode01" / "pass").symlink_to(tmp_path / "elsewhere" / "pass")  # A linked subfolder
+    (d / "barcode01" / "again").symlink_to(tmp_path / "elsewhere" / "pass")  # The same folder twice: read once
+    (d / "barcode01" / "loop").symlink_to(d / "barcode01")  # A loop
+    fastq("in/barcode01/chunk_2.fastq.gz", [("c", "ACGT")])
+    (d / "barcode02").mkdir()
+    (d / "barcode02" / "notes.txt").write_text("no reads")
+    (d / "barcode03").symlink_to(tmp_path / "elsewhere")  # A linked sample folder
+    with caplog.at_level(logging.INFO, logger="bacon"):
+        samples = {s.name: s for s in discover(d)}
+    assert sorted(samples) == ["barcode01", "barcode03"]
+    assert [f.name for f in samples["barcode01"].files] == ["chunk_0.fastq.gz", "chunk_1.fastq.gz",
+                                                             "chunk_2.fastq.gz"]
+    assert [f.name for f in samples["barcode03"].files] == ["chunk_0.fastq.gz", "chunk_1.fastq.gz"]
+    assert f"Skipping folder {d / 'barcode02'}: no fasta/fastq files" in caplog.text

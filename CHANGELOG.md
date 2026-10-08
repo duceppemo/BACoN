@@ -1,5 +1,95 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Options that change no output no longer rerun steps: Flye's options (`--read-type`, `--min-size`, the polishing
+  iterations) with `-a samtools` or `myloasm`, and `--keep-bam`, which reran the baiting and every later step of
+  every sample. Adding `--keep-bam` now baits again only the samples without a BAM (and reruns their later steps);
+  removing it reruns nothing. The checkpoints of an output folder made by an earlier version are still reused
+  when nothing else changed.
+- A sample subfolder of `-i` without any fasta/fastq file is now skipped with a message (`Skipping folder X: no
+  fasta/fastq files`) instead of silently.
+- The reason of a skipped comparison, in `run_info.json` and the report, is now "a tree needs at least three
+  assemblies (N available)" (was "only N assemblies", which the report rendered as "The comparison was skipped:
+  only 1 assemblies.").
+- The Run section of the report records the annotation: the file as given (`--annotation`, or the GenBank
+  reference, said to be the reference's own annotation), its genes and sequences, BACoN's copy and the MD5 of
+  the file.
+- The MultiQC section ids of an output folder whose name has characters other than letters, digits and
+  underscores end with a short hash of the name, so that folders whose names differ only in punctuation
+  (`run-1`, `run_1`, `run 1`), which all gave `run_1`, no longer merge their sections; names of letters, digits
+  and underscores keep their ids.
+- `--hdist` with `-b minimap2` (the default), which ignores it, now says so in a warning instead of being
+  silently ignored.
+
+### Fixed
+- An input file in the output folder could be overwritten or deleted: `bacon -r reference.fasta --metadata
+  metadata.tsv -o .` rewrote the user's reference as BACoN's copy (upper case, N for ambiguity codes, rewrapped)
+  and replaced `metadata.tsv` by BACoN's restricted copy, and a later run without `--annotation` deleted a user's
+  `annotation.gff3` given earlier with `--annotation`. An input (`-r`, `--annotation`, `--metadata`,
+  `--sample-sheet`, `--add-genomes`) that is one of the files BACoN writes at the top of the output folder (or a
+  copy of an added genome) is now an error, and nothing is written over it, unless it is the copy BACoN makes of
+  that very input and the copy would leave it unchanged (`-r out/reference.fasta` of an earlier run): it is then
+  kept as it is and never removed as BACoN's copy. A copy left by an earlier run is never removed while it is an
+  input of the run.
+- A sample left out of a run (its line of the sample sheet commented out, its reads moved away) lost its
+  checkpoints, and was baited, filtered and assembled again when it came back; its results are now kept, and
+  reused when it comes back with the same reads.
+- A comparison whose tree or alignment had been deleted was reused ("already done") and the report said the tree
+  was not found; it is now made again.
+- Reads in a linked subfolder of a sample folder (`barcode01/pass -> /data/run1/pass`) were silently left out
+  (Python < 3.13 does not follow links to folders); linked subfolders are now followed, each folder once (a link
+  to a folder already read, or to a folder above it, is skipped).
+- A fasta or fastq file (reference, reads, added genome) starting with a UTF-8 byte order mark (written by some
+  Windows editors) was refused as neither fasta nor fastq; the mark is now skipped
+  (GenBank and GFF3 annotations too).
+- The SNP table of the report could not be sorted (clicking a header raised an error in the browser): the
+  headers were numbered across the page, and the SNP table, after the samples table, sorted by a column it does
+  not have. Each header now sorts its own table by its own column.
+- The Methods paragraph no longer says that finished genomes were added to the comparison when there was none
+  (`--snp-method none` with `--add-genomes`, or a comparison skipped or failed).
+- A report rebuilt from a folder whose `metadata.tsv` no longer has the colour column recorded by the run
+  dropped the colours silently while the Run section still said `colours by` the column: a note now says that
+  the column is not in `metadata.tsv` and the figures are not coloured, and the Run section adds `not applied`
+  (also when the column has more values than can be coloured).
+- Two metadata columns could share a key in the MultiQC table, one of them lost (`x`, `x_3` and `x.`): keys are
+  now numbered until unused.
+- When the genomes do not differ at any position compared (an empty VCF of the SNPs), the report said "No tree:
+  no SNP site is shared by all the genomes; see --ska-min-freq", which would not help; it now says that no
+  genome differs from the others at any position compared (and, under the distances, that the genomes do not
+  differ, instead of "the distances say nothing about identity"). The FAQ has the new message.
+- `--tree iqtree` failed on small or near-identical comparisons: IQ-TREE 3 could not tell the data type of a
+  SNP alignment of a site or two, or one with many Ns ("cannot confidently detect the sequence data type"; it is
+  now given `-st DNA`), and with fewer than 4 distinct sequences it makes no bootstrap and writes no consensus
+  tree, so BACoN stopped ("The comparison failed unexpectedly"). BACoN now takes IQ-TREE's maximum-likelihood
+  tree, says so in a warning, and titles `tree.svg` "no bootstrap" instead of "ultrafast bootstrap" (the
+  report's caption and Methods paragraph say that the tree has no supports). A
+  consensus tree left by an earlier run is no longer taken for the new one.
+- BBDuk (`-b bbduk`) failed on a reads file whose name does not match its content (`reads.FASTQ.GZ`,
+  `reads.FQ.GZ`, a gzipped `reads.fastq`, a plain-text `reads.fastq.gz`): BBTools reads the format and the
+  compression from the extension, case-sensitively, while BACoN reads them from the content. The link BBDuk
+  reads now gets its extension from the content (`.fastq.gz`, `.fasta`, ...).
+- The detected inverted repeat could be cut short, or missed, when the sequence starts within a few bases of an
+  indel or a run of N inside a copy (the search again from between the copies only ran for copies reaching the
+  origin exactly); it now runs for copies ending within 3 kb of the origin with matching k-mers beyond it. The
+  repeats found in NC_000932.1, NC_001224.1, NC_012920.1, NC_005089.1 and NC_001422.1, at 258 rotations and
+  on both strands, are unchanged.
+- A CDS with an `/exception` containing "trans" that is not trans-splicing ("annotated by transcript or
+  proteomic data", "mismatches in translation", "unclassified transcription discrepancy") was taken for a
+  trans-spliced one: in a sorted GFF3 its parts got an unknown order, so its SNPs had no effects. Only
+  `trans-splicing` (and `/trans_splicing`) counts now.
+- The partial ends (`<`, `>`) of a GenBank location across the origin were read from the parts sorted by
+  coordinate, not from the first and last parts in the order of translation: `join(<2950..3000,1..135)` was not
+  5'-partial (a change of its first codon, CTG, was called `M1P start lost` instead of `L1P missense`), and
+  `complement(join(2897..3000,1..>199))` lost its `>`.
+- The intergenic neighbours named next to a gene across the origin used the gene's span (from the first base
+  to the last of the sequence) instead of its parts: a gene inside one of its parts could be named instead.
+- A second Ctrl-C pressed while BACoN was stopping after the first one could leave a program running (the
+  second one cut short the killing of the running programs); BACoN now kills them again before it exits. A
+  Ctrl-C while Python exits after the run no longer prints a traceback (`Exception ignored in: <module
+  'threading'>`): it ends BACoN at once, with the same exit status (130).
+
 ## 0.3.7 (2026-10-08)
 
 ### Added

@@ -9,7 +9,7 @@ import sys
 import threading
 from pathlib import Path
 
-from bacon import BaconError, __version__
+from bacon import BaconError, __version__, tools
 from bacon.metadata import MAX_COLOUR_VALUES
 from bacon.pipeline import STEPS, Settings, default_memory_gb, os_error_message, run, usable_cpus
 
@@ -98,9 +98,9 @@ def build_parser() -> argparse.ArgumentParser:
                            "with it. Default: %(default)s")
     bait.add_argument("-k", "--kmer-size", metavar="31", type=_kmer, default=31,
                       help="K-mer size for bbduk (at most 31). Default: %(default)s")
-    bait.add_argument("--hdist", type=int, choices=[0, 1, 2], default=1,
+    bait.add_argument("--hdist", type=int, choices=[0, 1, 2], default=None,  # None: not given (see main)
                       help="Mismatches allowed in BBDuk's k-mers. Each one multiplies BBDuk's memory: with 2, a "
-                           "155 kb plastome needs about 14 GB per sample. Default: %(default)s")
+                           "155 kb plastome needs about 14 GB per sample. Default: 1")
     bait.add_argument("--keep-bam", action="store_true",
                       help="Keep the sorted BAM of the reads aligned to the reference (minimap2 only).")
 
@@ -177,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    if args.hdist is not None and args.baiting_method != "bbduk":
+        log.warning("--hdist only applies to --baiting-method bbduk: ignored with %s", args.baiting_method)
     max_cpu = usable_cpus()
     threads = args.threads
     if threads > max_cpu:
@@ -195,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         sample_sheet=args.sample_sheet,
         baiting=args.baiting_method,
         kmer=args.kmer_size,
-        hdist=args.hdist,
+        hdist=1 if args.hdist is None else args.hdist,
         keep_bam=args.keep_bam,
         min_read_length=args.min_read_length,
         keep_percent=args.keep_percent,
@@ -239,12 +241,17 @@ def main(argv: list[str] | None = None) -> int:
             log.error("%s", os_error_message(exc))
         return 1
     except KeyboardInterrupt as exc:
+        tools.kill_running()  # Again: a second Ctrl-C can cut short the first one's killing of the programs
         if not getattr(exc, "logged", False):
             log.error("Interrupted")
         return 128 + received[0]
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        if argv is None and threading.current_thread() is threading.main_thread():
+            # BACoN run as a program is over: a Ctrl-C while Python exits ends it at once (status 130), without
+            # the traceback Python would print from the exit's wait for the threads
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 
 if __name__ == "__main__":

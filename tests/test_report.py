@@ -309,7 +309,7 @@ def test_multiqc_heatmap_in_tree_order(tmp_path):
     hm = distance_heatmap(dist, tree, "my run")
     assert hm["xcats"] == ["b", "a", "Reference"] == hm["ycats"]
     assert hm["data"] == [[0, 4, 5], [4, 0, 1], [5, 1, 0]]
-    assert hm["id"] == "bacon_distances_my_run"
+    assert re.fullmatch(r"bacon_distances_my_run_[0-9a-f]{6}", hm["id"])  # A space: the name's hash added
     assert "in tree order" in hm["description"]
     assert distance_heatmap(dist)["xcats"] == ["Reference", "a", "b"]
     assert "the order of the distance table" in distance_heatmap(dist)["description"]
@@ -2066,3 +2066,108 @@ def test_header_says_the_time_does_not_count_reused_steps(tmp_path):
     assert "last run 0.0 s" not in page
     out = _folder(tmp_path / "other", {"method": "ska", "distances": "4_compared/ska/snp_distances.tsv"})
     assert "last run took ? s" in build_report(out)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Review fixes
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_each_sortable_table_sorts_by_the_column_of_its_own_header():
+    # The headers are numbered across the page: the SNP table, after the samples table, must use its own columns
+    from bacon.report import SORT_JS
+    assert "forEach(function (th) {" in SORT_JS and "i = th.cellIndex" in SORT_JS and "x.cells[i]" in SORT_JS
+
+
+def test_methods_name_the_added_genomes_only_when_the_samples_were_compared():
+    added = {"add_genomes": ["x.fa"]}
+    assert "1 finished genome was added to the comparison" in _methods(settings=added)
+    for comparison in (None, {"skipped": "a tree needs at least three assemblies (1 available)"},
+                       {"failed": "ska build failed"}):
+        text = _methods(settings={**added, "snp_method": "none" if comparison is None else "ska"},
+                        comparison=comparison)
+        assert "finished genome" not in text
+
+
+def test_report_says_when_the_recorded_colour_column_is_gone_from_the_copy(tmp_path):
+    out = _metadata_run(tmp_path, "sample\tother\na\tx\nb\ty\n", color_by="group")
+    page = build_report(out)
+    assert "No column colours the figures" in page
+    assert ("The metadata column &#x27;group&#x27; recorded to colour the figures is not in metadata.tsv; the "
+            "figures are not coloured.") in page
+    assert "(copy metadata.tsv; colours by group, not applied)</code>" in page
+    rows = "".join(f"s{i}\tv{i:02d}\n" for i in range(49))  # Too many values: not applied either
+    out = _metadata_run(tmp_path / "many", "sample\tgroup\n" + rows, color_by="group")
+    assert "colours by group, not applied)</code>" in build_report(out)
+    out = _metadata_run(tmp_path / "ok", "sample\tgroup\na\tx\nb\ty\n", color_by="group")
+    page = build_report(out)
+    assert "colours by group)</code>" in page and "not in metadata.tsv" not in page
+
+
+def test_multiqc_metadata_keys_never_collide():
+    from bacon.metadata import Metadata
+    rows = [{"Sample": "s1", "Status": "ok"}]
+    table = sample_table(rows, "run", Metadata(["x", "x_3", "x."], {"s1": {"x": "1", "x_3": "2", "x.": "3"}}))
+    keys = [k for k in table["headers"] if k.startswith("meta_")]
+    assert len(keys) == 3 and keys[:2] == ["meta_x", "meta_x_3"]
+    assert sorted(table["data"]["s1"][k] for k in keys) == ["1", "2", "3"]  # No column lost
+    table = sample_table(rows, "run", Metadata(["a", "A", "a.", "a_2"], {}))
+    assert len([k for k in table["headers"] if k.startswith("meta_")]) == 4
+
+
+def test_report_without_tree_says_whether_the_genomes_differ_anywhere(tmp_path):
+    zeros = "snp-dists\tReference\ta\tb\nReference\t0\t0\t0\na\t0\t0\t0\nb\t0\t0\t0\n"
+    comparison = {"method": "ska", "core_snps": 0, "tree": None, "distances": "4_compared/ska/snp_distances.tsv",
+                  "vcf": "4_compared/ska/snps.vcf"}
+    out = _folder(tmp_path, comparison, matrix=zeros)
+    vcf = out / "4_compared" / "ska" / "snps.vcf"
+    vcf.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n")
+    page = build_report(out)
+    assert "No tree: no genome differs from the others at any position compared" in page
+    assert "--ska-min-freq" not in page and "not found" not in page and "say nothing about identity" not in page
+    assert "No SNP: the genomes do not differ at any position compared." in page
+    _write_vcf(vcf, ("c1",), ("a", "b", "c"))  # SNPs, none in every genome
+    page = build_report(out)
+    assert "No tree: no SNP site is shared by all the genomes; see --ska-min-freq" in page
+    assert "differs" not in page and "say nothing about identity" in page
+
+
+def test_multiqc_run_ids_differ_for_names_differing_in_punctuation():
+    from bacon.multiqc import _run_id
+    ids = {_run_id(name) for name in ("run-1", "run_1", "run 1", "run.1", "run_1_")}
+    assert len(ids) == 5 and "run_1" in ids
+    assert _run_id("run-1") == _run_id("run-1") and re.fullmatch(r"run_1_[0-9a-f]{6}", _run_id("run-1"))
+    assert _run_id("bacon_2026") == "bacon_2026" and _run_id("") == "run"
+    assert re.fullmatch(r"[A-Za-z0-9_]+", _run_id("é !"))
+
+
+def test_run_section_records_the_annotation(tmp_path):
+    out = _annotated_run(tmp_path)
+    info = json.loads((out / "run_info.json").read_text())
+    info["annotation"].update(genes=2, sequences=1, md5="abc123")
+    (out / "run_info.json").write_text(json.dumps(info))
+    page = build_report(out)
+    assert ("<dt>Annotation</dt><dd><code>/x/NC_1.gb (2 genes on 1 sequence(s); copy annotation.gb, MD5 abc123)"
+            "</code>") in page
+    info["annotation"] = {"file": "/x/ref.fa", "copy": "annotation.gb"}  # The GenBank reference; an older record
+    (out / "run_info.json").write_text(json.dumps(info))
+    assert ("<dt>Annotation</dt><dd><code>/x/ref.fa (the reference&#x27;s own annotation; copy annotation.gb, "
+            "MD5 ?)</code>") in build_report(out)
+    info["annotation"]["genes"] = 2
+    (out / "run_info.json").write_text(json.dumps(info))
+    assert "(the reference&#x27;s own annotation; 2 genes on ? sequence(s); copy annotation.gb" in build_report(out)
+    assert "<dt>Annotation</dt>" not in build_report(_full_run(tmp_path / "none"))
+
+
+def test_an_iqtree_tree_without_bootstrap_claims_no_supports(tmp_path):
+    # IQ-TREE makes no bootstrap with fewer than four distinct sequences: BACoN keeps its ML tree, without supports
+    for tree, supported in [("((a:0.001,Reference:0.0005):0.002,b:0.003);\n", False), (TREE, True)]:
+        out = _folder(tmp_path / str(supported), {"method": "ska", "core_snps": 3, "tree_method": "iqtree",
+                                                  "tree": "4_compared/ska/tree.nwk",
+                                                  "distances": "4_compared/ska/snp_distances.tsv"},
+                      settings={**SETTINGS, "tree": "iqtree"})
+        (out / "4_compared" / "ska" / "tree.nwk").write_text(tree)
+        page = build_report(out)
+        assert ("Numbers on the internal branches are supports" in page) == supported
+        assert ("ultrafast bootstraps" in page) == supported
+        assert ("No supports: IQ-TREE makes no bootstrap" in page) != supported
+        assert ("its maximum-likelihood tree is shown, without supports" in page) != supported
