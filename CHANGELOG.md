@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.8 (2026-10-08)
 
 ### Changed
 - Options that change no output no longer rerun steps: Flye's options (`--read-type`, `--min-size`, the polishing
@@ -83,8 +83,11 @@
   coordinate, not from the first and last parts in the order of translation: `join(<2950..3000,1..135)` was not
   5'-partial (a change of its first codon, CTG, was called `M1P start lost` instead of `L1P missense`), and
   `complement(join(2897..3000,1..>199))` lost its `>`.
-- The intergenic neighbours named next to a gene across the origin used the gene's span (from the first base
-  to the last of the sequence) instead of its parts: a gene inside one of its parts could be named instead.
+- The intergenic neighbours of a SNP were found from each gene's span instead of its parts, so a gene in parts
+  far apart was skipped as a neighbour: a trans-spliced gene such as the plastid *rps12* (in the potato
+  tutorial, a SNP between the 5' exon of *rps12* and *clpP* was said to be between *rpl20* and *clpP*, and one
+  between *trnV-GAC* and the 3' exons of *rps12* between *trnV-GAC* and *rps7*), or a gene across the origin
+  (whose span is the whole sequence).
 - A second Ctrl-C pressed while BACoN was stopping after the first one could leave a program running (the
   second one cut short the killing of the running programs); BACoN now kills them again before it exits. A
   Ctrl-C while Python exits after the run no longer prints a traceback (`Exception ignored in: <module

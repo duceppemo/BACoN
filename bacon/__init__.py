@@ -1,6 +1,6 @@
 """BACoN: Bait, Assemble and Compare Nanopore reads matching a reference sequence."""
 
-__version__ = "0.3.7"
+__version__ = "0.3.8"
 __author__ = "Marc-Olivier Duceppe"
 
 
