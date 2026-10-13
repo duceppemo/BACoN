@@ -317,7 +317,7 @@ def test_clean_vcf_rejects_positions_shifted_by_old_parsnp(tmp_path):
     assert _clean(tmp_path, _vcf(tmp_path, one_ambiguous))[0] == 1
 
 
-@pytest.mark.parametrize("case", ["one_site", "n_rich", "two_unique"])
+@pytest.mark.parametrize("case", ["one_site", "n_rich", "two_unique", "pairs"])
 def test_iqtree_on_tiny_or_near_identical_alignments(tmp_path, case):
     """IQ-TREE cannot guess DNA from a handful of SNP sites, and skips its bootstrap (no .contree) below four
     distinct sequences: the tree is still built, and its title does not claim bootstrap supports it lacks."""
@@ -329,7 +329,8 @@ def test_iqtree_on_tiny_or_near_identical_alignments(tmp_path, case):
         pytest.skip("IQ-TREE is not installed")
     seqs = {"one_site": ["A", "A", "C", "C"],
             "n_rich": ["ACGTNNACGT", "ACGANNACGT", "TCGANNNCGA", "TCGTNNACNA", "ACGTNNACGA"],
-            "two_unique": ["ACGTACGTAC", "TGCATGCATG", "TGCATGCATG", "TGCATGCATG"]}[case]
+            "two_unique": ["ACGTACGTAC", "TGCATGCATG", "TGCATGCATG", "TGCATGCATG"],  # 3 kept: no bootstrap
+            "pairs": ["ACGTACGTAC", "ACGTACGTAC", "TGCATGCATG", "TGCATGCATG"]}[case]  # 4 kept: bootstrap
     aln = tmp_path / "aln.fasta"
     aln.write_text("".join(f">s{i}\n{s}\n" for i, s in enumerate(seqs)))
     (tmp_path / "logs").mkdir()
