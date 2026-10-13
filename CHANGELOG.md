@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.9 (2026-10-13)
 
 ### Fixed
 - `--tree iqtree` failed when IQ-TREE kept fewer than four sequences (it keeps two of each set of identical
