@@ -1,0 +1,9 @@
+linear/flye: 11.35 s, 238592 kB: bacon -a flye;1.79 s, 51712 kB: bacon -a flye --snp-method parsnp;0.32 s, 28672 kB: bacon -a flye --ska-min-freq 0.5;
+linear/myloasm: 2.82 s, 1979392 kB: bacon -a myloasm;
+linear/samtools: 1.14 s, 238592 kB: bacon ;
+plastid/flye: 58.79 s, 245716 kB: bacon -a flye;6.43 s, 54076 kB: bacon -a flye --snp-method parsnp;0.57 s, 30720 kB: bacon -a flye --ska-min-freq 0.5;
+plastid/myloasm: 9.95 s, 1998848 kB: bacon -a myloasm;
+plastid/samtools: 4.38 s, 239104 kB: bacon ;
+rdna/flye: 28.96 s, 238616 kB: bacon -a flye;Command exited with non-zero status 1;0.79 s, 52224 kB: bacon -a flye --snp-method parsnp;0.31 s, 28672 kB: bacon -a flye --ska-min-freq 0.5;
+rdna/myloasm: 3.44 s, 1972736 kB: bacon -a myloasm;
+rdna/samtools: 1.50 s, 238592 kB: bacon ;

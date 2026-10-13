@@ -1236,7 +1236,7 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
                  supports: bool = True) -> str:
     """A methods paragraph built from the settings and program versions of the run (and the regions of the
     genome map, `bands`, when the report drew one; the annotation, `genes`, when the map drew its genes;
-    `supports`: False when the tree has none, as IQ-TREE's with fewer than four distinct sequences)."""
+    `supports`: False when the tree has none, as IQ-TREE's when it keeps fewer than four sequences)."""
     s = info.get("settings") or {}
     ref = info.get("reference") or {}
     comparison = info.get("comparison") or {}
@@ -1309,9 +1309,10 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
     if comparison.get("tree"):
         on = "the core-genome alignment" if method == "parsnp" else "the SNP alignment"
         if s.get("tree") == "iqtree" and not supports:
-            parts.append(f"A tree was built on {on} with IQ-TREE{_tool(info, 'iqtree')} (ModelFinder; with fewer "
-                         "than four distinct sequences IQ-TREE makes no bootstrap: its maximum-likelihood tree is "
-                         "shown, without supports) and rooted at its midpoint.")
+            parts.append(f"A tree was built on {on} with IQ-TREE{_tool(info, 'iqtree')} (ModelFinder; no "
+                         "bootstrap, as IQ-TREE kept fewer than four sequences (two of each set of identical "
+                         "ones): its maximum-likelihood tree is shown, without supports) and rooted at its "
+                         "midpoint.")
         elif s.get("tree") == "iqtree":
             parts.append(f"A tree was built on {on} with IQ-TREE{_tool(info, 'iqtree')} (ModelFinder, 1000 "
                          "ultrafast bootstraps; the bootstrap consensus tree is shown) and rooted at its "
@@ -1599,7 +1600,7 @@ def build_report(output: Path) -> str:
     method = comparison.get("method", "")
     method_name = {"ska": "SKA2", "parsnp": "Parsnp"}.get(method, method)
     tree_tool = {"fasttree": "FastTree", "iqtree": "IQ-TREE"}.get(comparison.get("tree_method", ""), "")
-    # IQ-TREE makes no bootstrap with fewer than four distinct sequences: its tree has no supports
+    # No IQ-TREE bootstrap when it keeps fewer than four sequences: its tree has no supports
     supports = tree is None or any(n.name for n in preorder(tree) if n.children)
 
     out = ["<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">",

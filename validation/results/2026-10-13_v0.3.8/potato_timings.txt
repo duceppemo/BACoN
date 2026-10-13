@@ -1,0 +1,3 @@
+flye: 724.62 s, 703488 kB: bacon -a flye;48.67 s, 246116 kB: bacon -a flye --snp-method parsnp;
+myloasm: 151.46 s, 2088116 kB: bacon -a myloasm;
+samtools: 124.37 s, 702464 kB: bacon ;

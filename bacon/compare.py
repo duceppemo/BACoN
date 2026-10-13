@@ -373,16 +373,18 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
             consensus.unlink(missing_ok=True)  # Not to take an earlier run's for this one's
             # IQ-TREE splits -s on commas (several alignments): it runs in out_dir, on relative paths. -st DNA:
             # it cannot tell the data type of a few SNP sites, or of a column of Ns, on its own. It keeps two of
-            # each set of identical sequences, and refuses a bootstrap with fewer than 4 left (3.1.3): ask none.
-            copies = Counter(rec.seq.upper() for rec in records)
+            # each set of identical sequences (a gap and an N count as the same), and refuses a bootstrap with
+            # fewer than 4 kept (2.2 and 3.1): then ask for none.
+            copies = Counter(rec.seq.upper().replace("-", "N") for rec in records)
             boot = ["-B", "1000"] if sum(min(n, 2) for n in copies.values()) >= 4 else []
             run([exe, "-s", safe.name, "-st", "DNA", "-m", "MFP", *boot, "-T", str(threads),
                  "--prefix", prefix.name, "-redo", "--seed", "12345"], log_dir / "iqtree.log", cwd=out_dir,
                 what="(IQ-TREE)")
             if boot and consensus.is_file():
                 shutil.copyfile(consensus, raw)
-            else:  # Fewer than 4 distinct sequences: IQ-TREE skips the bootstrap, and only writes its ML tree
-                log.warning("Fewer than 4 distinct sequences: IQ-TREE made no bootstrap; its tree has no supports")
+            else:  # Fewer than 4 sequences kept by IQ-TREE: no bootstrap, only its ML tree
+                log.warning("IQ-TREE keeps fewer than 4 sequences (two of each set of identical ones): no "
+                            "bootstrap; the tree has no supports")
                 shutil.copyfile(prefix.with_suffix(".treefile"), raw)
                 bootstrap = False
         else:
@@ -400,6 +402,6 @@ def build_tree(alignment: Path, out_dir: Path, log_dir: Path, *, method: str, th
     out = out_dir / "tree.nwk"
     out.write_text(to_newick(tree) + "\n")
     label = ("SH-like support (FastTree)" if method == "fasttree" else "ultrafast bootstrap (IQ-TREE)" if bootstrap
-             else "no bootstrap (IQ-TREE: fewer than 4 distinct sequences)")
+             else "no bootstrap (IQ-TREE: fewer than 4 sequences kept)")
     (out_dir / "tree.svg").write_text(to_svg(tree, f"{alignment.name} — midpoint-rooted, {label}"))
     return out

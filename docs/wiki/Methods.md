@@ -126,8 +126,8 @@ Parsnp has no equivalent: it aligns the core genome.
 both have a nucleotide and they differ.
 
 **Tree.** FastTree (GTR, SH-like local supports from 100 resamples; default) or IQ-TREE (`--tree iqtree`: ModelFinder and 1000
-ultrafast bootstraps; with fewer than four distinct sequences IQ-TREE makes no bootstrap, and its maximum-likelihood tree
-is shown without supports), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
+ultrafast bootstraps; IQ-TREE keeps two of each set of identical sequences, and when it keeps fewer than four, BACoN asks
+for no bootstrap and its maximum-likelihood tree is shown without supports), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
 at the midpoint of its longest path, ladderized, and drawn as SVG. With SKA2, branch lengths are in
 substitutions per variable site.
 

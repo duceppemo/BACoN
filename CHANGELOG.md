@@ -3,9 +3,10 @@
 ## Unreleased
 
 ### Fixed
-- `--tree iqtree` failed when fewer than four sequences remained once IQ-TREE set identical ones aside (it keeps
-  two of each set): IQ-TREE 3.1.3 refuses a bootstrap then, where 0.3.8 expected it to skip it. BACoN now asks
-  for no bootstrap in that case; the tree is built without supports, as its title says.
+- `--tree iqtree` failed when IQ-TREE kept fewer than four sequences (it keeps two of each set of identical
+  sequences, a gap and an N counting as the same base): IQ-TREE 2.2 and 3.1 then refuse a bootstrap ("It makes
+  no sense to perform bootstrap with less than 4 sequences"), where 0.3.8 expected them to skip it. BACoN now
+  asks for no bootstrap in that case; the tree is built without supports, as its title and the report say.
 
 ## 0.3.8 (2026-10-08)
 

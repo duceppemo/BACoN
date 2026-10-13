@@ -2159,7 +2159,7 @@ def test_run_section_records_the_annotation(tmp_path):
 
 
 def test_an_iqtree_tree_without_bootstrap_claims_no_supports(tmp_path):
-    # IQ-TREE makes no bootstrap with fewer than four distinct sequences: BACoN keeps its ML tree, without supports
+    # No IQ-TREE bootstrap when it keeps fewer than four sequences: BACoN keeps its ML tree, without supports
     for tree, supported in [("((a:0.001,Reference:0.0005):0.002,b:0.003);\n", False), (TREE, True)]:
         out = _folder(tmp_path / str(supported), {"method": "ska", "core_snps": 3, "tree_method": "iqtree",
                                                   "tree": "4_compared/ska/tree.nwk",

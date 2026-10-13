@@ -1,0 +1,12 @@
+run                    assembled  contigs/sample circular   len/ref (min-max)
+samtools                  28/28             1.00        0         0.999-1.001
+flye                      28/28             1.54       17         0.948-1.418
+myloasm                   28/28             3.18        8         0.990-2.031
+
+A                           B                             pairs identical max diff      r
+samtools/ska                flye/parsnp                     406       165       11  0.998
+samtools/ska                flye/ska                        406       406        0  1.000
+samtools/ska                myloasm/ska                     406        93       21  0.999
+flye/parsnp                 flye/ska                        406       165       11  0.998
+flye/parsnp                 myloasm/ska                     406        89       25  0.999
+flye/ska                    myloasm/ska                     406        93       21  0.999

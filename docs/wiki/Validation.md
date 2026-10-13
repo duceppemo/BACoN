@@ -3,7 +3,10 @@
 BACoN 0.3 was rebuilt around one rule: a program is used only if it is maintained and does at least as well
 as the alternatives on data where the answer is known. The records, with every score, are in
 [`validation/results/`](https://github.com/duceppemo/BACoN/tree/main/validation/results); this page
-summarizes the [2026-09-24 record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-09-24_v0.3.0/SUMMARY.md).
+summarizes the [2026-09-24 record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-09-24_v0.3.0/SUMMARY.md)
+(BACoN 0.3.0). The [2026-10-13 record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-13_v0.3.8/SUMMARY.md)
+reran it with BACoN 0.3.8 and the same programs: every score on simulated data was identical, and on the potato
+data the templated and the Flye assemblies still agree on all 406 SNP distances.
 
 ## Simulated data with a known truth
 
