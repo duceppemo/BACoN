@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Run BACoN on the simulated scenarios with every assembler and SNP method, then score against the truth.
 #
-# Usage: bash validation/run_validation.sh OUTPUT_FOLDER [THREADS]
+# Usage: bash validation/run_validation.sh OUTPUT_FOLDER [THREADS] [all|new]
 #
 # Run it in the BACoN conda environment (environment.yml). The simulated reads are generated first (fixed seed:
 # the same files every time); each run writes into OUTPUT_FOLDER/<scenario>/<run> and the scores go to
 # OUTPUT_FOLDER/SCORES_<scenario>.md and .json. See validation/README.md.
+# all (the default): plastid, linear and rdna, with every assembler and SNP method; new: heteroplasmy and numt,
+# with the templated assembly and Flye (SKA2).
 set -euo pipefail
 
 if [ ! -x /usr/bin/time ] || ! realpath -m / >/dev/null 2>&1; then
@@ -14,15 +16,21 @@ if [ ! -x /usr/bin/time ] || ! realpath -m / >/dev/null 2>&1; then
 fi
 out=$(realpath -m "${1:?output folder}")
 threads=${2:-16}
+group=${3:-all}
 here=$(cd "$(dirname "$0")" && pwd)
+case $group in
+    all) scenarios=(plastid linear rdna) ;;
+    new) scenarios=(heteroplasmy numt) ;;
+    *) echo "error: the third argument is all or new, not '$group'" >&2; exit 1 ;;
+esac
 
-if [ -d "$out/plastid" ]; then  # Resumed runs would skip steps and make the timings meaningless
+if [ -d "$out/${scenarios[0]}" ]; then  # Resumed runs would skip steps and make the timings meaningless
     echo "error: $out already has results; use a new folder (simulated reads can be reused: copy $out/sim)" >&2
     exit 1
 fi
 mkdir -p "$out"
-if [ ! -f "$out/sim/rdna/truth.json" ]; then
-    python "$here/simulate.py" "$out/sim"
+if [ ! -f "$out/sim/${scenarios[-1]}/truth.json" ]; then
+    python "$here/simulate.py" "$out/sim" --scenario "$group"
 fi
 
 bacon_run() {  # bacon_run SCENARIO RUN [bacon options...]
@@ -69,14 +77,16 @@ PY
     echo "FastTree: $(FastTree -expert 2>&1 | grep -o 'FastTree [0-9.]*' | head -1)"
 } > "$out/versions.txt"
 
-for scenario in plastid linear rdna; do
+for scenario in "${scenarios[@]}"; do
     bacon_run "$scenario" samtools                  # the default: templated assembly, SKA2 core SNPs
     bacon_run "$scenario" flye -a flye
-    bacon_run "$scenario" myloasm -a myloasm
-    # Other comparisons of the Flye assemblies (the assembly step is reused from the checkpoint).
-    bacon_run "$scenario" flye -a flye --snp-method parsnp
-    bacon_run "$scenario" flye -a flye --ska-min-freq 0.5
-    parsnp_default "$scenario"
+    if [ "$group" = all ]; then
+        bacon_run "$scenario" myloasm -a myloasm
+        # Other comparisons of the Flye assemblies (the assembly step is reused from the checkpoint).
+        bacon_run "$scenario" flye -a flye --snp-method parsnp
+        bacon_run "$scenario" flye -a flye --ska-min-freq 0.5
+        parsnp_default "$scenario"
+    fi
     python "$here/score.py" "$out/sim/$scenario" "$out/$scenario"/*/ --markdown "$out/SCORES_$scenario.md" \
         --json "$out/SCORES_$scenario.json" > /dev/null
     echo "Scores: $out/SCORES_$scenario.md"
