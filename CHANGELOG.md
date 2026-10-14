@@ -22,6 +22,13 @@
 - Validation: two simulated scenarios, `heteroplasmy` (two haplotypes, minor fraction 0–0.5) and `numt`
   (nuclear copies of plastome segments at 0.5–25x of nuclear DNA), run with `run_validation.sh FOLDER THREADS
   new`; their results are in Methods (Heteroplasmy, Nuclear copies).
+- Validation: BACoN against ptGAUL, TIPPo, Oatk and CLAW on six *Arabidopsis* Col-0 lines (R10.4.1, HiFi
+  truths; record `2026-10-14_benchmark`, summarized in the Validation page). Every pipeline gave the six lines
+  identical plastomes; BACoN with `--filter-by-reference` was the only one to give complete mitogenomes without
+  substitutions on all six lines (TIPPo: four lines, 0–18 substitutions; Oatk: partial). Per line, alone with 16
+  threads: BACoN 9–15 min per organelle and 1.3 GB; the others 14–59 min and 4.4–85 GB. The record also corrects
+  the share of the truth covered in the mitogenome record (computed from one-to-one alignments, it understated
+  complete genomes).
 
 ## 0.3.9 (2026-10-13)
 

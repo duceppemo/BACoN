@@ -32,6 +32,28 @@ simulated assemblies and the potato and Col-0 plastomes, at 0–8.3% for the Col
 `--filter-by-reference`, and flagged every Flye "mitogenome" that was the plastome. The simulated
 heteroplasmy and nuclear copies are summarized in [Methods](Methods#heteroplasmy).
 
+## Other organelle pipelines
+
+The [benchmark record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-14_benchmark/SUMMARY.md)
+ran four other pipelines that take Nanopore reads on the same six Col-0 lines, scored against the same truths:
+
+| Pipeline | Plastomes complete, substitutions | Mitogenomes complete, substitutions | Max SNPs between lines (plastome, mitogenome) |
+|---|---|---|---|
+| BACoN, templated (mitogenome with `--filter-by-reference`) | 6, 0 | 6, 0 | 0, 0 |
+| BACoN, Flye (mitogenome with `--filter-by-reference`) | 6, 0 | 6, 0–6 | 0, 1 |
+| ptGAUL | 6, 0 | — | 0, — |
+| TIPPo | 6, 0 | 4 (Flye failed on two lines), 0–18 | 0, 1 |
+| Oatk (k 501) | 4 (two in 139 and 184 fragments), 0 | 0 (11–70% of the truth) | 0, 1 |
+| CLAW, Flye | 5 (one 43 kb fragment), 0 | — | 0, — |
+| CLAW, Unicycler | 5 (three with extra contigs, 482–682 kb), 0–176 | — | 0, — |
+
+Every pipeline's complete plastomes had 9–51 indels against the truth (in BACoN's, nearly all homopolymer runs
+one or two bases short), and 222 in one of CLAW-Unicycler's; none had substitutions but CLAW-Unicycler's. Alone
+on the machine with 16 threads, per line: BACoN 9–15 min per organelle and 1.3 GB, ptGAUL 14 min and 7.6 GB, CLAW
+30 min and 4.4 GB, Oatk 46 min and 40 GB, TIPPo 59 min and 85 GB (Oatk and TIPPo build both organelles in one
+run). The record also corrects the share of the truth covered given in the mitogenome record (an erratum: complete
+genomes cover 0.998–1.0 of their truth, not 0.6–0.99).
+
 ## Simulated data with a known truth
 
 [`validation/simulate.py`](https://github.com/duceppemo/BACoN/blob/main/validation/simulate.py) generates

@@ -1,0 +1,49 @@
+run	sample	truth_covered_one_to_one	truth_covered_1kb
+cp_samtools	MA32_119	1.0	1.0
+cp_samtools	MA32_59	1.0	1.0
+cp_samtools	MA32_69	1.0	1.0
+cp_samtools	MA32_79	0.83	1.0
+cp_samtools	MA32_89	1.0	1.0
+cp_samtools	MA32_99	1.0	1.0
+cp_flye	MA32_119	1.0	1.0
+cp_flye	MA32_59	0.83	1.0
+cp_flye	MA32_69	1.0	1.0
+cp_flye	MA32_79	0.83	1.0
+cp_flye	MA32_89	1.0	1.0
+cp_flye	MA32_99	0.595	0.998
+mt_samtools	MA32_119	0.544	0.627
+mt_samtools	MA32_59	0.209	0.191
+mt_samtools	MA32_69	0.404	0.457
+mt_samtools	MA32_79	0.252	0.25
+mt_samtools	MA32_89	0.241	0.225
+mt_samtools	MA32_99	0.871	0.927
+mt_flye	MA32_119	0.009	0.0
+mt_flye	MA32_59	0.009	0.0
+mt_flye	MA32_69	0.008	0.0
+mt_flye	MA32_79	0.008	0.0
+mt_flye	MA32_89	0.009	0.0
+mt_flye	MA32_99	0.009	0.0
+cp_samtools --filter-by-reference	MA32_119	1.0	1.0
+cp_samtools --filter-by-reference	MA32_59	1.0	1.0
+cp_samtools --filter-by-reference	MA32_69	1.0	1.0
+cp_samtools --filter-by-reference	MA32_79	0.83	1.0
+cp_samtools --filter-by-reference	MA32_89	1.0	1.0
+cp_samtools --filter-by-reference	MA32_99	1.0	1.0
+cp_flye --filter-by-reference	MA32_119	1.0	1.0
+cp_flye --filter-by-reference	MA32_59	1.0	1.0
+cp_flye --filter-by-reference	MA32_69	1.0	1.0
+cp_flye --filter-by-reference	MA32_79	1.0	1.0
+cp_flye --filter-by-reference	MA32_89	1.0	1.0
+cp_flye --filter-by-reference	MA32_99	1.0	1.0
+mt_samtools --filter-by-reference	MA32_119	0.941	0.999
+mt_samtools --filter-by-reference	MA32_59	0.943	1.0
+mt_samtools --filter-by-reference	MA32_69	0.919	1.0
+mt_samtools --filter-by-reference	MA32_79	0.803	1.0
+mt_samtools --filter-by-reference	MA32_89	0.902	1.0
+mt_samtools --filter-by-reference	MA32_99	0.94	1.0
+mt_flye --filter-by-reference	MA32_119	0.99	1.0
+mt_flye --filter-by-reference	MA32_59	0.874	1.0
+mt_flye --filter-by-reference	MA32_69	0.815	0.999
+mt_flye --filter-by-reference	MA32_79	0.887	0.999
+mt_flye --filter-by-reference	MA32_89	0.948	1.0
+mt_flye --filter-by-reference	MA32_99	0.907	0.999

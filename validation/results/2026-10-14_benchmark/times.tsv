@@ -1,0 +1,28 @@
+tool	organelle	run	threads	machine	covers	wall_s	peak_rss_GB
+BACoN, templated	cp	cp_samtools	16	alone	six lines, one at a time	3247	1.3
+BACoN, Flye	cp	cp_flye	16	alone	six lines, one at a time	3706	1.3
+BACoN, templated, --filter-by-reference	mt	mt_samtools_fref	16	alone	six lines, one at a time	3755	1.3
+BACoN, Flye, --filter-by-reference	mt	mt_flye_fref	16	alone	six lines, one at a time	5282	1.3
+ptGAUL	cp	MA32_119	32	shared with the other pipelines' runs	one line	1041	10.7
+ptGAUL	cp	MA32_59	32	shared with the other pipelines' runs	one line	3330	12.8
+ptGAUL	cp	MA32_69	32	shared with the other pipelines' runs	one line	1232	13.4
+ptGAUL	cp	MA32_79	32	shared with the other pipelines' runs	one line	1101	12.2
+ptGAUL	cp	MA32_89	32	shared with the other pipelines' runs	one line	894	10.5
+ptGAUL	cp	MA32_99	32	shared with the other pipelines' runs	one line	1295	3.3
+TIPPo	cp+mt	MA32_119	16	shared with the other pipelines' runs, three lines at a time	one line	5386	84.7
+TIPPo	cp+mt	MA32_59	16	shared with the other pipelines' runs, three lines at a time	one line	6771	118.4
+TIPPo	cp+mt	MA32_69	16	shared with the other pipelines' runs, three lines at a time	one line	7789	119.5
+TIPPo	cp+mt	MA32_79	16	shared with the other pipelines' runs, three lines at a time	one line	4452	81.4
+TIPPo	cp+mt	MA32_89	16	shared with the other pipelines' runs, three lines at a time	one line	3776	64.4
+TIPPo	cp+mt	MA32_99	16	shared with the other pipelines' runs, three lines at a time	one line	3609	70.7
+Oatk, k 501	cp+mt	MA32_119_k501	16	three lines at a time	one line	2851	39.9
+Oatk, k 501	cp+mt	MA32_59_k501	16	three lines at a time	one line	3881	52.1
+Oatk, k 501	cp+mt	MA32_69_k501	16	three lines at a time	one line	6412	54.3
+Oatk, k 501	cp+mt	MA32_79_k501	16	three lines at a time	one line	2083	37.1
+Oatk, k 501	cp+mt	MA32_89_k501	16	three lines at a time	one line	2639	28.9
+Oatk, k 501	cp+mt	MA32_99_k501	16	shared with the other pipelines' runs	one line	2377	39.8
+CLAW (Flye and Unicycler)	cp	claw	16	shared with the other pipelines' runs	six lines	9324	4.9
+ptGAUL	cp	ptgaul	16	alone	MA32_119	847	7.6
+TIPPo	cp+mt	tippo	16	alone	MA32_119	3526	84.6
+Oatk, k 501	cp+mt	oatk	16	alone	MA32_119	2756	39.8
+CLAW (Flye and Unicycler)	cp	claw	16	alone	MA32_119	1825	4.4

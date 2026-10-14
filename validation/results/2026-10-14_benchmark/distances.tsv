@@ -1,0 +1,16 @@
+run	lines	snps_to_reference_min	snps_to_reference_max	max_snps_between_lines
+bacon_cp_flye	6	0	0	0
+bacon_cp_flye_fref	6	0	0	0
+bacon_cp_samtools	6	0	0	0
+bacon_cp_samtools_fref	6	0	0	0
+bacon_mt_flye	6	28	28	0
+bacon_mt_flye_fref	6	0	1	1
+bacon_mt_samtools	6	29	34	8
+bacon_mt_samtools_fref	6	0	0	0
+claw_flye_cp	6	0	0	0
+claw_unicycler_cp	6	0	0	0
+oatk_cp	6	0	0	0
+oatk_mt	6	0	0	1
+ptgaul_cp	6	0	0	0
+tippo_cp	6	0	0	0
+tippo_mt	4	0	2	1
