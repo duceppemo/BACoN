@@ -22,6 +22,13 @@ STUBS = {
         files = [a for a in sys.argv[1:] if a.endswith((".gz", ".fastq", ".fq", ".fasta"))][1:]
         if any("bad" in f for f in files):
             sys.exit("simulated crash")
+        if "asm20" in sys.argv:  # Contigs aligned to the reference: all of each contig but those named "*nuc*"
+            for line in open(files[0]).read().split(">")[1:]:
+                name, *seq = line.splitlines()
+                name, length = name.split()[0], len("".join(seq))
+                if "nuc" not in name:
+                    print(f"{name}\\t{length}\\t0\\t{length}\\t+\\tref\\t1000\\t0\\t{length}\\t{length}\\t{length}\\t60")
+            sys.exit()
         for f in files:
             with (gzip.open(f, "rt") if f.endswith(".gz") else open(f)) as fh:
                 for i, line in enumerate(fh):
@@ -181,7 +188,7 @@ def stubs(tmp_path, monkeypatch):
         path.write_text(f"#!{sys.executable}\n"
                         f"import sys\n"
                         f"if sys.argv[1:] in (['--version'], ['-expert']):\n    sys.exit()\n"
-                        f"open({str(calls)!r}, 'a').write({name!r} + '\\n')\n"
+                        f"open({str(calls)!r}, 'a').write({name!r} + ('_asm' if 'asm20' in sys.argv else '') + '\\n')\n"
                         + textwrap.dedent(body))
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
@@ -1898,3 +1905,43 @@ def test_linked_files_are_named_after_the_link(stubs, dataset, tmp_path):
     assert run(settings(ref, reads, out, add_genomes=[tmp_path / "pub.fasta"])) == 0
     dist = (out / "4_compared" / "ska" / "snp_distances.tsv").read_text().splitlines()[0]
     assert dist.split("\t") == ["snp-dists", "Reference", "pub", "s1", "s2", "s3"]
+
+
+def test_off_reference_assemblies_get_a_note(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out)) == 0
+    assert summary(out)["s1"]["Off_reference_pct"] == "0.0" and "aligns nowhere" not in summary(out)["s1"]["Note"]
+    assert "Off ref %" in (out / "report.html").read_text()
+    from bacon.pipeline import SampleState, _add_notes
+    from bacon.samples import Sample
+    st = SampleState(Sample("x", [ref]), stats={"Off_reference_pct": "35.2"})
+    _add_notes(st, 1000)
+    assert st.notes == ["35% of the assembly aligns nowhere on the reference (contigs of another origin?)"]
+    st = SampleState(Sample("x", [ref]), stats={"Off_reference_pct": "10.0"})
+    _add_notes(st, 1000)
+    assert st.notes == []
+
+
+def test_templated_assemblies_have_no_off_reference_share(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, assembler="samtools", snp_method="none"))
+    assert summary(out)["s1"]["Off_reference_pct"] == "NA"
+    assert "Off ref %" not in (out / "report.html").read_text()
+
+
+def test_filter_by_reference_gives_filtlong_the_reference(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    assert "--assembly" not in (out / "logs" / "2_filter" / "s1.log").read_text()
+    stubs.unlink()
+    run(settings(ref, reads, out, filter_by_reference=True))
+    made = calls(stubs)
+    assert made.count("filtlong") == 3 and made.count("minimap2") == 1  # Filtering reruns, baiting does not
+    assert f"--assembly {out / 'reference.fasta'}" in (out / "logs" / "2_filter" / "s1.log").read_text()
+    assert "ranked by their k-mers found in the reference" in (out / "report.html").read_text()
+    stubs.unlink()
+    run(settings(ref, reads, out, filter_by_reference=True))
+    assert calls(stubs) == ["minimap2"]

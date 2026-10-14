@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `--filter-by-reference`: Filtlong ranks the reads by their k-mers found in the reference (`--assembly`) instead
+  of by base qualities. By default Filtlong prefers long reads, and among the baited reads of a mitogenome are long
+  reads of which only a stretch matches it (nuclear copies of mitochondrial DNA, plastid reads): they filled the
+  target depth. On six *Arabidopsis* Col-0 lines (R10.4.1, whole-genome reads), the templated mitogenomes went from
+  19,000–278,000 `N` and 189–289 substitutions against HiFi assemblies to 105–162 `N` and none, and their
+  distances (up to 8 SNPs between lines of one ecotype, 29–34 to the reference) to 0; Flye assembled the
+  mitogenome instead of the plastome. Off by default: on the potato plastomes it added a 1 kb block of `N` to one
+  cultivar and some 1–2 SNP differences within lineages, and fewer Flye plastomes were circular. Recommended for
+  mitogenomes and whole-genome reads (fastq only).
+- `Off_reference_pct` (summary, report, MultiQC): the share of a de novo assembly's bases that align nowhere on
+  the reference (`minimap2 -x asm20`), with a note above 10%. It flags contigs of another genome, such as the
+  plastome assembled from mitogenome baits or nuclear copies of organelle DNA; assemblies of the target alone
+  stayed below 1% in every test (0–0.3%). Computed for assemblies of earlier versions too, without rerunning them;
+  shown in the report and MultiQC only for de novo assemblies.
+- Validation: two simulated scenarios, `heteroplasmy` (two haplotypes, minor fraction 0–0.5) and `numt`
+  (nuclear copies of plastome segments at 0.5–25x of nuclear DNA), run with `run_validation.sh FOLDER THREADS
+  new`; their results are in Methods (Heteroplasmy, Nuclear copies).
+
 ## 0.3.9 (2026-10-13)
 
 ### Fixed

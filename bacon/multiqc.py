@@ -19,6 +19,7 @@ from bacon import BaconError
 from bacon.metadata import Metadata, shown_name
 from bacon.newick import parse
 
+OPTIONAL_COLUMNS = ("Off_reference_pct",)
 SAMPLE_HEADERS = {
     "Status": {"title": "Status", "description": "ok, or the step at which the sample failed"},
     "Raw_reads": {"title": "Raw reads", "description": "Input reads", "format": "{:,.0f}", "scale": "Greys",
@@ -41,6 +42,9 @@ SAMPLE_HEADERS = {
                         "format": "{:,.0f}", "scale": "Greys"},
     "Length_vs_reference": {"title": "x ref", "description": "Assembly length / reference length",
                             "format": "{:,.3f}", "scale": "RdBu"},
+    "Off_reference_pct": {"title": "Off ref %", "description": "De novo assemblies: share of the bases that align "
+                          "nowhere on the reference", "suffix": "%", "min": 0, "max": 100, "format": "{:,.1f}",
+                          "scale": "Reds"},
     "N_bases": {"title": "N bases", "description": "Templated assembly: bases called N (low or ambiguous support)",
                 "format": "{:,.0f}", "scale": "Reds"},
     "Note": {"title": "Note", "description": "Warnings: low depth, unexpected length, N bases, failure reason"},
@@ -93,6 +97,9 @@ def sample_table(rows: list[dict[str, str]], run: str = "", metadata: Metadata |
         if metadata is not None:
             values.update({k: metadata.value(r["Sample"], c) for k, c in columns.items()})
         data[r["Sample"]] = {k: v for k, v in values.items() if v not in (None, "")}
+    for key in OPTIONAL_COLUMNS:  # Only with a de novo assembler
+        if not any(key in values for values in data.values()):
+            headers.pop(key, None)
     return {
         "id": f"bacon_samples_{_run_id(run)}",
         "section_name": f"BACoN {run}: samples".replace("  ", " "),

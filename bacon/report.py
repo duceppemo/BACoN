@@ -48,6 +48,7 @@ from bacon.seqio import read_records, split_extension
 
 LOW_DEPTH = 20  # Same thresholds as the notes in summary.tsv
 LENGTH_RANGE = (0.8, 1.2)
+OFF_REFERENCE = 10
 MAX_LABELLED_CELLS = 60  # Above this many genomes, heatmap cells show their value on hover only
 MAX_HEATMAP_GENOMES = 150  # Above this, no inline heatmap (the page would be tens of MB): see the TSV
 MAX_MAP_SEQUENCES = 8  # Reference sequences drawn in the genome map (the longest ones)
@@ -102,12 +103,15 @@ ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")  # The copy made by the
 
 TABLE_COLUMNS = [
     ("Sample", "Sample"), ("Status", "Status"), ("Raw_reads", "Raw reads"), ("Baited_reads", "Baited reads"),
-    ("Baited_pct", "Baited %"), ("Filtered_reads", "Filtered reads"), ("Filtered_N50", "Read N50"),
-    ("Est_depth", "Depth"), ("Contigs", "Contigs"), ("Circular_contigs", "Circular"),
-    ("Assembly_length", "Length"), ("Length_vs_reference", "× ref"), ("N_bases", "N bases"), ("Note", "Note"),
+    ("Baited_pct", "Baited %"), ("Filtered_reads", "Filtered reads"),
+    ("Filtered_N50", "Read N50"), ("Est_depth", "Depth"), ("Contigs", "Contigs"), ("Circular_contigs", "Circular"),
+    ("Assembly_length", "Length"), ("Length_vs_reference", "× ref"), ("Off_reference_pct", "Off ref %"),
+    ("N_bases", "N bases"), ("Note", "Note"),
 ]
-NUMERIC = {"Raw_reads", "Baited_reads", "Baited_pct", "Filtered_reads", "Filtered_N50", "Est_depth", "Contigs",
-           "Circular_contigs", "Assembly_length", "Length_vs_reference", "N_bases"}
+OPTIONAL_COLUMNS = {"Off_reference_pct"}  # Shown only when a sample has a value
+NUMERIC = {"Raw_reads", "Baited_reads", "Baited_pct", "Off_reference_pct", "Filtered_reads",
+           "Filtered_N50", "Est_depth", "Contigs", "Circular_contigs", "Assembly_length", "Length_vs_reference",
+           "N_bases"}
 
 esc = html.escape
 log = logging.getLogger(__name__)
@@ -157,6 +161,8 @@ def _flag(key: str, row: dict[str, str]) -> str:
         return "warn"
     if key == "N_bases" and value.isdigit() and int(value) > 0:
         return "info"
+    if key == "Off_reference_pct" and (o := _float(value)) is not None and o > OFF_REFERENCE:
+        return "warn"
     return ""
 
 
@@ -1254,9 +1260,11 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
                      f"minimap2{_tool(info, 'minimap2')} (-x map-ont).")
     size = "the given genome size" if s.get("genome_size") else "the reference length"
     min_length, depth = _num(s.get("min_read_length"), 500), _num(s.get("target_depth"), 100)
+    ranked = (", ranked by their k-mers found in the reference (--assembly)" if s.get("filter_by_reference")
+              else "")
     fastq_text = (f"reads shorter than {min_length:g} bp were discarded and the best "
                   f"{_num(s.get('keep_percent'), 95):g}% were kept, up to {depth:g}x of {size}, with "
-                  f"Filtlong{_tool(info, 'filtlong')}")
+                  f"Filtlong{_tool(info, 'filtlong')}{ranked}")
     fasta_text = (f"reads without qualities (fasta files) were filtered by BACoN: the longest reads of at "
                   f"least {min_length:g} bp, up to {depth:g}x of {size}")
     fasta, total = _fasta_samples(info)
@@ -1504,13 +1512,15 @@ def _samples_table(rows: list[dict[str, str]], metadata: Metadata | None = None,
         cls = "num md" if is_numeric(values) else ("md long" if any(len(v) > MAX_VALUE_LENGTH for v in values)
                                                    else "md")
         extra.append((c, cls))
-    heads = [f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>' for key, label in TABLE_COLUMNS]
+    columns = [(key, label) for key, label in TABLE_COLUMNS
+               if key not in OPTIONAL_COLUMNS or any(r.get(key, "NA") not in ("", "NA") for r in rows)]
+    heads = [f'<th class="{"num" if key in NUMERIC else ""}">{esc(label)}</th>' for key, label in columns]
     heads[1:1] = [f'<th class="{cls}">{esc(shown_name(c, own))}</th>' for c, cls in extra]
     out = ['<div class="tablewrap"><table class="samples sortable"><thead><tr>' + "".join(heads)
            + "</tr></thead><tbody>"]
     for r in rows:
         cells = []
-        for key, _ in TABLE_COLUMNS:
+        for key, _ in columns:
             value = r.get(key, "")
             classes = " ".join(c for c in (_flag(key, r), "num" if key in NUMERIC else "",
                                            "note" if key == "Note" else "") if c)

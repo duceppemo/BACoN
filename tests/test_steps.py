@@ -204,3 +204,20 @@ def test_bbduk_reads_files_whatever_their_extension_says(tmp_path, names):
                         hdist=0, memory_gb=1)
     assert result.stats["Baited_reads"] == 5 * len(names)
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["s.fastq.gz"]  # No link left behind
+
+
+@pytest.mark.skipif(not shutil.which("minimap2"), reason="minimap2 is not installed")
+def test_off_reference_share(tmp_path):
+    import random
+
+    from bacon.steps import off_reference
+    rng = random.Random(1)
+    ref = "".join(rng.choice("ACGT") for _ in range(20000))
+    other = "".join(rng.choice("ACGT") for _ in range(5000))
+    (tmp_path / "ref.fa").write_text(f">ref\n{ref}\n")
+    (tmp_path / "asm.fa").write_text(f">c1 circular=true\n{ref[:15000]}\n>c2\n{other}\n"
+                                     f">c3\n{ref[15000:]}{other[:2000]}\n")
+    pct = off_reference(tmp_path / "asm.fa", tmp_path / "ref.fa", tmp_path / "log", 1)
+    assert 25 < pct < 27  # 7000 of 27000 bases
+    (tmp_path / "same.fa").write_text(f">c1\n{ref}\n")
+    assert off_reference(tmp_path / "same.fa", tmp_path / "ref.fa", tmp_path / "log", 1) < 1

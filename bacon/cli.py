@@ -113,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     reads.add_argument("--target-depth", metavar="100", type=_positive_int, default=100,
                        help="Keep at most this depth of the best reads (Filtlong). Default: %(default)s")
 
+    reads.add_argument("--filter-by-reference", action="store_true",
+                       help="Filtlong ranks the reads by their k-mers found in the reference (--assembly) instead "
+                            "of by base qualities: long reads of which only a stretch matches the reference, such "
+                            "as nuclear reads holding a copy of organelle DNA, no longer fill the target depth. "
+                            "Fastq reads only.")
+
     asm = parser.add_argument_group("assembly")
     asm.add_argument("-a", "--assembly-method", choices=["samtools", "flye", "myloasm"], default="samtools",
                      help="samtools: templated assembly, the consensus of the reads aligned to the reference "
@@ -202,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         min_read_length=args.min_read_length,
         keep_percent=args.keep_percent,
         target_depth=args.target_depth,
+        filter_by_reference=args.filter_by_reference,
         assembler=args.assembly_method,
         read_type=args.read_type,
         min_size=args.min_size,

@@ -30,8 +30,17 @@ missing many sites looks closer to the others than it is. `snps.vcf` is the same
 **The de novo assembly is 1.3–2 times the reference length.**
 Reads from other genomes were baited with the target: mitochondrial and nuclear sequences similar to the
 plastome (for example plastid DNA inserted in the mitochondrion), or contamination. The extra contigs are
-usually at low depth. The templated assembly is not affected; for de novo assemblies, check the assembly
+usually at low depth, and `Off_reference_pct` gives the share of the assembly that aligns nowhere on the
+reference (a note above 10%). The templated assembly is not affected; for de novo assemblies, check the assembly
 graph in `3_assembled/assembly_graphs/`.
+
+**I am baiting a mitogenome.**
+Use `--filter-by-reference`. Among the baited reads are long reads of which only a stretch matches the
+mitogenome (nuclear copies of mitochondrial DNA; plastid reads, as plant mitogenomes contain plastid-derived
+stretches). By default Filtlong prefers them for their length, they fill the target depth, and the templated
+mitogenome fills with `N` while Flye assembles the plastome. See [Methods](Methods#2-filtering). With
+whole-genome reads of a large nuclear genome, check the real depth: the mitogenome may be covered only a few
+times.
 
 **My chloroplast assembly is in three contigs, not one circle.**
 With reads shorter than the inverted repeat (about 25 kb), the assembler cannot tell how the single-copy regions

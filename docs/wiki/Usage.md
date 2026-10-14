@@ -122,6 +122,7 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--min-read-length` | 500 | Shorter reads are discarded |
 | `--keep-percent` | 95 | Filtlong keeps the best reads, up to this percentage of the bases (fastq only: fasta reads have no qualities and are selected by length) |
 | `--target-depth` | 100 | Filtlong keeps at most this depth of the best reads (depth = bases / genome size, `-s` or the reference length) |
+| `--filter-by-reference` | off | Filtlong ranks the reads by their k-mers found in the reference instead of by base qualities, so that long reads of which only a stretch matches the reference (nuclear reads with a copy of organelle DNA, plastid reads among mitogenome baits) do not fill the target depth. Recommended for mitogenomes and whole-genome reads; fastq only. See [Methods](Methods#2-filtering) |
 | `-a`, `--assembly-method` | `samtools` | `samtools` (templated), `flye` or `myloasm` (de novo); see [Methods](Methods) |
 | `--template-gaps` | `n` | Templated assembly: what to put where fewer than three reads cover the reference. `n`: an `N` (no base is guessed); `reference`: the reference's bases, at the ends of each sequence only (gaps inside stay `N`) |
 | `--read-type` | `nano-hq` | Flye: `nano-hq` for R10/Q20 reads (<5% error; Flye's advice for R9 Guppy 5+ reads is also `nano-hq`), `nano-raw` for R9 reads basecalled with Guppy < 5, `nano-corr` for corrected reads |

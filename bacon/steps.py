@@ -177,16 +177,18 @@ def _bait_result(output: Path, total: ReadStats | None, kept: ReadStats) -> Step
 # ---------------------------------------------------------------------------------------------------------------
 
 def filter_filtlong(name: str, reads: Path, fmt: str, out_dir: Path, log_dir: Path, *, min_length: int,
-                    keep_percent: float, target_bases: int) -> StepResult:
-    """Filtlong for fastq reads; for fasta reads (no qualities, which Filtlong needs), `filter_by_length`."""
+                    keep_percent: float, target_bases: int, reference: Path | None = None) -> StepResult:
+    """Filtlong for fastq reads; for fasta reads (no qualities, which Filtlong needs), `filter_by_length`. With a
+    reference, Filtlong scores the reads by their k-mers found in it (--assembly) rather than by base qualities:
+    a long read of which only a stretch matches the reference ranks low."""
     out_dir.mkdir(parents=True, exist_ok=True)
     output = out_dir / (name + reads_suffix(fmt))
     if fmt == "fasta":
         filter_by_length(reads, output, min_length=min_length, target_bases=target_bases)
     else:
         run(["filtlong", "--min_length", str(min_length), "--keep_percent", f"{keep_percent:g}",
-             "--target_bases", str(target_bases), str(reads)], log_dir / f"{name}.log", stdout=output,
-            what=f"(filtering {name})")
+             "--target_bases", str(target_bases), *(["--assembly", str(reference)] if reference else []),
+             str(reads)], log_dir / f"{name}.log", stdout=output, what=f"(filtering {name})")
     stats = read_stats([output])
     if stats.reads == 0:
         raise SampleFailed(f"no reads left after filtering (all shorter than {min_length} bp?)")
@@ -353,6 +355,32 @@ def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, 
     total = sum(length for length, _ in covered)
     stats["Assembly_depth"] = f"{sum(length * cov for length, cov in covered) / total:.1f}" if total else "NA"
     return StepResult(dirs.assemblies / f"{name}.fasta", stats)
+
+
+def off_reference(contigs: Path, reference: Path, log_file: Path, threads: int) -> float:
+    """Percentage of a de novo assembly's bases that align nowhere on the reference (minimap2 -x asm20): contigs
+    of another origin (nuclear DNA, another organelle) or sequence the reference lacks."""
+    lengths = {r.name: len(r.seq) for r in read_records(contigs)}
+    total = sum(lengths.values())
+    if not total:
+        return 0.0
+    with tempfile.TemporaryDirectory(prefix="bacon_offref_") as tmp:
+        paf = Path(tmp) / "contigs.paf"
+        run(["minimap2", "-x", "asm20", "-t", str(threads), str(reference), str(contigs)], log_file, stdout=paf,
+            what="(aligning the contigs to the reference)")
+        spans: dict[str, list[tuple[int, int]]] = {}
+        with open(paf) as fh:
+            for line in fh:
+                fields = line.split("\t")
+                if len(fields) >= 12 and fields[0] in lengths:
+                    spans.setdefault(fields[0], []).append((int(fields[2]), int(fields[3])))
+    aligned = 0
+    for intervals in spans.values():
+        end = 0
+        for start, stop in sorted(intervals):
+            aligned += max(0, stop - max(start, end))
+            end = max(end, stop)
+    return 100 * (total - aligned) / total
 
 
 def _is_float(text: str) -> bool:

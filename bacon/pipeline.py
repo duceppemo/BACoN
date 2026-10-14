@@ -44,11 +44,12 @@ FOLDERS = {"bait": "1_extracted", "filter": "2_filtered", "assemble": "3_assembl
 LOG_FOLDERS = {"bait": "1_bait", "filter": "2_filter", "assemble": "3_assemble", "compare": "4_compare"}
 SUMMARY_COLUMNS = [
     "Sample", "Status", "Raw_reads", "Raw_bases", "Baited_reads", "Baited_bases", "Baited_pct",
-    "Filtered_reads", "Filtered_bases", "Filtered_N50", "Est_depth",
+        "Filtered_reads", "Filtered_bases", "Filtered_N50", "Est_depth",
     "Contigs", "Circular_contigs", "Assembly_length", "Largest_contig", "Assembly_N50", "Length_vs_reference",
-    "Assembly_depth", "N_bases", "Note",
+    "Off_reference_pct", "Assembly_depth", "N_bases", "Note",
 ]
 LOW_DEPTH = 20  # Below this estimated depth of filtered reads, a note is added
+OFF_REFERENCE = 10  # Above this percentage of a de novo assembly's bases off the reference, a note is added
 
 
 @dataclass
@@ -67,6 +68,7 @@ class Settings:
     min_read_length: int = 500
     keep_percent: float = 95.0
     target_depth: int = 100
+    filter_by_reference: bool = False  # Filtlong --assembly reference
     assembler: str = "samtools"
     read_type: str = "nano-hq"
     min_size: int | None = None
@@ -233,7 +235,7 @@ def needed_tools(s: Settings) -> list[str]:
     if s.keep_bam and s.baiting == "minimap2":
         tools.append("samtools")
     tools += ["filtlong", {"flye": "flye", "myloasm": "myloasm", "samtools": "samtools"}[s.assembler]]
-    if s.assembler == "samtools":
+    if "minimap2" not in tools:  # Templated assembly; the off-reference share of de novo assemblies
         tools.append("minimap2")
     tools += {"parsnp": ["parsnp", "harvesttools"], "ska": ["ska"], "none": []}[s.snp_method]
     if s.snp_method != "none":
@@ -367,15 +369,15 @@ def _prepare_reference(s: Settings) -> tuple[Path, int]:
 
 ANNOTATION_COPIES = ("annotation.gb", "annotation.gff3")
 # The files BACoN writes at the top of the output folder, and the temporary files they are written to
-OUTPUT_FILES = ("reference.fasta", "reference.tmp", *ANNOTATION_COPIES, "annotation.tmp", md.COPY_NAME,
-                "metadata.tmp", "summary.tsv", "summary.tsv.tmp", "run_info.json", "run_info.json.tmp",
-                "report.html", "report.html.tmp", "bacon.log", ".bacon.lock",
+OUTPUT_FILES = ("reference.fasta", "reference.tmp", *ANNOTATION_COPIES,
+                "annotation.tmp", md.COPY_NAME, "metadata.tmp", "summary.tsv", "summary.tsv.tmp", "run_info.json",
+                "run_info.json.tmp", "report.html", "report.html.tmp", "bacon.log", ".bacon.lock",
                 *(f"bacon_{name}_mqc.json{tmp}" for name in ("samples", "reads", "distances")
                   for tmp in ("", ".tmp")))
 # The copies BACoN makes of an input, which may be that input itself when they leave it as it is (e.g. -r
 # OUTPUT/reference.fasta of an earlier run): checked again before they are written.
-OWN_COPIES = {"-r/--reference": ("reference.fasta", "annotation.gb"), "--annotation": ANNOTATION_COPIES,
-              "--metadata": (md.COPY_NAME,)}
+OWN_COPIES = {"-r/--reference": ("reference.fasta", "annotation.gb"),
+              "--annotation": ANNOTATION_COPIES, "--metadata": (md.COPY_NAME,)}
 
 
 def _same_file(a: Path, b: Path) -> bool:
@@ -387,8 +389,9 @@ def _same_file(a: Path, b: Path) -> bool:
 
 def _inputs(s: Settings) -> list[tuple[str, Path]]:
     """The input files of the run (but the reads), with the option that gives each."""
-    given = [("-r/--reference", s.reference), ("--annotation", s.annotation), ("--metadata", s.metadata),
-             ("--sample-sheet", s.sample_sheet), *(("--add-genomes", p) for p in s.add_genomes)]
+    given = [("-r/--reference", s.reference), ("--annotation", s.annotation),
+             ("--metadata", s.metadata), ("--sample-sheet", s.sample_sheet),
+             *(("--add-genomes", p) for p in s.add_genomes)]
     return [(option, path) for option, path in given if path is not None]
 
 
@@ -598,9 +601,23 @@ def _add_notes(st: SampleState, genome_size: int) -> None:
         st.stats["Est_depth"] = f"{depth:.1f}"
         if depth < LOW_DEPTH:
             st.notes.append(f"low depth ({depth:.0f}x)")
+    off = st.stats.get("Off_reference_pct")
+    if off not in (None, "NA") and float(off) > OFF_REFERENCE:  # type: ignore[arg-type]
+        st.notes.append(f"{float(off):.0f}% of the assembly aligns nowhere on the reference "  # type: ignore[arg-type]
+                        "(contigs of another origin?)")
     ratio = st.stats.get("Length_vs_reference")
     if ratio not in (None, "NA") and not 0.8 <= float(ratio) <= 1.2:  # type: ignore[arg-type]
         st.notes.append(f"assembly length is {float(ratio):.2f}x the reference")  # type: ignore[arg-type]
+
+
+def _off_reference(name: str, assembly: Path, reference: Path, log_dir: Path, threads: int) -> dict[str, str]:
+    """The share of a de novo assembly off the reference, as a summary column; nothing if it cannot be known."""
+    try:
+        pct = steps.off_reference(assembly, reference, log_dir / f"{name}.log", threads)
+    except BaconError as exc:
+        log.warning("Could not align the contigs of %s to the reference: %s", name, str(exc).splitlines()[0])
+        return {}
+    return {"Off_reference_pct": f"{pct:.1f}"}
 
 
 def summary_row(st: SampleState) -> dict[str, str]:
@@ -736,7 +753,8 @@ def _run(s: Settings, started: float) -> int:
                  "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None,
                  **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
-                   "target_depth": s.target_depth, "genome_size": genome_size},
+                   "target_depth": s.target_depth, "genome_size": genome_size,
+                   **({"by_reference": True} if s.filter_by_reference else {})},
         "assemble": {"assembler": s.assembler, "genome_size": genome_size,
                      "template_gaps": s.template_gaps if s.assembler == "samtools" else None,
                      **(flye_options if s.assembler == "flye" else {})},
@@ -759,7 +777,8 @@ def _run(s: Settings, started: float) -> int:
         assert st.reads is not None
         return steps.filter_filtlong(st.sample.name, st.reads, st.sample.fmt, folder["filter"],
                                      logs / "2_filter", min_length=s.min_read_length,
-                                     keep_percent=s.keep_percent, target_bases=genome_size * s.target_depth)
+                                     keep_percent=s.keep_percent, target_bases=genome_size * s.target_depth,
+                                     reference=reference if s.filter_by_reference else None)
 
     dirs = steps.AssemblyDirs(folder["assemble"])
 
@@ -767,11 +786,13 @@ def _run(s: Settings, started: float) -> int:
         assert st.reads is not None
         name, reads, log_dir = st.sample.name, st.reads, logs / "3_assemble"
         common = {"threads": threads, "reference_length": reference_length}
-        if s.assembler == "flye":
-            return steps.assemble_flye(name, reads, dirs, log_dir, genome_size=genome_size, read_type=s.read_type,
+        if s.assembler in ("flye", "myloasm"):
+            res = (steps.assemble_flye(name, reads, dirs, log_dir, genome_size=genome_size, read_type=s.read_type,
                                        min_overlap=s.min_size, iterations=s.flye_iterations, **common)
-        if s.assembler == "myloasm":
-            return steps.assemble_myloasm(name, reads, dirs, log_dir, **common)
+                   if s.assembler == "flye" else steps.assemble_myloasm(name, reads, dirs, log_dir, **common))
+            if res.output is not None:
+                res.stats.update(_off_reference(name, res.output, reference, log_dir, threads))
+            return res
         return steps.assemble_samtools(name, reads, reference, dirs, log_dir,
                                        fill_gaps=s.template_gaps == "reference", **common)
 
@@ -848,6 +869,11 @@ def _run(s: Settings, started: float) -> int:
             _finish(s, states, tools, None, started, annotation, metadata, regions)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")
 
+    if s.assembler != "samtools":  # Assemblies of BACoN <= 0.3.9, whose checkpoints lack it
+        for st in states:
+            if not st.failed and st.assembly and st.assembly.is_file() and "Off_reference_pct" not in st.stats:
+                st.stats.update(_off_reference(st.sample.name, st.assembly, reference, logs / "3_assemble",
+                                               s.threads))
     for st in states:
         if not st.failed:
             _add_notes(st, genome_size)

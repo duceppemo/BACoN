@@ -8,6 +8,29 @@ summarizes the [2026-09-24 record](https://github.com/duceppemo/BACoN/blob/main/
 reran it with BACoN 0.3.8 and the same programs: every score on simulated data was identical, and on the potato
 data the templated and the Flye assemblies still agree on all 406 SNP distances.
 
+## Mitogenomes, nuclear copies and heteroplasmy
+
+The [mitogenome record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-13_mito/SUMMARY.md)
+adds real mitogenomes with a truth, and two simulated scenarios (`heteroplasmy`, `numt`).
+
+On six *Arabidopsis* Col-0 lines (ONT R10.4.1 whole-genome reads; truth: each line's organelles assembled from its
+PacBio HiFi reads):
+
+| | Substitutions vs truth | `N` bases | SNPs to the reference | Max SNPs between lines |
+|---|---|---|---|---|
+| plastome, templated or Flye, with or without `--filter-by-reference` | 0 | 0 | 0 | 0 |
+| mitogenome, templated | 189–289 | 19,227–278,015 | 29–34 | 8 |
+| mitogenome, templated, `--filter-by-reference` | **0** | **105–162** | **0** | **0** |
+| mitogenome, Flye | the plastome was assembled (94–96% off the reference) | — | — | — |
+| mitogenome, Flye, `--filter-by-reference` | 0–6 | — | 0–1 | 1 |
+
+By default, Filtlong filled the target depth with long reads of which only a stretch matched the mitogenome;
+`--filter-by-reference` ranks the reads by their k-mers found in the reference ([Methods](Methods#2-filtering)).
+It is not the default: on the potato plastomes, one cultivar gained a 1 kb block of `N` and fewer Flye plastomes
+were circular (11 instead of 17), with the same Flye distances. `Off_reference_pct` stayed at 0–0.3% for every
+assembly of the target alone, and flagged every Flye "mitogenome" that was the plastome. The simulated
+heteroplasmy and nuclear copies are summarized in [Methods](Methods#heteroplasmy).
+
 ## Simulated data with a known truth
 
 [`validation/simulate.py`](https://github.com/duceppemo/BACoN/blob/main/validation/simulate.py) generates

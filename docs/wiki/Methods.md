@@ -10,6 +10,23 @@ The reads of each sample are compared with the reference and those that match ar
 - **BBDuk** (`-b bbduk`): a read is kept when it shares one k-mer (k = 31 by default, one mismatch allowed: `--hdist`) with
   the reference. Useful when the reference is only distantly related to the samples.
 
+### Nuclear copies
+
+Nuclear genomes carry copies of organelle DNA (NUPTs, NUMTs). Their reads are baited with the organelle's: in
+simulations, nearly every read covering a nuclear copy was kept. What they do depends on their depth relative to
+the organelle's (validation scenario `numt`: organelle at 50x):
+
+- Up to 10x of nuclear DNA, the templated assembly was unaffected (one `N` in 45 kb of copied segments).
+- At 25x, the templated assembly had `N` at the sites where the nuclear copies differ (721 of 1,703), never the
+  nuclear base; the comparison drops these sites, so distances err low (2 SNPs for a truth of 5).
+- Flye assembled the nuclear copies as extra contigs (at 25x, assemblies 2.3–3.3 times the reference in two
+  runs), which the off-reference share flags; at the sites where the copies differ, some came out with both
+  bases in different contigs. With `--filter-by-reference`, the 10x sample had no extra contig and all 21 Flye
+  distances were exact (16 without); the templated assemblies did not change.
+
+Use enriched DNA when possible; with whole-genome reads, compare `Est_depth` with the depth of the nuclear
+genome, look at the off-reference notes of de novo assemblies, and consider `--filter-by-reference`.
+
 Baiting reads every input read once; everything after works on the baited reads only. The share of bases
 baited (`Baited_pct`) is a measure of enrichment: a few percent in total DNA of plants, much more after
 targeted sequencing.
@@ -22,6 +39,31 @@ keeps assemblies fast on highly enriched samples without losing accuracy.
 
 Filtlong needs base qualities: reads given as fasta are filtered by BACoN instead, keeping the longest reads of
 at least `--min-read-length` up to the target depth.
+
+### Ranking the reads by the reference (`--filter-by-reference`)
+
+Filtlong prefers long reads, and the target depth counts bases wherever they align. Among the baited reads of a
+mitogenome there are long reads of which only a stretch matches the reference: nuclear reads holding a copy of
+mitochondrial DNA, plastid reads covering the plastid-derived stretches of a plant mitogenome. With
+`--filter-by-reference`, Filtlong ranks the reads by their k-mers found in the reference (`--assembly`) instead of
+by base qualities, and these reads rank low.
+
+On six *Arabidopsis* Col-0 lines (R10.4.1, whole-genome reads; [Validation](Validation)), the mitogenome was
+covered about 800x among the baited reads of one line, but the default filter kept 408 reads of median length
+83 kb of which only 9% aligned to the mitogenome: the estimated depth read 100x for a real 3–14x. The templated
+mitogenomes had 19,000–278,000 `N` and 189–289 substitutions against assemblies of each line's HiFi reads, 29–34
+SNPs to the Col-0 reference and up to 8 between the lines; Flye assembled the plastome instead. With
+`--filter-by-reference` the kept reads aligned in full, and the templated mitogenomes had 105–162 `N`, no
+substitution, and no SNP to the reference or between the lines; Flye assembled the mitogenome (0–6 substitutions).
+
+It has a cost where the samples differ from the reference in structure: reads spanning sequence the reference
+lacks rank low too. On the 28 potato plastomes ([Tutorial](Tutorial)), the templated assembly of one cultivar
+gained a block of about 1 kb of `N`, pairs of the same lineage at a non-zero distance went from 59 to 69 of 166
+(no distance moved by more than 2 SNPs), and 11 Flye plastomes were circular instead of 17 (with
+the same distances). On the simulated scenarios, the templated assemblies were unchanged.
+
+When to use it: for mitogenomes, and for any target baited from whole-genome reads where the estimated depth looks
+high but the templated assembly has many `N`. Fastq reads only (fasta reads are filtered by length).
 
 Adapters are not trimmed: Dorado and Guppy already trim them, and Porechop, used by BACoN 0.2, is no longer
 maintained.
@@ -57,8 +99,18 @@ Limits of the templated assembly:
   `summary.tsv`).
   This is `--template-gaps n`, the default; with `--template-gaps reference`, uncovered positions at the ends of
   each sequence get the reference's bases instead (inner gaps stay `N`).
+- Long runs of one base (8 or more A or T) sometimes come out one base short, a bias of Nanopore reads: 15–19
+  such one-base deletions per *Arabidopsis* Col-0 plastome (R10.4.1) against an assembly of HiFi reads, with no
+  substitution. SKA2 and Parsnp compare substitutions only, so the distances are not affected; do not read
+  homopolymer lengths from the assembly.
 - In an inverted repeat both copies receive the same reads; a difference between the two copies of one
   sample cannot be seen (the two copies are usually identical in chloroplasts).
+
+Each de novo assembly is aligned to the reference (`minimap2 -x asm20`): `Off_reference_pct` is the share of
+its bases that align nowhere. Assemblies of the target alone stay below 1% (0–0.3% on every simulated assembly
+and on the 28 potato plastomes with Flye); above 10%, a note says so. Off-reference contigs come from another
+genome (the plastome assembled from mitogenome baits, nuclear copies, low-depth mitochondrial contigs among
+plastome baits) or from sequence the reference lacks. The templated assembly cannot have any.
 
 Limits of the de novo assemblies:
 
@@ -67,6 +119,15 @@ Limits of the de novo assemblies:
   contigs, with the repeat once.
 - With ONT reads, all samples share some systematic consensus errors (homopolymers). They cancel between samples
   but add to the distance to the reference.
+
+### Heteroplasmy
+
+A sample with two organelle haplotypes gives one consensus. In the validation scenario `heteroplasmy` (80x), the
+templated assembly reported the major allele at every site up to a minor fraction of 0.2; from 0.3 the sites
+became `N` (17% at 0.3, 73% at an even mixture), and it never reported the minor allele. Flye reported the major
+allele up to 0.3; from 0.4 some sites came out with the minor allele or with both alleles in different contigs,
+which added false SNPs (5 at an even mixture). BACoN does not detect heteroplasmy: `N` bases in a templated
+assembly with good depth are a hint of a mixture.
 
 ## 4. Comparison
 

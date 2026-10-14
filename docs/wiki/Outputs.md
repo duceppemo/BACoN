@@ -183,9 +183,10 @@ Tested with MultiQC 1.19 and 1.35.
 | `Circular_contigs` | Contigs the assembler reports as circular (Flye, myloasm; `NA` for the templated assembly) |
 | `Assembly_length`, `Largest_contig`, `Assembly_N50` | Assembly statistics |
 | `Length_vs_reference` | Assembly length / reference length |
+| `Off_reference_pct` | De novo assemblies: share of the assembly's bases that align nowhere on the reference (`minimap2 -x asm20`); above 10%, a note. Contigs of another origin (nuclear DNA, the other organelle) or sequence the reference lacks (`NA` for the templated assembly) |
 | `Assembly_depth` | Mean depth reported by Flye |
 | `N_bases` | Templated assembly: bases called `N`, where fewer than three reads cover the reference or the reads disagree (often inside insertions) |
-| `Note` | Warnings: low depth (below 20x), assembly length outside 0.8–1.2 times the reference, `N` bases, or why the sample failed |
+| `Note` | Warnings: low depth (below 20x), more than 10% of a de novo assembly off the reference, assembly length outside 0.8–1.2 times the reference, `N` bases, or why the sample failed |
 
 ## Assemblies
 

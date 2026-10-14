@@ -1,0 +1,13 @@
+# Potato plastomes (28 cultivars, tutorial data), BACoN default vs --filter-by-reference, same baiting.
+# Lineages: lineages.tsv of the tutorial (derived from the default run's distances).
+
+## templated
+distances: 406 pairs, 326 identical, largest difference 2
+default: same-lineage pairs non-zero 59/166, max 13; between lineages min 66; N bases median 133.0, max 153 (Baron)
+--filter-by-reference: same-lineage pairs non-zero 69/166, max 13; between lineages min 66; N bases median 122.0, max 998 (Argo)
+
+## Flye
+distances: 406 pairs, 406 identical, largest difference 0
+default: same-lineage pairs non-zero 59/166, max 13; between lineages min 66; circular plastomes 17/28
+--filter-by-reference: same-lineage pairs non-zero 59/166, max 13; between lineages min 66; circular plastomes 11/28
+
