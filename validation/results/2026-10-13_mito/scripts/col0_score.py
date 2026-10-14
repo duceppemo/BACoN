@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Score BACoN's Col-0 assemblies against the HiFi truth (TIPPo): nucmer + show-snps (MUMmer 4).
 Per sample: substitutions (both bases ACGT), indel events, positions where the assembly has N, and the share of
-the truth covered by alignments (show-coords). Usage: BENCH=... col0_score.py RUN_FOLDER ORGANELLE(cp|mt)  (needs MUMmer 4)."""
-import os, subprocess, sys, tempfile
+the truth covered by alignments (show-coords).
+
+Usage: BENCH=... col0_score.py RUN_FOLDER|GENOME.fasta cp|mt  (needs MUMmer 4)."""
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 B = Path(os.environ.get("BENCH", ".")) / "col0"  # BENCH: the folder with col0/truth_tippo/
@@ -24,15 +29,12 @@ def truth(sample: str, organelle: str) -> Path | None:
     return asm
 
 
-def length(fa: Path) -> int:
-    return sum(len(l.strip()) for l in open(fa) if not l.startswith(">"))
-
-
-def score(asm: Path, ref: Path) -> dict:
+def score(asm: Path, ref: Path, organelle: str) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         pre = f"{tmp}/x"
         subprocess.run(["nucmer", "--maxmatch", "-p", pre, str(ref), str(asm)], check=True, capture_output=True)
-        subprocess.run(["delta-filter", "-1", f"{pre}.delta"], check=True, stdout=open(f"{pre}.1delta", "w"))
+        with open(f"{pre}.1delta", "w") as out:
+            subprocess.run(["delta-filter", "-1", f"{pre}.delta"], check=True, stdout=out)
         snps = subprocess.run(["show-snps", "-C", "-H", "-T", "-r", f"{pre}.1delta"], check=True,
                               capture_output=True, text=True).stdout
         coords = subprocess.run(["show-coords", "-H", "-T", "-r", f"{pre}.1delta"], check=True,
@@ -57,7 +59,8 @@ def score(asm: Path, ref: Path) -> dict:
     for name, iv in spans.items():
         e = cov = 0
         for a, b in sorted(iv):
-            cov += max(0, b - max(a - 1, e)); e = max(e, b)
+            cov += max(0, b - max(a - 1, e))
+            e = max(e, b)
         covered[name] = cov
     # Plastome: TIPPo gives both orientations of the single-copy region, one per sequence: the best one counts.
     # Mitogenome: contigs; all count.
@@ -75,24 +78,31 @@ def score(asm: Path, ref: Path) -> dict:
 
 def lengths_of(fa: Path) -> dict:
     out, name = {}, None
-    for line in open(fa):
-        if line.startswith(">"):
-            name = line[1:].split()[0]; out[name] = 0
-        else:
-            out[name] += len(line.strip())
+    with open(fa) as fh:
+        for line in fh:
+            if line.startswith(">"):
+                name = line[1:].split()[0]
+                out[name] = 0
+            else:
+                out[name] += len(line.strip())
     return out
 
 
-run, organelle = Path(sys.argv[1]), sys.argv[2]
-if run.suffix in (".fasta", ".fa"):  # A single genome (the reference) against every truth
-    for d in sorted((B / "truth_tippo").glob("MA32_*")):
-        if (ref := truth(d.name, organelle)) is not None:
-            print(d.name, *score(run, ref).values(), sep="\t")
-    sys.exit()
-print("sample\tsubstitutions\tindels\tN_vs_truth\ttruth_covered")
-for asm in sorted((run / "3_assembled" / "all_assemblies").glob("*.fasta")):
-    ref = truth(asm.stem, organelle)
-    if ref is None:
-        print(f"{asm.stem}\tno truth"); continue
-    s = score(asm, ref)
-    print(asm.stem, *s.values(), sep="\t")
+def main() -> None:
+    run, organelle = Path(sys.argv[1]), sys.argv[2]
+    if run.suffix in (".fasta", ".fa"):  # A single genome (the reference) against every truth
+        for d in sorted((B / "truth_tippo").glob("MA32_*")):
+            if (ref := truth(d.name, organelle)) is not None:
+                print(d.name, *score(run, ref, organelle).values(), sep="\t")
+        return
+    print("sample\tsubstitutions\tindels\tN_vs_truth\ttruth_covered")
+    for asm in sorted((run / "3_assembled" / "all_assemblies").glob("*.fasta")):
+        ref = truth(asm.stem, organelle)
+        if ref is None:
+            print(f"{asm.stem}\tno truth")
+            continue
+        print(asm.stem, *score(asm, ref, organelle).values(), sep="\t")
+
+
+if __name__ == "__main__":
+    main()
