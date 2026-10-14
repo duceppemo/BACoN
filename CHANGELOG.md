@@ -11,12 +11,14 @@
   distances (up to 8 SNPs between lines of one ecotype, 29–34 to the reference) to 0; Flye assembled the
   mitogenome instead of the plastome. Off by default: on the potato plastomes it added a 1 kb block of `N` to one
   cultivar and some 1–2 SNP differences within lineages, and fewer Flye plastomes were circular. Recommended for
-  mitogenomes and whole-genome reads (fastq only).
+  mitogenomes and whole-genome reads (fastq only: ignored, with a warning, when every sample is fasta).
 - `Off_reference_pct` (summary, report, MultiQC): the share of a de novo assembly's bases that align nowhere on
   the reference (`minimap2 -x asm20`), with a note above 10%. It flags contigs of another genome, such as the
-  plastome assembled from mitogenome baits or nuclear copies of organelle DNA; assemblies of the target alone
-  stayed below 1% in every test (0–0.3%). Computed for assemblies of earlier versions too, without rerunning them;
-  shown in the report and MultiQC only for de novo assemblies.
+  plastome assembled from mitogenome baits or nuclear copies of organelle DNA. Assemblies of the target alone
+  stayed at 0–0.3% on every simulated scenario and on the potato and Col-0 plastomes (Flye), and at 0–8.3% on the
+  Col-0 mitogenomes. Computed for assemblies of earlier versions too, once, without rerunning them; shown in the
+  report and MultiQC only for de novo assemblies. minimap2 is now needed with `-b bbduk` and a de novo assembler
+  too.
 - Validation: two simulated scenarios, `heteroplasmy` (two haplotypes, minor fraction 0–0.5) and `numt`
   (nuclear copies of plastome segments at 0.5–25x of nuclear DNA), run with `run_validation.sh FOLDER THREADS
   new`; their results are in Methods (Heteroplasmy, Nuclear copies).

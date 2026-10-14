@@ -10,26 +10,27 @@ The reads of each sample are compared with the reference and those that match ar
 - **BBDuk** (`-b bbduk`): a read is kept when it shares one k-mer (k = 31 by default, one mismatch allowed: `--hdist`) with
   the reference. Useful when the reference is only distantly related to the samples.
 
+Baiting reads every input read once; everything after works on the baited reads only. The share of bases
+baited (`Baited_pct`) is a measure of enrichment: a few percent in total DNA of plants, much more after
+targeted sequencing.
+
 ### Nuclear copies
 
 Nuclear genomes carry copies of organelle DNA (NUPTs, NUMTs). Their reads are baited with the organelle's: in
 simulations, nearly every read covering a nuclear copy was kept. What they do depends on their depth relative to
 the organelle's (validation scenario `numt`: organelle at 50x):
 
-- Up to 10x of nuclear DNA, the templated assembly was unaffected (one `N` in 45 kb of copied segments).
+- Up to 2x of nuclear DNA, the templated assembly was unaffected; at 10x it had one `N` in 45 kb of copied
+  segments, which cost one SNP of a distance (4 for a truth of 5).
 - At 25x, the templated assembly had `N` at the sites where the nuclear copies differ (721 of 1,703), never the
   nuclear base; the comparison drops these sites, so distances err low (2 SNPs for a truth of 5).
-- Flye assembled the nuclear copies as extra contigs (at 25x, assemblies 2.3–3.3 times the reference in two
-  runs), which the off-reference share flags; at the sites where the copies differ, some came out with both
-  bases in different contigs. With `--filter-by-reference`, the 10x sample had no extra contig and all 21 Flye
-  distances were exact (16 without); the templated assemblies did not change.
+- Flye assembled the nuclear copies as extra contigs (assemblies 1.5 times the reference at 10x, 3.1–3.3 at
+  25x), which the off-reference share flagged; at the sites where the copies differ, some came out with both
+  bases in different contigs. With `--filter-by-reference` the extra contigs were smaller (1.2–2.8 times the
+  reference) and all 21 Flye distances were exact (16 without); the templated assemblies did not change.
 
 Use enriched DNA when possible; with whole-genome reads, compare `Est_depth` with the depth of the nuclear
 genome, look at the off-reference notes of de novo assemblies, and consider `--filter-by-reference`.
-
-Baiting reads every input read once; everything after works on the baited reads only. The share of bases
-baited (`Baited_pct`) is a measure of enrichment: a few percent in total DNA of plants, much more after
-targeted sequencing.
 
 ## 2. Filtering
 
@@ -48,12 +49,13 @@ mitochondrial DNA, plastid reads covering the plastid-derived stretches of a pla
 `--filter-by-reference`, Filtlong ranks the reads by their k-mers found in the reference (`--assembly`) instead of
 by base qualities, and these reads rank low.
 
-On six *Arabidopsis* Col-0 lines (R10.4.1, whole-genome reads; [Validation](Validation)), the mitogenome was
-covered about 800x among the baited reads of one line, but the default filter kept 408 reads of median length
-83 kb of which only 9% aligned to the mitogenome: the estimated depth read 100x for a real 3–14x. The templated
+On six *Arabidopsis* Col-0 lines (R10.4.1, whole-genome reads; [Validation](Validation)), the baited reads of one
+line covered the mitogenome 819x, but the default filter kept 391 reads of median length 90 kb of which 5.7% of
+the bases aligned to the mitogenome: the estimated depth read 100x, while the kept reads covered the mitogenome
+3x (median). The templated
 mitogenomes had 19,000–278,000 `N` and 189–289 substitutions against assemblies of each line's HiFi reads, 29–34
 SNPs to the Col-0 reference and up to 8 between the lines; Flye assembled the plastome instead. With
-`--filter-by-reference` the kept reads aligned in full, and the templated mitogenomes had 105–162 `N`, no
+`--filter-by-reference` the kept reads were 99.7% aligned (100x), and the templated mitogenomes had 105–162 `N`, no
 substitution, and no SNP to the reference or between the lines; Flye assembled the mitogenome (0–6 substitutions).
 
 It has a cost where the samples differ from the reference in structure: reads spanning sequence the reference
@@ -99,9 +101,9 @@ Limits of the templated assembly:
   `summary.tsv`).
   This is `--template-gaps n`, the default; with `--template-gaps reference`, uncovered positions at the ends of
   each sequence get the reference's bases instead (inner gaps stay `N`).
-- Long runs of one base (8 or more A or T) sometimes come out one base short, a bias of Nanopore reads: 15–19
-  such one-base deletions per *Arabidopsis* Col-0 plastome (R10.4.1) against an assembly of HiFi reads, with no
-  substitution. SKA2 and Parsnp compare substitutions only, so the distances are not affected; do not read
+- Long runs of one base come out one or two bases short in places, a bias of Nanopore reads: 15–23 indels per
+  *Arabidopsis* Col-0 plastome (R10.4.1) against an assembly of HiFi reads, nearly all deletions in runs of 11–16
+  A or T, and no substitution. SKA2 and Parsnp compare substitutions only, so the distances are not affected; do not read
   homopolymer lengths from the assembly.
 - In an inverted repeat both copies receive the same reads; a difference between the two copies of one
   sample cannot be seen (the two copies are usually identical in chloroplasts).

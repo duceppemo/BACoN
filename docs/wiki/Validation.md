@@ -27,8 +27,9 @@ PacBio HiFi reads):
 By default, Filtlong filled the target depth with long reads of which only a stretch matched the mitogenome;
 `--filter-by-reference` ranks the reads by their k-mers found in the reference ([Methods](Methods#2-filtering)).
 It is not the default: on the potato plastomes, one cultivar gained a 1 kb block of `N` and fewer Flye plastomes
-were circular (11 instead of 17), with the same Flye distances. `Off_reference_pct` stayed at 0–0.3% for every
-assembly of the target alone, and flagged every Flye "mitogenome" that was the plastome. The simulated
+were circular (11 instead of 17), with the same Flye distances. `Off_reference_pct` stayed at 0–0.3% for the
+simulated assemblies and the potato and Col-0 plastomes, at 0–8.3% for the Col-0 mitogenomes assembled with
+`--filter-by-reference`, and flagged every Flye "mitogenome" that was the plastome. The simulated
 heteroplasmy and nuclear copies are summarized in [Methods](Methods#heteroplasmy).
 
 ## Simulated data with a known truth

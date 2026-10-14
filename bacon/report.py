@@ -109,9 +109,8 @@ TABLE_COLUMNS = [
     ("N_bases", "N bases"), ("Note", "Note"),
 ]
 OPTIONAL_COLUMNS = {"Off_reference_pct"}  # Shown only when a sample has a value
-NUMERIC = {"Raw_reads", "Baited_reads", "Baited_pct", "Off_reference_pct", "Filtered_reads",
-           "Filtered_N50", "Est_depth", "Contigs", "Circular_contigs", "Assembly_length", "Length_vs_reference",
-           "N_bases"}
+NUMERIC = {"Raw_reads", "Baited_reads", "Baited_pct", "Filtered_reads", "Filtered_N50", "Est_depth", "Contigs",
+           "Circular_contigs", "Assembly_length", "Length_vs_reference", "Off_reference_pct", "N_bases"}
 
 esc = html.escape
 log = logging.getLogger(__name__)

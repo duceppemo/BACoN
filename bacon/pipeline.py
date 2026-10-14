@@ -44,7 +44,7 @@ FOLDERS = {"bait": "1_extracted", "filter": "2_filtered", "assemble": "3_assembl
 LOG_FOLDERS = {"bait": "1_bait", "filter": "2_filter", "assemble": "3_assemble", "compare": "4_compare"}
 SUMMARY_COLUMNS = [
     "Sample", "Status", "Raw_reads", "Raw_bases", "Baited_reads", "Baited_bases", "Baited_pct",
-        "Filtered_reads", "Filtered_bases", "Filtered_N50", "Est_depth",
+    "Filtered_reads", "Filtered_bases", "Filtered_N50", "Est_depth",
     "Contigs", "Circular_contigs", "Assembly_length", "Largest_contig", "Assembly_N50", "Length_vs_reference",
     "Off_reference_pct", "Assembly_depth", "N_bases", "Note",
 ]
@@ -611,12 +611,15 @@ def _add_notes(st: SampleState, genome_size: int) -> None:
 
 
 def _off_reference(name: str, assembly: Path, reference: Path, log_dir: Path, threads: int) -> dict[str, str]:
-    """The share of a de novo assembly off the reference, as a summary column; nothing if it cannot be known."""
+    """The share of a de novo assembly off the reference, as a summary column: NA if it cannot be known (recorded,
+    so that it is not tried again on every resume; --redo assemble tries again)."""
     try:
         pct = steps.off_reference(assembly, reference, log_dir / f"{name}.log", threads)
     except BaconError as exc:
+        if tools.stopping():  # Interrupted: not a failure of the alignment
+            raise
         log.warning("Could not align the contigs of %s to the reference: %s", name, str(exc).splitlines()[0])
-        return {}
+        return {"Off_reference_pct": "NA"}
     return {"Off_reference_pct": f"{pct:.1f}"}
 
 
@@ -727,6 +730,10 @@ def _run(s: Settings, started: float) -> int:
         log.warning("--add-genomes is ignored: there is no comparison with --snp-method none")
     elif s.add_genomes:
         _check_added_genomes(s, {x.name for x in samples})  # Before any step, not after the assembly
+    by_reference = s.filter_by_reference and any(x.fmt == "fastq" for x in samples)
+    if s.filter_by_reference and not by_reference:
+        log.warning("--filter-by-reference is ignored: every sample is fasta (Filtlong needs fastq; fasta reads "
+                    "are filtered by length)")
     metadata = _prepare_metadata(s, samples)  # Fails fast on a bad file or column; not part of any checkpoint
     reference, reference_length = _prepare_reference(s)
     genome_size = s.genome_size or reference_length
@@ -754,7 +761,7 @@ def _run(s: Settings, started: float) -> int:
                  **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
                    "target_depth": s.target_depth, "genome_size": genome_size,
-                   **({"by_reference": True} if s.filter_by_reference else {})},
+                   **({"by_reference": True} if by_reference else {})},
         "assemble": {"assembler": s.assembler, "genome_size": genome_size,
                      "template_gaps": s.template_gaps if s.assembler == "samtools" else None,
                      **(flye_options if s.assembler == "flye" else {})},
@@ -869,11 +876,15 @@ def _run(s: Settings, started: float) -> int:
             _finish(s, states, tools, None, started, annotation, metadata, regions)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")
 
-    if s.assembler != "samtools":  # Assemblies of BACoN <= 0.3.9, whose checkpoints lack it
-        for st in states:
-            if not st.failed and st.assembly and st.assembly.is_file() and "Off_reference_pct" not in st.stats:
-                st.stats.update(_off_reference(st.sample.name, st.assembly, reference, logs / "3_assemble",
-                                               s.threads))
+    if s.assembler != "samtools":  # Assemblies of BACoN <= 0.3.9, whose checkpoints lack it: added to them
+        late = [st for st in states if not st.failed and st.assembly and st.assembly.is_file()
+                and "Off_reference_pct" not in st.stats and st.sample.name in results]
+        for st in late:
+            share = _off_reference(st.sample.name, st.assembly, reference, logs / "3_assemble", s.threads)
+            st.stats.update(share)  # type: ignore[arg-type]
+            results[st.sample.name].setdefault("stats", {}).update(share)
+        if late:
+            checkpoints.save("assemble", fingerprint, {**absent, **results})
     for st in states:
         if not st.failed:
             _add_notes(st, genome_size)

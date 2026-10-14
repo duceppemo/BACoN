@@ -32,7 +32,7 @@ minimum versions:
 
 | Program | Used for | Minimum |
 |---|---|---|
-| minimap2 | baiting; templated assembly | 2.24 |
+| minimap2 | baiting; templated assembly; off-reference share of de novo assemblies | 2.24 |
 | samtools | templated assembly (`samtools consensus -X r10.4_sup`) | 1.21 |
 | Filtlong | read filtering | 0.2.1 |
 | Flye | de novo assembly (`-a flye`) | 2.9.5 |

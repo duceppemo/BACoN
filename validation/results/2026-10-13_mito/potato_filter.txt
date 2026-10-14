@@ -11,3 +11,6 @@ distances: 406 pairs, 406 identical, largest difference 0
 default: same-lineage pairs non-zero 59/166, max 13; between lineages min 66; circular plastomes 17/28
 --filter-by-reference: same-lineage pairs non-zero 59/166, max 13; between lineages min 66; circular plastomes 11/28
 
+## Argo, templated: runs of N (start, 0-based; length), longest first
+default: 151 N in 27 runs; longest: 52,746 (27), 52,671 (23), 52,699 (15), 52,648 (15)
+--filter-by-reference: 998 N in 10 runs; longest: 52,420 (985), 116,606 (3), 64,825 (2), 53,568 (2)

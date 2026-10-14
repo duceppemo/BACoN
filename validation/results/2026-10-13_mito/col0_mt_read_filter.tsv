@@ -1,0 +1,7 @@
+# Col-0 MA32-119, mitogenome (NC_037304.1), templated runs: reads baited, and kept by Filtlong with the defaults
+# and with --filter-by-reference. minimap2 -x map-ont --secondary=no to the reference: aligned bases = union of
+# the aligned stretches of each read; depth from the alignment spans. 212,324: in a stretch that the mitogenomes assembled from too few reads got wrong.
+reads	read_count	bases	aligned_bases	aligned_pct	median_read_length	depth_median	depth_at_212324
+baited	169378	2012451817	415534163	20.6	5233	819	753
+filtered_default	391	36804739	2114981	5.7	90028	3	0
+filtered_by_reference	1166	36787461	36694915	99.7	25101	100	79

@@ -1,0 +1,156 @@
+# Off_reference_pct of existing de novo assemblies (BACoN's steps.off_reference: minimap2 -x asm20 to the run's reference)
+assemblies	sample	off_reference_pct
+simulated plastid, Flye (0.3.8 record)	s01	0.0
+simulated plastid, Flye (0.3.8 record)	s02	0.0
+simulated plastid, Flye (0.3.8 record)	s03	0.0
+simulated plastid, Flye (0.3.8 record)	s04	0.0
+simulated plastid, Flye (0.3.8 record)	s05	0.0
+simulated plastid, Flye (0.3.8 record)	s06	0.0
+simulated plastid, Flye (0.3.8 record)	s07	0.0
+simulated plastid, Flye (0.3.8 record)	s08	0.0
+simulated plastid, Flye (0.3.8 record)	s09	0.1
+simulated plastid, myloasm (0.3.8 record)	s01	0.0
+simulated plastid, myloasm (0.3.8 record)	s02	0.0
+simulated plastid, myloasm (0.3.8 record)	s03	0.0
+simulated plastid, myloasm (0.3.8 record)	s04	0.0
+simulated plastid, myloasm (0.3.8 record)	s05	0.0
+simulated plastid, myloasm (0.3.8 record)	s06	0.0
+simulated plastid, myloasm (0.3.8 record)	s07	0.0
+simulated plastid, myloasm (0.3.8 record)	s08	0.0
+simulated plastid, myloasm (0.3.8 record)	s09	0.0
+simulated linear, Flye (0.3.8 record)	l01	0.1
+simulated linear, Flye (0.3.8 record)	l02	0.1
+simulated linear, Flye (0.3.8 record)	l03	0.1
+simulated linear, Flye (0.3.8 record)	l04	0.1
+simulated linear, myloasm (0.3.8 record)	l01	0.3
+simulated linear, myloasm (0.3.8 record)	l02	0.1
+simulated linear, myloasm (0.3.8 record)	l03	0.1
+simulated linear, myloasm (0.3.8 record)	l04	0.1
+simulated rdna, Flye (0.3.8 record)	t01	0.1
+simulated rdna, Flye (0.3.8 record)	t02	0.1
+simulated rdna, Flye (0.3.8 record)	t03	0.2
+simulated rdna, Flye (0.3.8 record)	t04	0.1
+simulated rdna, myloasm (0.3.8 record)	t01	0.0
+simulated rdna, myloasm (0.3.8 record)	t02	0.1
+simulated rdna, myloasm (0.3.8 record)	t03	0.0
+simulated rdna, myloasm (0.3.8 record)	t04	0.0
+simulated numt, Flye (SCORES_numt.md)	n01	0.0
+simulated numt, Flye (SCORES_numt.md)	n02	0.0
+simulated numt, Flye (SCORES_numt.md)	n03	20.9
+simulated numt, Flye (SCORES_numt.md)	n04	48.2
+simulated numt, Flye (SCORES_numt.md)	n05	0.0
+simulated numt, Flye (SCORES_numt.md)	n06	49.6
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n01	0.0
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n02	0.0
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n03	9.7
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n04	47.6
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n05	0.0
+simulated numt, Flye, --filter-by-reference (SCORES_numt_filter.md)	n06	27.7
+potato plastomes, Flye	12_22_134	0.0
+potato plastomes, Flye	14_4_1	0.0
+potato plastomes, Flye	14_6_3	0.0
+potato plastomes, Flye	15-27-1	0.0
+potato plastomes, Flye	15_22_4	0.0
+potato plastomes, Flye	16-35-5	0.0
+potato plastomes, Flye	16_1_2	0.0
+potato plastomes, Flye	16_4_3	0.0
+potato plastomes, Flye	Alaska	0.0
+potato plastomes, Flye	Amur	0.0
+potato plastomes, Flye	Argo	0.0
+potato plastomes, Flye	Bagira	0.0
+potato plastomes, Flye	Bankir	0.0
+potato plastomes, Flye	Baron	0.0
+potato plastomes, Flye	Bravo	0.0
+potato plastomes, Flye	Gornyak	0.0
+potato plastomes, Flye	Irbitskiy	0.0
+potato plastomes, Flye	Iskra	0.0
+potato plastomes, Flye	Kamenskiy	0.0
+potato plastomes, Flye	Legenda	0.0
+potato plastomes, Flye	Luks	0.0
+potato plastomes, Flye	Mishka	0.0
+potato plastomes, Flye	Otrada	0.0
+potato plastomes, Flye	Shah	0.0
+potato plastomes, Flye	Start	0.0
+potato plastomes, Flye	Terra	0.0
+potato plastomes, Flye	Utro_ranneye	0.0
+potato plastomes, Flye	Zdraven	0.0
+potato plastomes, myloasm	12_22_134	18.5
+potato plastomes, myloasm	14_4_1	34.4
+potato plastomes, myloasm	14_6_3	15.3
+potato plastomes, myloasm	15-27-1	22.1
+potato plastomes, myloasm	15_22_4	25.5
+potato plastomes, myloasm	16-35-5	9.1
+potato plastomes, myloasm	16_1_2	31.2
+potato plastomes, myloasm	16_4_3	46.4
+potato plastomes, myloasm	Alaska	0.0
+potato plastomes, myloasm	Amur	0.0
+potato plastomes, myloasm	Argo	0.0
+potato plastomes, myloasm	Bagira	5.8
+potato plastomes, myloasm	Bankir	0.0
+potato plastomes, myloasm	Baron	0.0
+potato plastomes, myloasm	Bravo	17.2
+potato plastomes, myloasm	Gornyak	11.9
+potato plastomes, myloasm	Irbitskiy	12.5
+potato plastomes, myloasm	Iskra	10.5
+potato plastomes, myloasm	Kamenskiy	0.0
+potato plastomes, myloasm	Legenda	26.0
+potato plastomes, myloasm	Luks	0.0
+potato plastomes, myloasm	Mishka	19.9
+potato plastomes, myloasm	Otrada	9.6
+potato plastomes, myloasm	Shah	0.0
+potato plastomes, myloasm	Start	7.6
+potato plastomes, myloasm	Terra	0.0
+potato plastomes, myloasm	Utro_ranneye	4.4
+potato plastomes, myloasm	Zdraven	0.0
+potato mitogenomes (MN104801-3), Flye	12_22_134	76.0
+potato mitogenomes (MN104801-3), Flye	14_4_1	81.9
+potato mitogenomes (MN104801-3), Flye	14_6_3	83.2
+potato mitogenomes (MN104801-3), Flye	15-27-1	77.4
+potato mitogenomes (MN104801-3), Flye	15_22_4	76.1
+potato mitogenomes (MN104801-3), Flye	16-35-5	82.0
+potato mitogenomes (MN104801-3), Flye	16_1_2	81.9
+potato mitogenomes (MN104801-3), Flye	16_4_3	81.9
+potato mitogenomes (MN104801-3), Flye	Alaska	81.9
+potato mitogenomes (MN104801-3), Flye	Amur	81.9
+potato mitogenomes (MN104801-3), Flye	Argo	81.9
+potato mitogenomes (MN104801-3), Flye	Bagira	83.1
+potato mitogenomes (MN104801-3), Flye	Bankir	82.0
+potato mitogenomes (MN104801-3), Flye	Baron	81.9
+potato mitogenomes (MN104801-3), Flye	Bravo	82.1
+potato mitogenomes (MN104801-3), Flye	Gornyak	81.9
+potato mitogenomes (MN104801-3), Flye	Irbitskiy	81.9
+potato mitogenomes (MN104801-3), Flye	Iskra	82.8
+potato mitogenomes (MN104801-3), Flye	Kamenskiy	77.6
+potato mitogenomes (MN104801-3), Flye	Legenda	81.8
+potato mitogenomes (MN104801-3), Flye	Luks	81.9
+potato mitogenomes (MN104801-3), Flye	Mishka	81.9
+potato mitogenomes (MN104801-3), Flye	Otrada	83.9
+potato mitogenomes (MN104801-3), Flye	Shah	82.0
+potato mitogenomes (MN104801-3), Flye	Start	83.0
+potato mitogenomes (MN104801-3), Flye	Terra	82.0
+potato mitogenomes (MN104801-3), Flye	Utro_ranneye	81.9
+potato mitogenomes (MN104801-3), Flye	Zdraven	83.3
+Col-0 mitogenomes, Flye	MA32_119	94.2
+Col-0 mitogenomes, Flye	MA32_59	94.2
+Col-0 mitogenomes, Flye	MA32_69	94.2
+Col-0 mitogenomes, Flye	MA32_79	94.2
+Col-0 mitogenomes, Flye	MA32_89	94.2
+Col-0 mitogenomes, Flye	MA32_99	95.7
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_119	0.0
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_59	2.7
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_69	8.3
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_79	0.0
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_89	0.0
+Col-0 mitogenomes, Flye, --filter-by-reference	MA32_99	0.0
+Col-0 plastomes, Flye	MA32_119	0.0
+Col-0 plastomes, Flye	MA32_59	0.0
+Col-0 plastomes, Flye	MA32_69	0.0
+Col-0 plastomes, Flye	MA32_79	0.0
+Col-0 plastomes, Flye	MA32_89	0.0
+Col-0 plastomes, Flye	MA32_99	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_119	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_59	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_69	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_79	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_89	0.0
+Col-0 plastomes, Flye, --filter-by-reference	MA32_99	0.0

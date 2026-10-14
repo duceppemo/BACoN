@@ -23,6 +23,8 @@ STUBS = {
         if any("bad" in f for f in files):
             sys.exit("simulated crash")
         if "asm20" in sys.argv:  # Contigs aligned to the reference: all of each contig but those named "*nuc*"
+            if "asmcrash" in open(files[0]).read():
+                sys.exit("simulated crash")
             for line in open(files[0]).read().split(">")[1:]:
                 name, *seq = line.splitlines()
                 name, length = name.split()[0], len("".join(seq))
@@ -1945,3 +1947,66 @@ def test_filter_by_reference_gives_filtlong_the_reference(stubs, dataset, tmp_pa
     stubs.unlink()
     run(settings(ref, reads, out, filter_by_reference=True))
     assert calls(stubs) == ["minimap2"]
+    stubs.unlink()
+    run(settings(ref, reads, out))  # Removed: filtering again, without the reference
+    assert calls(stubs).count("filtlong") == 3
+    assert "--assembly" not in (out / "logs" / "2_filter" / "s1.log").read_text().split("$ filtlong")[-1]
+
+
+def test_filter_by_reference_is_ignored_for_fasta_reads(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    for s in ("s1", "s2", "s3", "none"):
+        (reads / f"{s}.fastq.gz").unlink()
+    for s in ("f1", "f2", "f3"):
+        (reads / f"{s}.fasta").write_text(">on1\n" + "A" * 900 + "\n")
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    stubs.unlink()
+    assert run(settings(ref, reads, out, filter_by_reference=True)) == 0
+    assert "--filter-by-reference is ignored: every sample is fasta" in caplog.text
+    assert calls(stubs) == []  # Nothing reruns: the flag changes nothing for fasta reads
+
+
+def test_off_reference_note_reaches_the_summary_and_the_report(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    _reads(reads / "nuc.fastq.gz", [("on1", 900), ("on2", 800)])  # Its contig aligns nowhere (minimap2 stub)
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out)) == 0
+    row = summary(out)["nuc"]
+    assert row["Off_reference_pct"] == "100.0" and "100% of the assembly aligns nowhere" in row["Note"]
+    assert re.search(r'<td class="warn num" data-v="100.0">100.0</td>', (out / "report.html").read_text())
+    mqc = json.loads((out / "bacon_samples_mqc.json").read_text())
+    assert mqc["data"]["nuc"]["Off_reference_pct"] == 100.0 and "Off_reference_pct" in mqc["headers"]
+
+
+def test_off_reference_share_is_added_to_older_assemblies_once(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out))
+    checkpoint = out / ".checkpoints" / "assemble.json"
+    data = json.loads(checkpoint.read_text())
+    for res in data["results"].values():  # As BACoN <= 0.3.9 left them
+        res.get("stats", {}).pop("Off_reference_pct", None)
+    checkpoint.write_text(json.dumps(data))
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert calls(stubs).count("minimap2_asm") == 3 and "flye" not in calls(stubs)
+    assert summary(out)["s1"]["Off_reference_pct"] == "0.0"
+    assert all("Off_reference_pct" in res["stats"]
+               for res in json.loads(checkpoint.read_text())["results"].values() if not res.get("failed"))
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert "minimap2_asm" not in calls(stubs)
+
+
+def test_failed_contig_alignment_leaves_the_sample_ok(stubs, dataset, tmp_path, caplog):
+    ref, reads = dataset
+    _reads(reads / "asmcrash.fastq.gz", [("on1", 900), ("on2", 800)])
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out)) == 0
+    row = summary(out)["asmcrash"]
+    assert row["Status"] == "ok" and row["Off_reference_pct"] == "NA"
+    assert "Could not align the contigs of asmcrash" in caplog.text
+    stubs.unlink()
+    run(settings(ref, reads, out))
+    assert "minimap2_asm" not in calls(stubs)  # Recorded as NA: not tried on every resume
