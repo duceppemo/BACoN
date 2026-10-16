@@ -1,0 +1,2801 @@
+[
+ {
+  "run": "flye",
+  "assembly": {
+   "n01": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 1
+   },
+   "n02": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 1
+   },
+   "n03": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 1
+   },
+   "n04": {
+    "contigs": 6,
+    "length": 276636,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 5338,
+    "unaligned_bases": 151296,
+    "mismatches": 7,
+    "inserted": 2,
+    "deleted": 0,
+    "errors_per_100kb": 7.2,
+    "circular_contigs": "1",
+    "true_circular": 1
+   },
+   "n05": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "1",
+    "true_circular": 1
+   },
+   "n06": {
+    "contigs": 9,
+    "length": 313104,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 20733,
+    "unaligned_bases": 172369,
+    "mismatches": 16,
+    "inserted": 2,
+    "deleted": 0,
+    "errors_per_100kb": 12.8,
+    "circular_contigs": "1",
+    "true_circular": 1
+   }
+  },
+  "snps": {
+   "minimap2": {
+    "samples_expected": 7,
+    "samples_present": 7,
+    "missing": [],
+    "pairs": 21,
+    "best_convention": "events",
+    "exact_pairs": 10,
+    "max_abs_error": 3,
+    "total_abs_error": 22,
+    "wrong_pairs": [
+     "Reference-n04: 4 (truth 5)",
+     "Reference-n06: 4 (truth 7)",
+     "n01-n04: 4 (truth 5)",
+     "n01-n06: 4 (truth 7)",
+     "n02-n04: 7 (truth 8)",
+     "n02-n06: 7 (truth 10)",
+     "n03-n04: 9 (truth 10)",
+     "n03-n06: 9 (truth 12)",
+     "n04-n05: 7 (truth 8)",
+     "n04-n06: 4 (truth 2)",
+     "n05-n06: 7 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 10,
+      "max_abs_error": 3,
+      "total_abs_error": 22
+     },
+     "sites": {
+      "exact_pairs": 10,
+      "max_abs_error": 3,
+      "total_abs_error": 22
+     },
+     "no_repeat": {
+      "exact_pairs": 10,
+      "max_abs_error": 3,
+      "total_abs_error": 22
+     }
+    }
+   },
+   "ska": {
+    "samples_expected": 7,
+    "samples_present": 7,
+    "missing": [],
+    "pairs": 21,
+    "best_convention": "events",
+    "exact_pairs": 16,
+    "max_abs_error": 2,
+    "total_abs_error": 10,
+    "wrong_pairs": [
+     "Reference-n06: 5 (truth 7)",
+     "n01-n06: 5 (truth 7)",
+     "n02-n06: 8 (truth 10)",
+     "n03-n06: 10 (truth 12)",
+     "n05-n06: 8 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 16,
+      "max_abs_error": 2,
+      "total_abs_error": 10
+     },
+     "sites": {
+      "exact_pairs": 16,
+      "max_abs_error": 2,
+      "total_abs_error": 10
+     },
+     "no_repeat": {
+      "exact_pairs": 16,
+      "max_abs_error": 2,
+      "total_abs_error": 10
+     }
+    }
+   }
+  },
+  "numt": {
+   "n01": {
+    "nuclear_depth": 0.5,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       838,
+       6003334
+      ],
+      "nuclear": [
+       48,
+       302575
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt5": [
+       2,
+       6396
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ]
+     },
+     "baited": {
+      "organelle": [
+       838,
+       6003334
+      ],
+      "nuclear": [
+       1,
+       13020
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt5": [
+       2,
+       6396
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       742,
+       5700218
+      ],
+      "nuclear": [
+       1,
+       13020
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ],
+      "nupt5": [
+       1,
+       4669
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 0,
+     "ska": 0
+    },
+    "true_distance": 0,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {}
+   },
+   "n02": {
+    "nuclear_depth": 2.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       839,
+       6000553
+      ],
+      "nuclear": [
+       190,
+       1308011
+      ],
+      "nupt5": [
+       4,
+       49663
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt7": [
+       6,
+       48229
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       8,
+       55688
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     },
+     "baited": {
+      "organelle": [
+       839,
+       6000553
+      ],
+      "nupt5": [
+       4,
+       49663
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt7": [
+       6,
+       48229
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       8,
+       55688
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       745,
+       5701541
+      ],
+      "nupt5": [
+       3,
+       46433
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       6,
+       50941
+      ],
+      "nupt7": [
+       5,
+       44335
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 3,
+     "ska": 3
+    },
+    "true_distance": 3,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major"
+    }
+   },
+   "n03": {
+    "nuclear_depth": 10.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       935,
+       6434712
+      ],
+      "organelle": [
+       819,
+       5999791
+      ],
+      "nupt2": [
+       12,
+       134024
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       14,
+       144816
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       30,
+       227835
+      ],
+      "nupt8": [
+       37,
+       253086
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       13,
+       83938
+      ]
+     },
+     "baited": {
+      "organelle": [
+       819,
+       5999791
+      ],
+      "nupt2": [
+       12,
+       134024
+      ],
+      "nuclear": [
+       2,
+       29874
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       14,
+       144816
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       28,
+       211746
+      ],
+      "nupt8": [
+       37,
+       253086
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       13,
+       83938
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       724,
+       5673085
+      ],
+      "nupt2": [
+       11,
+       131019
+      ],
+      "nuclear": [
+       2,
+       29874
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       12,
+       136009
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       25,
+       202788
+      ],
+      "nupt8": [
+       33,
+       242533
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       12,
+       82583
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 5,
+     "ska": 5
+    },
+    "true_distance": 5,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major",
+     "b1": "major"
+    }
+   },
+   "n04": {
+    "nuclear_depth": 25.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       2361,
+       16136170
+      ],
+      "organelle": [
+       809,
+       6000891
+      ],
+      "nupt8": [
+       89,
+       731366
+      ],
+      "nupt7": [
+       89,
+       768030
+      ],
+      "nupt2": [
+       22,
+       244179
+      ],
+      "nupt1": [
+       21,
+       199967
+      ],
+      "nupt3": [
+       19,
+       158339
+      ],
+      "nupt6": [
+       47,
+       426330
+      ],
+      "nupt5": [
+       29,
+       226784
+      ],
+      "nupt4": [
+       25,
+       233332
+      ]
+     },
+     "baited": {
+      "organelle": [
+       809,
+       6000891
+      ],
+      "nupt8": [
+       89,
+       731366
+      ],
+      "nupt7": [
+       88,
+       763752
+      ],
+      "nupt2": [
+       21,
+       239743
+      ],
+      "nupt1": [
+       21,
+       199967
+      ],
+      "nupt3": [
+       19,
+       158339
+      ],
+      "nupt6": [
+       47,
+       426330
+      ],
+      "nupt5": [
+       29,
+       226784
+      ],
+      "nupt4": [
+       25,
+       233332
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       694,
+       5666768
+      ],
+      "nupt8": [
+       76,
+       689424
+      ],
+      "nupt7": [
+       78,
+       733652
+      ],
+      "nupt2": [
+       20,
+       237177
+      ],
+      "nupt1": [
+       20,
+       195523
+      ],
+      "nupt3": [
+       18,
+       153593
+      ],
+      "nupt6": [
+       44,
+       419394
+      ],
+      "nupt5": [
+       26,
+       220821
+      ],
+      "nupt4": [
+       21,
+       217641
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 4,
+     "ska": 5
+    },
+    "true_distance": 5,
+    "errors_copied": [
+     5,
+     50489
+    ],
+    "errors_elsewhere": [
+     4,
+     74849
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 0,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 1,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 4,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [
+     106221,
+     37436,
+     37650,
+     37984,
+     38498
+    ],
+    "own_snps_copied": {
+     "c1": "major",
+     "c3": "major",
+     "c4": "major"
+    }
+   },
+   "n05": {
+    "nuclear_depth": 10.0,
+    "nuclear_genome": "B",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       951,
+       6392978
+      ],
+      "organelle": [
+       829,
+       6009827
+      ],
+      "nupt8": [
+       28,
+       298883
+      ],
+      "nupt7": [
+       33,
+       232443
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       15,
+       186515
+      ],
+      "nupt2": [
+       13,
+       106913
+      ],
+      "nupt5": [
+       27,
+       215193
+      ],
+      "nupt1": [
+       10,
+       89952
+      ],
+      "nupt3": [
+       7,
+       43775
+      ]
+     },
+     "baited": {
+      "organelle": [
+       829,
+       6009827
+      ],
+      "nupt8": [
+       28,
+       298883
+      ],
+      "nupt7": [
+       33,
+       232443
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       15,
+       186515
+      ],
+      "nupt2": [
+       13,
+       106913
+      ],
+      "nupt5": [
+       27,
+       215193
+      ],
+      "nupt1": [
+       10,
+       89952
+      ],
+      "nupt3": [
+       7,
+       43775
+      ],
+      "nuclear": [
+       1,
+       2684
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       738,
+       5688628
+      ],
+      "nupt8": [
+       27,
+       294583
+      ],
+      "nupt7": [
+       31,
+       226606
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       14,
+       183765
+      ],
+      "nupt2": [
+       11,
+       99172
+      ],
+      "nupt5": [
+       24,
+       205925
+      ],
+      "nupt3": [
+       6,
+       39735
+      ],
+      "nupt1": [
+       9,
+       82332
+      ],
+      "nuclear": [
+       1,
+       2684
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 3,
+     "ska": 3
+    },
+    "true_distance": 3,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major"
+    }
+   },
+   "n06": {
+    "nuclear_depth": 25.0,
+    "nuclear_genome": "B",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       845,
+       5999035
+      ],
+      "nuclear": [
+       2286,
+       15997177
+      ],
+      "nupt4": [
+       30,
+       279128
+      ],
+      "nupt7": [
+       78,
+       582127
+      ],
+      "nupt1": [
+       28,
+       249984
+      ],
+      "nupt5": [
+       47,
+       479129
+      ],
+      "nupt8": [
+       62,
+       616670
+      ],
+      "nupt6": [
+       45,
+       375348
+      ],
+      "nupt3": [
+       23,
+       218120
+      ],
+      "nupt2": [
+       30,
+       325090
+      ]
+     },
+     "baited": {
+      "organelle": [
+       845,
+       5999035
+      ],
+      "nupt4": [
+       30,
+       279128
+      ],
+      "nupt7": [
+       78,
+       582127
+      ],
+      "nupt1": [
+       28,
+       249984
+      ],
+      "nupt5": [
+       47,
+       479129
+      ],
+      "nupt8": [
+       62,
+       616670
+      ],
+      "nupt6": [
+       45,
+       375348
+      ],
+      "nupt3": [
+       23,
+       218120
+      ],
+      "nupt2": [
+       30,
+       325090
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       731,
+       5657574
+      ],
+      "nupt4": [
+       28,
+       274212
+      ],
+      "nupt7": [
+       68,
+       556822
+      ],
+      "nupt1": [
+       26,
+       243762
+      ],
+      "nupt5": [
+       41,
+       454355
+      ],
+      "nupt8": [
+       56,
+       595589
+      ],
+      "nupt6": [
+       39,
+       352290
+      ],
+      "nupt3": [
+       21,
+       214265
+      ],
+      "nupt2": [
+       29,
+       322240
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 4,
+     "ska": 5
+    },
+    "true_distance": 7,
+    "errors_copied": [
+     12,
+     54500
+    ],
+    "errors_elsewhere": [
+     6,
+     86233
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 0,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 1,
+      "missing": 0
+     },
+     "2": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 0,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 2,
+      "missing": 0
+     },
+     "4": {
+      "major": 0,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 2,
+      "missing": 0
+     },
+     "5": {
+      "major": 0,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 5,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [
+     106291,
+     72447,
+     72678,
+     104440,
+     104546,
+     96016,
+     96249,
+     98407,
+     99778,
+     99861
+    ],
+    "own_snps_copied": {
+     "c1": "split:major+minor",
+     "c3": "split:major+minor",
+     "c4": "major"
+    }
+   }
+  },
+  "duration_s": 110.26
+ },
+ {
+  "run": "samtools",
+  "assembly": {
+   "n01": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   },
+   "n02": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   },
+   "n03": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 2,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 1.7,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   },
+   "n04": {
+    "contigs": 1,
+    "length": 120003,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 1230,
+    "inserted": 3,
+    "deleted": 0,
+    "errors_per_100kb": 1027.5,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   },
+   "n05": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 0,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 0.0,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   },
+   "n06": {
+    "contigs": 1,
+    "length": 120000,
+    "true_length": 120000,
+    "covered_fraction": 1.0,
+    "duplicated_bases": 0,
+    "unaligned_bases": 0,
+    "mismatches": 22,
+    "inserted": 0,
+    "deleted": 0,
+    "errors_per_100kb": 18.3,
+    "circular_contigs": "NA",
+    "true_circular": 1
+   }
+  },
+  "snps": {
+   "minimap2": {
+    "samples_expected": 7,
+    "samples_present": 7,
+    "missing": [],
+    "pairs": 21,
+    "best_convention": "events",
+    "exact_pairs": 11,
+    "max_abs_error": 3,
+    "total_abs_error": 30,
+    "wrong_pairs": [
+     "Reference-n04: 2 (truth 5)",
+     "Reference-n06: 4 (truth 7)",
+     "n01-n04: 2 (truth 5)",
+     "n01-n06: 4 (truth 7)",
+     "n02-n04: 5 (truth 8)",
+     "n02-n06: 7 (truth 10)",
+     "n03-n04: 7 (truth 10)",
+     "n03-n06: 9 (truth 12)",
+     "n04-n05: 5 (truth 8)",
+     "n05-n06: 7 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     },
+     "sites": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     },
+     "no_repeat": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     }
+    }
+   },
+   "ska": {
+    "samples_expected": 7,
+    "samples_present": 7,
+    "missing": [],
+    "pairs": 21,
+    "best_convention": "events",
+    "exact_pairs": 11,
+    "max_abs_error": 3,
+    "total_abs_error": 30,
+    "wrong_pairs": [
+     "Reference-n04: 2 (truth 5)",
+     "Reference-n06: 4 (truth 7)",
+     "n01-n04: 2 (truth 5)",
+     "n01-n06: 4 (truth 7)",
+     "n02-n04: 5 (truth 8)",
+     "n02-n06: 7 (truth 10)",
+     "n03-n04: 7 (truth 10)",
+     "n03-n06: 9 (truth 12)",
+     "n04-n05: 5 (truth 8)",
+     "n05-n06: 7 (truth 10)"
+    ],
+    "by_convention": {
+     "events": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     },
+     "sites": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     },
+     "no_repeat": {
+      "exact_pairs": 11,
+      "max_abs_error": 3,
+      "total_abs_error": 30
+     }
+    }
+   }
+  },
+  "numt": {
+   "n01": {
+    "nuclear_depth": 0.5,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       838,
+       6003334
+      ],
+      "nuclear": [
+       48,
+       302575
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt5": [
+       2,
+       6396
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ]
+     },
+     "baited": {
+      "organelle": [
+       838,
+       6003334
+      ],
+      "nuclear": [
+       1,
+       13020
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt5": [
+       2,
+       6396
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       742,
+       5700218
+      ],
+      "nuclear": [
+       1,
+       13020
+      ],
+      "nupt8": [
+       2,
+       23914
+      ],
+      "nupt7": [
+       1,
+       6358
+      ],
+      "nupt4": [
+       1,
+       4969
+      ],
+      "nupt6": [
+       1,
+       38970
+      ],
+      "nupt5": [
+       1,
+       4669
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 0,
+     "ska": 0
+    },
+    "true_distance": 0,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {}
+   },
+   "n02": {
+    "nuclear_depth": 2.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       839,
+       6000553
+      ],
+      "nuclear": [
+       190,
+       1308011
+      ],
+      "nupt5": [
+       4,
+       49663
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt7": [
+       6,
+       48229
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       8,
+       55688
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     },
+     "baited": {
+      "organelle": [
+       839,
+       6000553
+      ],
+      "nupt5": [
+       4,
+       49663
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt7": [
+       6,
+       48229
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       8,
+       55688
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       745,
+       5701541
+      ],
+      "nupt5": [
+       3,
+       46433
+      ],
+      "nupt6": [
+       5,
+       43442
+      ],
+      "nupt3": [
+       2,
+       12044
+      ],
+      "nupt8": [
+       6,
+       50941
+      ],
+      "nupt7": [
+       5,
+       44335
+      ],
+      "nupt4": [
+       2,
+       15764
+      ],
+      "nupt1": [
+       1,
+       3215
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 3,
+     "ska": 3
+    },
+    "true_distance": 3,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1297,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major"
+    }
+   },
+   "n03": {
+    "nuclear_depth": 10.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       935,
+       6434712
+      ],
+      "organelle": [
+       819,
+       5999791
+      ],
+      "nupt2": [
+       12,
+       134024
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       14,
+       144816
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       30,
+       227835
+      ],
+      "nupt8": [
+       37,
+       253086
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       13,
+       83938
+      ]
+     },
+     "baited": {
+      "organelle": [
+       819,
+       5999791
+      ],
+      "nupt2": [
+       12,
+       134024
+      ],
+      "nuclear": [
+       2,
+       29874
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       14,
+       144816
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       28,
+       211746
+      ],
+      "nupt8": [
+       37,
+       253086
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       13,
+       83938
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       724,
+       5673085
+      ],
+      "nupt2": [
+       11,
+       131019
+      ],
+      "nuclear": [
+       2,
+       29874
+      ],
+      "nupt3": [
+       18,
+       163678
+      ],
+      "nupt4": [
+       12,
+       136009
+      ],
+      "nupt1": [
+       10,
+       106814
+      ],
+      "nupt7": [
+       25,
+       202788
+      ],
+      "nupt8": [
+       33,
+       242533
+      ],
+      "nupt6": [
+       12,
+       100272
+      ],
+      "nupt5": [
+       12,
+       82583
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 5,
+     "ska": 5
+    },
+    "true_distance": 5,
+    "errors_copied": [
+     2,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 40,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 1295,
+      "minor": 0,
+      "N": 2,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 118,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major",
+     "b1": "major"
+    }
+   },
+   "n04": {
+    "nuclear_depth": 25.0,
+    "nuclear_genome": "A",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       2361,
+       16136170
+      ],
+      "organelle": [
+       809,
+       6000891
+      ],
+      "nupt8": [
+       89,
+       731366
+      ],
+      "nupt7": [
+       89,
+       768030
+      ],
+      "nupt2": [
+       22,
+       244179
+      ],
+      "nupt1": [
+       21,
+       199967
+      ],
+      "nupt3": [
+       19,
+       158339
+      ],
+      "nupt6": [
+       47,
+       426330
+      ],
+      "nupt5": [
+       29,
+       226784
+      ],
+      "nupt4": [
+       25,
+       233332
+      ]
+     },
+     "baited": {
+      "organelle": [
+       809,
+       6000891
+      ],
+      "nupt8": [
+       89,
+       731366
+      ],
+      "nupt7": [
+       88,
+       763752
+      ],
+      "nupt2": [
+       21,
+       239743
+      ],
+      "nupt1": [
+       21,
+       199967
+      ],
+      "nupt3": [
+       19,
+       158339
+      ],
+      "nupt6": [
+       47,
+       426330
+      ],
+      "nupt5": [
+       29,
+       226784
+      ],
+      "nupt4": [
+       25,
+       233332
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       694,
+       5666768
+      ],
+      "nupt8": [
+       76,
+       689424
+      ],
+      "nupt7": [
+       78,
+       733652
+      ],
+      "nupt2": [
+       20,
+       237177
+      ],
+      "nupt1": [
+       20,
+       195523
+      ],
+      "nupt3": [
+       18,
+       153593
+      ],
+      "nupt6": [
+       44,
+       419394
+      ],
+      "nupt5": [
+       26,
+       220821
+      ],
+      "nupt4": [
+       21,
+       217641
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 2,
+     "ska": 2
+    },
+    "true_distance": 5,
+    "errors_copied": [
+     1233,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 35,
+      "minor": 0,
+      "N": 5,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 18,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 56,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 131,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 1,
+      "minor": 0,
+      "N": 4,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 137,
+      "minor": 0,
+      "N": 1160,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 68,
+      "minor": 0,
+      "N": 50,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "c1": "major",
+     "c3": "major",
+     "c4": "N"
+    }
+   },
+   "n05": {
+    "nuclear_depth": 10.0,
+    "nuclear_genome": "B",
+    "reads": {
+     "simulated": {
+      "nuclear": [
+       951,
+       6392978
+      ],
+      "organelle": [
+       829,
+       6009827
+      ],
+      "nupt8": [
+       28,
+       298883
+      ],
+      "nupt7": [
+       33,
+       232443
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       15,
+       186515
+      ],
+      "nupt2": [
+       13,
+       106913
+      ],
+      "nupt5": [
+       27,
+       215193
+      ],
+      "nupt1": [
+       10,
+       89952
+      ],
+      "nupt3": [
+       7,
+       43775
+      ]
+     },
+     "baited": {
+      "organelle": [
+       829,
+       6009827
+      ],
+      "nupt8": [
+       28,
+       298883
+      ],
+      "nupt7": [
+       33,
+       232443
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       15,
+       186515
+      ],
+      "nupt2": [
+       13,
+       106913
+      ],
+      "nupt5": [
+       27,
+       215193
+      ],
+      "nupt1": [
+       10,
+       89952
+      ],
+      "nupt3": [
+       7,
+       43775
+      ],
+      "nuclear": [
+       1,
+       2684
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       738,
+       5688628
+      ],
+      "nupt8": [
+       27,
+       294583
+      ],
+      "nupt7": [
+       31,
+       226606
+      ],
+      "nupt4": [
+       10,
+       88032
+      ],
+      "nupt6": [
+       14,
+       183765
+      ],
+      "nupt2": [
+       11,
+       99172
+      ],
+      "nupt5": [
+       24,
+       205925
+      ],
+      "nupt3": [
+       6,
+       39735
+      ],
+      "nupt1": [
+       9,
+       82332
+      ],
+      "nuclear": [
+       1,
+       2684
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 3,
+     "ska": 3
+    },
+    "true_distance": 3,
+    "errors_copied": [
+     0,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 1,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 5,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 15,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "a2": "major"
+    }
+   },
+   "n06": {
+    "nuclear_depth": 25.0,
+    "nuclear_genome": "B",
+    "reads": {
+     "simulated": {
+      "organelle": [
+       845,
+       5999035
+      ],
+      "nuclear": [
+       2286,
+       15997177
+      ],
+      "nupt4": [
+       30,
+       279128
+      ],
+      "nupt7": [
+       78,
+       582127
+      ],
+      "nupt1": [
+       28,
+       249984
+      ],
+      "nupt5": [
+       47,
+       479129
+      ],
+      "nupt8": [
+       62,
+       616670
+      ],
+      "nupt6": [
+       45,
+       375348
+      ],
+      "nupt3": [
+       23,
+       218120
+      ],
+      "nupt2": [
+       30,
+       325090
+      ]
+     },
+     "baited": {
+      "organelle": [
+       845,
+       5999035
+      ],
+      "nupt4": [
+       30,
+       279128
+      ],
+      "nupt7": [
+       78,
+       582127
+      ],
+      "nupt1": [
+       28,
+       249984
+      ],
+      "nupt5": [
+       47,
+       479129
+      ],
+      "nupt8": [
+       62,
+       616670
+      ],
+      "nupt6": [
+       45,
+       375348
+      ],
+      "nupt3": [
+       23,
+       218120
+      ],
+      "nupt2": [
+       30,
+       325090
+      ]
+     },
+     "filtered": {
+      "organelle": [
+       731,
+       5657574
+      ],
+      "nupt4": [
+       28,
+       274212
+      ],
+      "nupt7": [
+       68,
+       556822
+      ],
+      "nupt1": [
+       26,
+       243762
+      ],
+      "nupt5": [
+       41,
+       454355
+      ],
+      "nupt8": [
+       56,
+       595589
+      ],
+      "nupt6": [
+       39,
+       352290
+      ],
+      "nupt3": [
+       21,
+       214265
+      ],
+      "nupt2": [
+       29,
+       322240
+      ]
+     }
+    },
+    "distance_to_reference": {
+     "minimap2": 4,
+     "ska": 4
+    },
+    "true_distance": 7,
+    "errors_copied": [
+     22,
+     45000
+    ],
+    "errors_elsewhere": [
+     0,
+     75000
+    ],
+    "nupt_sites": {
+     "1": {
+      "major": 0,
+      "minor": 0,
+      "N": 1,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "2": {
+      "major": 0,
+      "minor": 0,
+      "N": 1,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "3": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "4": {
+      "major": 2,
+      "minor": 0,
+      "N": 0,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "5": {
+      "major": 1,
+      "minor": 0,
+      "N": 4,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "6": {
+      "major": 2,
+      "minor": 0,
+      "N": 3,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "7": {
+      "major": 13,
+      "minor": 0,
+      "N": 2,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     },
+     "8": {
+      "major": 6,
+      "minor": 0,
+      "N": 9,
+      "other": 0,
+      "split": 0,
+      "missing": 0
+     }
+    },
+    "nupt_alleles_in_assembly": [],
+    "own_snps_copied": {
+     "c1": "N",
+     "c3": "N",
+     "c4": "major"
+    }
+   }
+  },
+  "duration_s": 8.3
+ }
+]

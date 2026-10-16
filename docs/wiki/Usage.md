@@ -128,8 +128,8 @@ sample mixing fasta and fastq files, are errors. Symbolic links are a quick way 
 | `--read-type` | `nano-hq` | Flye: `nano-hq` for R10/Q20 reads (<5% error; Flye's advice for R9 Guppy 5+ reads is also `nano-hq`), `nano-raw` for R9 reads basecalled with Guppy < 5, `nano-corr` for corrected reads |
 | `--min-size` | automatic | Flye minimum read overlap |
 | `-s`, `--size` | reference length | Expected genome size, for Flye and for `--target-depth` |
-| `--snp-method`, `-snp` | `ska` | `ska` (SKA2 split k-mers), `parsnp` (core-genome alignment), `none` (stop after the assembly) |
-| `--ska-min-freq` | 1.0 | SKA2: fraction of the genomes that must contain a variant's context; 1 = core SNPs, lower = pan-genome SNPs (like kSNP); see [Methods](Methods#4-comparison) |
+| `--snp-method`, `-snp` | `ska` | `ska` (SKA2 split k-mers), `minimap2` (each assembly aligned to the reference, read position by position; recommended for templated assemblies of R9.4.1 reads), `parsnp` (core-genome alignment), `none` (stop after the assembly); see [Methods](Methods#4-comparison) |
+| `--ska-min-freq` | 1.0 | SKA2: fraction of the genomes that must contain a variant's context; minimap2: fraction that must have a base at its position; 1 = core SNPs, lower = pan-genome SNPs (like kSNP); see [Methods](Methods#4-comparison) |
 | `--add-genomes` | | Finished genomes (fasta) to include in the comparison, such as published plastomes; named after their file |
 | `--tree` | `fasttree` | `fasttree` (GTR, SH-like supports from 100 resamples) or `iqtree` (model selection, 1000 ultrafast bootstraps) |
 | `--redo` | | Rerun this step and the following ones: `bait`, `filter`, `assemble`, `compare` |
@@ -152,7 +152,7 @@ bacon -r ref.fasta -i reads/ -o out/ -a flye              # reuses baiting and f
 bacon -r ref.fasta -i reads/ -o out/ -a flye --snp-method parsnp   # reuses the Flye assemblies
 ```
 
-Each comparison is written to its own folder (`4_compared/ska/`, `4_compared/parsnp/`,
+Each comparison is written to its own folder (`4_compared/ska/`, `4_compared/minimap2/`, `4_compared/parsnp/`,
 `4_compared/ska_0.5/`), so several can be kept side by side. A sample that failed is retried on the next run;
 samples added to the input are processed without redoing the others' baiting and filtering (their
 assemblies are compared again). The files of a sample removed from the input (or whose line of the sample

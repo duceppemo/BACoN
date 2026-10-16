@@ -1,0 +1,11 @@
+run	method	snp_sites	pairs	exact	within_5	mean_abs_error	mean_signed_error	max_abs_error
+cp_samtools	ska	242	276	1	2	46.58	-46.58	73
+cp_samtools	minimap2	459	276	6	54	12.4	-12.21	32
+cp_flye	ska	244	276	1	5	45.25	-45.25	70
+cp_flye	minimap2	525	276	12	156	5.72	-0.64	19
+mt_samtools_fref	ska	145	276	6	59	11.64	-11.55	27
+mt_samtools_fref	minimap2	234	276	16	155	10.85	9.3	42
+mt_flye_fref	ska	174	276	11	97	9.6	-8.49	27
+mt_flye_fref	minimap2	70	276	2	19	26.7	-26.57	50
+cp_reads	clair3		276	27	210	3.78	-1.2	15
+mt_reads	clair3		276	0	20	25.1	25.09	66

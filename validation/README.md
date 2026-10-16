@@ -6,7 +6,7 @@ dated records of every validation.
 | File | Purpose |
 |---|---|
 | `simulate.py` | Generates the scenarios (reference, reads, true genomes, `truth.json`). Deterministic: the same seed gives byte-identical files. Standard library only |
-| `run_validation.sh` | Runs BACoN on every scenario with every assembler and SNP method, then `score.py` (`new`: the heteroplasmy and NUPT scenarios, templated and Flye) |
+| `run_validation.sh` | Runs BACoN on every scenario with every assembler and SNP method, then `score.py` (`new`: the heteroplasmy and NUPT scenarios, templated and Flye, compared with SKA2 and minimap2) |
 | `score.py` | Scores BACoN output folders against the truth: assembly completeness and consensus errors (minimap2), SNP distances; for the new scenarios, the alleles called at minor-haplotype or NUPT sites and the origin of the baited reads |
 | `compare_runs.py` | For real data without a truth: agreement between runs (assemblers, SNP methods) |
 | `results/<date>_<version>/` | Records: summary, scores, program versions |

@@ -25,11 +25,17 @@ STUBS = {
         if "asm20" in sys.argv:  # Contigs aligned to the reference: all of each contig but those named "*nuc*"
             if "asmcrash" in open(files[0]).read():
                 sys.exit("simulated crash")
+            ref = "".join(open(sys.argv[-2]).read().splitlines()[1:])
             for line in open(files[0]).read().split(">")[1:]:
                 name, *seq = line.splitlines()
-                name, length = name.split()[0], len("".join(seq))
+                seq = "".join(seq)
+                name, length = name.split()[0], len(seq)
+                # --cs=long (--snp-method minimap2): the contig over the start of the reference, base for base
+                cs = "\\tcs:Z:" + "".join(f"={x}" if x == y else f"*{y.lower()}{x.lower()}"
+                                          for x, y in zip(seq, ref)) if "--cs=long" in sys.argv else ""
                 if "nuc" not in name:
-                    print(f"{name}\\t{length}\\t0\\t{length}\\t+\\tref\\t1000\\t0\\t{length}\\t{length}\\t{length}\\t60")
+                    print(f"{name}\\t{length}\\t0\\t{length}\\t+\\tref\\t1000\\t0\\t{length}\\t{length}\\t{length}\\t60"
+                          + cs)
             sys.exit()
         for f in files:
             with (gzip.open(f, "rt") if f.endswith(".gz") else open(f)) as fh:
@@ -234,6 +240,24 @@ def summary(out: Path) -> dict[str, dict[str, str]]:
     lines = (out / "summary.tsv").read_text().splitlines()
     header = lines[0].split("\t")
     return {row[0]: dict(zip(header, row)) for row in (line.split("\t") for line in lines[1:])}
+
+
+def test_minimap2_comparison(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="minimap2", ska_min_freq=0.9)) == 0
+    folder = out / "4_compared" / "minimap2_0.9"
+    assert "ska" not in calls(stubs)
+    dist = (folder / "snp_distances.tsv").read_text().splitlines()
+    assert dist[0].split("\t") == ["snp-dists", "Reference", "s1", "s2", "s3"]
+    assert dist[2].split("\t")[1:] == ["675", "0", "0", "0"]  # 900 A's over ACGT...: 3 in 4 differ
+    assert (folder / "tree.nwk").exists()
+    vcf = [line.split("\t") for line in (folder / "snps.vcf").read_text().splitlines() if line[0] != "#"]
+    assert len(vcf) == 675 and vcf[0][1:5] == ["2", ".", "C", "A"] and vcf[0][9:] == ["1", "1", "1"]
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["comparison"]["method"] == "minimap2" and info["comparison"]["core_snps"] == 675
+    report = (out / "report.html").read_text()
+    assert "minimap2 SNPs" in report and "aligned to the reference with minimap2" in report
 
 
 def test_full_run(stubs, dataset, tmp_path):

@@ -138,13 +138,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Expected genome size, for Flye and read filtering. Default: the reference length.")
 
     cmp = parser.add_argument_group("comparison")
-    cmp.add_argument("--snp-method", "-snp", choices=["ska", "parsnp", "none"], default="ska",
+    cmp.add_argument("--snp-method", "-snp", choices=["ska", "minimap2", "parsnp", "none"], default="ska",
                      help="How to find SNPs between the assemblies: ska (SKA2 split k-mers, reference-free; core "
-                          "or pan-genome SNPs, see --ska-min-freq) or parsnp (core-genome alignment to the "
-                          "reference); 'none' stops after the assembly. Default: %(default)s")
+                          "or pan-genome SNPs, see --ska-min-freq), minimap2 (each assembly aligned to the "
+                          "reference and read position by position: not affected by the indels of older Nanopore "
+                          "reads) or parsnp (core-genome alignment to the reference); 'none' stops after the "
+                          "assembly. Default: %(default)s")
     cmp.add_argument("--ska-min-freq", metavar="1.0", type=_fraction, default=1.0,
-                     help="SKA2: fraction of genomes that must share a variant's context for it to be kept. "
-                          "1 = core SNPs; lower values give a pan-genome alignment. Default: %(default)s")
+                     help="SKA2 and minimap2: fraction of genomes that must share a variant's context (SKA2) or "
+                          "cover its position (minimap2) for it to be kept. 1 = core SNPs; lower values give a "
+                          "pan-genome alignment. Default: %(default)s")
     cmp.add_argument("--add-genomes", metavar="FASTA", type=Path, nargs="+", default=[],
                      help="Finished genomes (fasta) to include in the comparison, such as published plastomes; "
                           "each is named after its file.")

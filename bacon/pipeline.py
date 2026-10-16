@@ -237,7 +237,7 @@ def needed_tools(s: Settings) -> list[str]:
     tools += ["filtlong", {"flye": "flye", "myloasm": "myloasm", "samtools": "samtools"}[s.assembler]]
     if "minimap2" not in tools:  # Templated assembly; the off-reference share of de novo assemblies
         tools.append("minimap2")
-    tools += {"parsnp": ["parsnp", "harvesttools"], "ska": ["ska"], "none": []}[s.snp_method]
+    tools += {"parsnp": ["parsnp", "harvesttools"], "ska": ["ska"], "minimap2": [], "none": []}[s.snp_method]
     if s.snp_method != "none":
         tools.append({"fasttree": "FastTree", "iqtree": "iqtree"}[s.tree])
     return tools
@@ -938,12 +938,16 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
             checkpoints.save("compare", fingerprint, {**result, "inputs": signatures})
     else:
         checkpoints.clear("compare")
-        out = root / (s.snp_method if s.snp_method != "ska" or s.ska_min_freq == 1 else f"ska_{s.ska_min_freq:g}")
+        out = root / (s.snp_method if s.snp_method == "parsnp" or s.ska_min_freq == 1
+                      else f"{s.snp_method}_{s.ska_min_freq:g}")
         log.info("Comparing %d assemblies with %s...", len(assemblies),
-                 "SKA2" if s.snp_method == "ska" else "Parsnp")
+                 {"ska": "SKA2", "minimap2": "minimap2", "parsnp": "Parsnp"}[s.snp_method])
         paths = {k: v for k, v in assemblies.items() if v is not None}
         if s.snp_method == "parsnp":
             tree_input, snps = compare.run_parsnp(reference, paths, out, log_dir, threads=s.threads)
+        elif s.snp_method == "minimap2":
+            tree_input, snps = compare.run_minimap2(reference, paths, out, log_dir, threads=s.threads,
+                                                    min_freq=s.ska_min_freq)
         else:
             tree_input, snps = compare.run_ska(reference, paths, out, log_dir, threads=s.threads,
                                                min_freq=s.ska_min_freq, added=set(added))
@@ -955,7 +959,7 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
         tree = None
         if sites == 0:
             hint = (" Some assemblies may be incomplete; try --ska-min-freq below 1 (e.g. 0.9) to keep SNPs "
-                    "missing from a few genomes." if s.snp_method == "ska" else "")
+                    "missing from a few genomes." if s.snp_method in ("ska", "minimap2") else "")
             log.warning("No SNP site is shared by all the genomes: no tree.%s", hint)
         else:
             log.info("Building a tree with %s...", "FastTree" if s.tree == "fasttree" else "IQ-TREE")

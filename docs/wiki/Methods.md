@@ -145,6 +145,25 @@ assembly with good depth are a hint of a mixture.
   when more than half of the assemblies of the samples have a circular contig (Flye and myloasm report them; templated
   assemblies follow the reference and are never flagged circular, so with them the SNPs within 15 bases of the
   ends of the reference are not compared: a split k-mer needs 15 bases on either side of its middle base).
+- **minimap2** (`--snp-method minimap2`) aligns each genome to the reference (`minimap2 -x asm20 -c --cs=long`)
+  and reads its base at every position of the reference. No context is needed around a site, so the
+  indels of a consensus do not hide the SNPs next to them. Those are the homopolymer errors of R9.4.1 reads,
+  400–490 per plastome on the *Arabidopsis* accessions of the [validation](Validation), where SKA2 lost a third
+  of the SNPs. A genome's base at a position is a gap (`-`) where the genome has a deletion; it is `N` where:
+  - no alignment covers the position;
+  - two alignments cover it with different bases: two copies of a repeat that differ, or a contig of another
+    origin, such as a nuclear copy of the organelle genome, over the organelle's own;
+  - at least 3 `N` lie within 50 positions of it, in a stretch where the consensus could not decide most
+    positions. On the Col-0 mitogenomes, the reads over one 500 bp stretch were about half each from two
+    diverged sequences, and the few bases the consensus did call made 19 false SNPs in one line.
+
+  Insertions in the genomes are left out. `--ska-min-freq` is the share of the genomes (and the reference) that
+  must have a nucleotide at a position for it to be kept: 1 (default) keeps the positions every genome covers.
+  A SNP in an inverted repeat is counted at both of its positions (twice), as a read-mapping pipeline counts it;
+  SKA2 counts it once. Every difference an assembly carries counts, including errors of a de novo assembly that
+  SKA2's k-mers skip. On the potato plastomes, unpolished stretches of some Flye assemblies (about 1.7
+  indels and 1.7 substitutions per 100 bases) added up to 195 SNPs to a pair. Recommended for templated assemblies of older Nanopore reads
+  (R9.4.1); SKA2 stays the default. Results in [Validation](Validation#snp-methods-ska2-and-minimap2).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
   with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
   divergent, which in the validation removed a low-depth sample. A genome much shorter than the reference can
@@ -183,15 +202,16 @@ on the simulated plastid set.
 
 `--ska-min-freq` does not change `snps.vcf`, which lists every SNP relative to the reference (from `ska map`),
 nor genomes that do not differ at any position compared (an empty VCF): those give no tree whatever the value.
-Parsnp has no equivalent: it aligns the core genome.
+Parsnp has no equivalent: it aligns the core genome. With minimap2, `--ska-min-freq` is the share of the genomes
+that must have a nucleotide at a position (results in `4_compared/minimap2_<value>/`).
 
 **Distances.** `snp_distances.tsv` counts, for each pair of genomes, the positions of the SNP alignment where
 both have a nucleotide and they differ.
 
 **Tree.** FastTree (GTR, SH-like local supports from 100 resamples; default) or IQ-TREE (`--tree iqtree`: ModelFinder and 1000
 ultrafast bootstraps; IQ-TREE keeps two of each set of identical sequences, and when it keeps fewer than four, BACoN asks
-for no bootstrap and its maximum-likelihood tree is shown without supports), built on the SKA2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
-at the midpoint of its longest path, ladderized, and drawn as SVG. With SKA2, branch lengths are in
+for no bootstrap and its maximum-likelihood tree is shown without supports), built on the SKA2 or minimap2 SNP alignment or the Parsnp core-genome alignment. The tree is rooted
+at the midpoint of its longest path, ladderized, and drawn as SVG. With SKA2 and minimap2, branch lengths are in
 substitutions per variable site.
 
 At least three assemblies are needed for a comparison. When no SNP site is shared by all the genomes (for

@@ -1303,6 +1303,14 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
         wrap = (", circular contigs (and the reference, when most assemblies were circular) being extended by 30 "
                 "bases so that variants near their ends are kept" if circular else "")
         parts.append(f"SNPs were identified with SKA2{_tool(info, 'ska')} from split 31-mers {scope}{wrap}.")
+    elif method == "minimap2" and compared:
+        freq = _num(s.get("ska_min_freq"), 1.0)
+        scope = ("covered by all genomes" if freq >= 1
+                 else f"covered by at least {freq * 100:g}% of the genomes (and the reference)")
+        parts.append(f"Each genome was aligned to the reference with minimap2{_tool(info, 'minimap2')} (-x asm20) "
+                     "and read position by position in the reference's coordinates (insertions left out; a base "
+                     "was taken as N where two alignments gave different bases, or with at least 3 N within 50 "
+                     f"positions); SNPs were the positions {scope} where genomes differ.")
     elif method == "parsnp" and compared:
         parts.append(f"The core genome was aligned to the reference with Parsnp{_tool(info, 'parsnp')} (-c); SNPs "
                      f"were extracted with HarvestTools{_tool(info, 'harvesttools')}.")
@@ -1310,8 +1318,9 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
         parts.append("Pairwise SNP distances count the positions where both genomes have a nucleotide and they "
                      "differ.")
     if compared and comparison.get("vcf"):
-        how = (f"by mapping the split k-mers to the reference with ska map{_tool(info, 'ska')}"
-               if method == "ska" else f"from the Parsnp alignment with HarvestTools{_tool(info, 'harvesttools')}")
+        how = {"ska": f"by mapping the split k-mers to the reference with ska map{_tool(info, 'ska')}",
+               "minimap2": "from every position where the genomes differ"}.get(
+            method, f"from the Parsnp alignment with HarvestTools{_tool(info, 'harvesttools')}")
         parts.append(f"The SNPs of each genome relative to the reference were written to a VCF file {how}.")
     if comparison.get("tree"):
         on = "the core-genome alignment" if method == "parsnp" else "the SNP alignment"
@@ -1607,7 +1616,7 @@ def build_report(output: Path) -> str:
         notes.append(metadata_note)
     column = colours.column if colours else ""
     method = comparison.get("method", "")
-    method_name = {"ska": "SKA2", "parsnp": "Parsnp"}.get(method, method)
+    method_name = {"ska": "SKA2", "parsnp": "Parsnp"}.get(method, method)  # minimap2: its own name
     tree_tool = {"fasttree": "FastTree", "iqtree": "IQ-TREE"}.get(comparison.get("tree_method", ""), "")
     # No IQ-TREE bootstrap when it keeps fewer than four sequences: its tree has no supports
     supports = tree is None or any(n.name for n in preorder(tree) if n.children)
@@ -1749,7 +1758,7 @@ def build_report(output: Path) -> str:
                        "SNPs has none).</p>")
         elif core_snps == 0:
             why = ("no SNP site is shared by all the genomes; see --ska-min-freq"
-                   if method == "ska" else "the alignment has no SNP site")
+                   if method in ("ska", "minimap2") else "the alignment has no SNP site")
             out.append(f"<p>No tree: {why}.</p>")
         else:
             out.append("<p>No tree.</p>")

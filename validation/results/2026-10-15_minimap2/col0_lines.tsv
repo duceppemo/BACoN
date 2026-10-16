@@ -1,0 +1,17 @@
+run	method	snp_sites	max_between_lines	max_to_reference
+cp_samtools	ska	0	0	0
+cp_samtools	minimap2	0	0	0
+cp_flye	ska	0	0	0
+cp_flye	minimap2	0	0	0
+cp_samtools_fref	ska	0	0	0
+cp_samtools_fref	minimap2	0	0	0
+cp_flye_fref	ska	0	0	0
+cp_flye_fref	minimap2	0	0	0
+mt_samtools	ska	38	8	34
+mt_samtools	minimap2	66	8	63
+mt_flye	ska	28	0	28
+mt_flye	minimap2	49	0	49
+mt_samtools_fref	ska	0	0	0
+mt_samtools_fref	minimap2	0	0	0
+mt_flye_fref	ska	1	1	1
+mt_flye_fref	minimap2	0	0	0

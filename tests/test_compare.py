@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from bacon import BaconError
 from bacon.compare import clean_alignment, snp_distances, write_distances
 from bacon.seqio import Record, read_records
 
@@ -274,14 +275,113 @@ def test_ska_pan_alignment_has_only_snp_sites(tmp_path):
     assert {len(r.seq) for r in read_records(snps)} == {1}
 
 
-@pytest.mark.parametrize("method", ["ska", "parsnp"])
+def test_project_reads_each_reference_position_from_the_cs_tags():
+    from bacon.compare import project
+
+    def paf(start, cs, target="chr"):
+        return f"q\t100\t0\t10\t+\t{target}\t20\t{start}\t{start + 10}\t9\t10\t60\ttp:A:P\tcs:Z:{cs}\n"
+
+    # =ACG: identical; *ag: G in the genome where the reference has A; -tt: deleted; +c: inserted (left out)
+    one = paf(2, "=ACG*ag+c-tt=CA")
+    assert "".join(project(one, {"chr": 12})["chr"]) == "NNACGG--CANN"
+    # A second alignment over the same positions: the same base is kept, a different one is N
+    two = one + paf(4, "=G*ac")
+    assert "".join(project(two, {"chr": 12})["chr"]) == "NNACGN--CANN"
+    # Other reference sequences are ignored
+    assert "".join(project(paf(0, "=AC", target="other"), {"chr": 4})["chr"]) == "NNNN"
+    with pytest.raises(BaconError, match="cs tag"):
+        project("q\t10\t0\t2\t+\tchr\t4\t0\t2\t2\t2\t60\n", {"chr": 4})
+    with pytest.raises(BaconError, match="--cs=long"):  # Short form: the identical bases are not written
+        project(paf(0, ":3*ag"), {"chr": 12})
+
+
+def test_mask_uncertain_bases_among_ns():
+    from bacon.compare import mask_uncertain
+    bases = list("ACNGTNANCAAAAAAAAANAAAA")
+    # The bases with three N within 3 positions (the T only); an isolated N masks nothing; '-' and '' (not
+    # covered) are kept and do not count
+    assert "".join(mask_uncertain(bases, window=3, ns=3)) == "ACNGNNANCAAAAAAAAANAAAA"
+    assert mask_uncertain(list("AN-NAN"), window=5, ns=3) == list("NN-NNN")
+    assert mask_uncertain(["A", "", "", "", "C"], window=5, ns=3) == ["A", "", "", "", "C"]
+
+
+def test_minimap2_reference_ambiguity_codes_and_several_sequences(tmp_path, monkeypatch):
+    """IUPAC codes of the reference become N; positions are numbered within each reference sequence."""
+    import bacon.compare
+    from bacon.compare import MINIMAP2_POSITIONS, run_minimap2
+
+    refs = {"one": "ACGRAC", "two": "TTGCA"}
+    genomes = {"a": {"one": "ACGTAC", "two": "TTCCA"}, "b": {"one": "ACGTAG", "two": "TTGCA"},
+               "c": {"one": "ACGAAC", "two": "TTGCA"}}
+
+    def fake_run(cmd, log_file, *, stdout, what):
+        lines = []
+        for target, g in genomes[Path(cmd[-1]).stem].items():
+            ref = refs[target]
+            cs = "".join(f"={x}" if x == y else f"*{y.lower()}{x.lower()}" for x, y in zip(g, ref, strict=True))
+            n = len(g)
+            lines.append(f"{target}_q\t{n}\t0\t{n}\t+\t{target}\t{n}\t0\t{n}\t{n}\t{n}\t60\tcs:Z:{cs}\n")
+        stdout.write_text("".join(lines))
+
+    monkeypatch.setattr(bacon.compare, "run", fake_run)
+    (tmp_path / "ref.fasta").write_text("".join(f">{k}\n{v}\n" for k, v in refs.items()))
+    paths = {}
+    for name in genomes:
+        paths[name] = tmp_path / f"{name}.fasta"
+        paths[name].write_text(f">{name}\nA\n")
+    (tmp_path / "logs").mkdir()
+    out = tmp_path / "out"
+    _, snps = run_minimap2(tmp_path / "ref.fasta", paths, out, tmp_path / "logs", threads=1, min_freq=1)
+    # one:4, where the reference has R (now N), is not in the core: the reference has no nucleotide there
+    assert {r.name: r.seq for r in read_records(snps)} == {"Reference": "CG", "a": "CC", "b": "GG", "c": "CG"}
+    assert (out / MINIMAP2_POSITIONS).read_text() == "one\t4\t0\none\t6\t1\ntwo\t3\t1\n"
+
+
+def test_minimap2_keeps_positions_covered_by_enough_genomes(tmp_path, monkeypatch):
+    """--ska-min-freq: the share of the sequences (the reference too) with a nucleotide at a position."""
+    import bacon.compare
+    from bacon.compare import MINIMAP2_POSITIONS, minimap2_vcf, run_minimap2
+
+    ref = "ACGTACGTAC"
+    genomes = {"a": "ACGTTCGTAC", "b": "ACGTTCGTCC", "c": "ACGTAC"}  # c: the first 6 positions only
+
+    def fake_run(cmd, log_file, *, stdout, what):
+        g = genomes[Path(cmd[-1]).stem]
+        cs = "".join(f"={x}" if x == y else f"*{y.lower()}{x.lower()}" for x, y in zip(g, ref))
+        stdout.write_text(f"q\t{len(g)}\t0\t{len(g)}\t+\tchr\t10\t0\t{len(g)}\t{len(g)}\t{len(g)}\t60\t"
+                          f"cs:Z:{cs}\n")
+
+    monkeypatch.setattr(bacon.compare, "run", fake_run)
+    (tmp_path / "ref.fasta").write_text(f">chr\n{ref}\n")
+    paths = {}
+    for name, g in genomes.items():
+        paths[name] = tmp_path / f"{name}.fasta"
+        paths[name].write_text(f">{name}\n{g}\n")
+    (tmp_path / "logs").mkdir()
+    out = tmp_path / "out"
+    _, snps = run_minimap2(tmp_path / "ref.fasta", paths, out, tmp_path / "logs", threads=1, min_freq=1)
+    assert {r.name: r.seq for r in read_records(snps)} == {"Reference": "A", "a": "T", "b": "T", "c": "A"}
+    # Every position where genomes differ, and whether it is in the SNP alignment
+    assert (out / MINIMAP2_POSITIONS).read_text() == "chr\t5\t1\nchr\t9\t0\n"
+    # The VCF has both, whatever min_freq (as SKA2's)
+    assert minimap2_vcf(out, tmp_path / "ref.fasta", out / "snps.vcf", "test") == 2
+    _, snps = run_minimap2(tmp_path / "ref.fasta", paths, out, tmp_path / "logs", threads=1, min_freq=0.75)
+    assert {r.name: r.seq for r in read_records(snps)} == {"Reference": "AA", "a": "TA", "b": "TC", "c": "AN"}
+    assert minimap2_vcf(out, tmp_path / "ref.fasta", out / "snps.vcf", "test") == 2
+    rows = [line.split("\t") for line in (out / "snps.vcf").read_text().splitlines() if line[0] != "#"]
+    assert [r[1:5] + r[9:] for r in rows] == [["5", ".", "A", "T", "1", "1", "0"],
+                                             ["9", ".", "A", "C", "0", "1", "."]]
+
+
+@pytest.mark.parametrize("method", ["ska", "minimap2", "parsnp"])
 def test_real_tools_with_spaces_and_accents_in_the_paths(tmp_path, method):
     """SKA2 splits its file list on whitespace; Parsnp its command lines (with the real programs)."""
     import random
     import shutil
 
-    from bacon.compare import run_parsnp, run_ska, write_vcf
-    if not all(shutil.which(p) for p in ({"ska": ["ska"], "parsnp": ["parsnp", "harvesttools"]}[method])):
+    from bacon.compare import run_minimap2, run_parsnp, run_ska, write_vcf
+    needed = {"ska": ["ska"], "minimap2": ["minimap2"], "parsnp": ["parsnp", "harvesttools"]}[method]
+    if not all(shutil.which(p) for p in needed):
         pytest.skip(f"{method} not installed")
     folder = tmp_path / "my r\u00e9sults"
     folder.mkdir()
@@ -299,6 +399,9 @@ def test_real_tools_with_spaces_and_accents_in_the_paths(tmp_path, method):
     out = folder / "com pared"
     if method == "ska":
         _, snps = run_ska(folder / "ref erence.fasta", assemblies, out, folder / "lo gs", threads=1, min_freq=1)
+    elif method == "minimap2":
+        _, snps = run_minimap2(folder / "ref erence.fasta", assemblies, out, folder / "lo gs", threads=1,
+                               min_freq=1)
     else:
         _, snps = run_parsnp(folder / "ref erence.fasta", assemblies, out, folder / "lo gs", threads=1)
     assert {r.name: len(r.seq) for r in read_records(snps)} == {"Reference": 3, "a": 3, "b": 3, "c": 3}

@@ -54,6 +54,29 @@ on the machine with 16 threads, per line: BACoN 9–15 min per organelle and 1.3
 run). The record also corrects the share of the truth covered given in the mitogenome record (an erratum: complete
 genomes cover 0.998–1.0 of their truth, not 0.6–0.99).
 
+## SNP methods: SKA2 and minimap2
+
+The [minimap2 record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-15_minimap2/SUMMARY.md)
+adds `--snp-method minimap2`, tested on 24 *Arabidopsis* accessions with ONT R9.4.1 reads (PRJEB62038). The truth
+is each accession's Illumina reads: the base carried by at least 90% of the reads at a depth of at least 20. Mean
+absolute error of the 276 pairwise distances:
+
+| | SKA2 | minimap2 |
+|---|---|---|
+| plastome, templated | 46.6 (all too low) | **12.4** |
+| plastome, Flye | 45.3 | **5.7** |
+| mitogenome, templated, `--filter-by-reference` | 11.6 | 10.9 |
+| mitogenome, Flye, `--filter-by-reference` | **9.6** | 26.7 |
+
+- **Why SKA2 fails on the plastomes:** the consensus of R9.4.1 reads keeps 400–490 homopolymer indels per
+  plastome, and SKA2 drops a site when an indel lies within 15 bases of it in any genome.
+- **Where minimap2 equals SKA2:** on the Col-0 lines (R10.4.1; no SNP between lines) and on the simulated
+  plastid, linear and rdna scenarios, where minimap2 was also better on the Flye rdna assemblies.
+- **Where minimap2 counts errors SKA2 skips:** on the potato plastomes, the Flye and templated distances agree on
+  48 of 406 pairs (SKA2: 326), because minimap2 counts the unpolished stretches of some Flye assemblies.
+
+So minimap2 is an option, recommended for templated assemblies of R9.4.1 reads; SKA2 stays the default.
+
 ## Simulated data with a known truth
 
 [`validation/simulate.py`](https://github.com/duceppemo/BACoN/blob/main/validation/simulate.py) generates

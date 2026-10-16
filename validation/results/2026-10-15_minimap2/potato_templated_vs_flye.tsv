@@ -1,0 +1,5 @@
+organelle	method	pairs	identical	max_difference	mean_abs_difference
+plastome	ska	406	326	2	0.2
+plastome	minimap2	406	48	195	28.9
+mitogenome	ska	406	379	6	0.1
+mitogenome	minimap2	406	77	162	13.4

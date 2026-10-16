@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- `--snp-method minimap2`: each assembly is aligned to the reference (`minimap2 -x asm20`) and read position by
+  position, so the indels of a consensus no longer hide the SNPs next to them. With R9.4.1 reads, the templated
+  plastomes keep 400–490 homopolymer indels, and SKA2 drops a site when one lies within 15 bases of it in any
+  genome. On 24 *Arabidopsis* accessions (Illumina truth), the mean error of the plastome distances fell from 46.6
+  SNPs (SKA2, all too low) to 12.4 (templated) and from 45.3 to 5.7 (Flye).
+  - Equal to SKA2 on the simulated scenarios and the Col-0 lines; no better on mitogenomes.
+  - Bases amid crowded `N` (3 within 50 positions) and positions where two alignments disagree are left out.
+  - It counts every difference an assembly carries, including the errors of a poorly polished de novo assembly
+    (potato Flye plastomes).
+  - `--ska-min-freq` applies to it too. SKA2 stays the default.
+  - Record: `validation/results/2026-10-15_minimap2`.
 - `--filter-by-reference`: Filtlong ranks the reads by their k-mers found in the reference (`--assembly`) instead
   of by base qualities. By default Filtlong prefers long reads, and among the baited reads of a mitogenome are long
   reads of which only a stretch matches it (nuclear copies of mitochondrial DNA, plastid reads): they filled the

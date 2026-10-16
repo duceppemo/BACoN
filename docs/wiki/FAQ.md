@@ -19,6 +19,15 @@ The VCF of the SNPs (all of them, whatever `--ska-min-freq`) is empty: the genom
 position SKA2 compared, so there is nothing to build a tree on, and `--ska-min-freq` would not change that. The
 distances are all 0.
 
+**Which `--snp-method`?**
+SKA2 (default) needs the same 15 bases on either side of a SNP in every genome. It is exact on R10.4.1 reads,
+but with the consensus of older R9.4.1 reads, whose homopolymer errors leave an indel every few hundred bases,
+it loses SNPs. On 24 *Arabidopsis* plastomes (R9.4.1), it found distances 46 SNPs too low on average.
+`--snp-method minimap2` reads each assembly position by position along the reference. It got these distances to
+12 SNPs too low with templated assemblies, and to 0.6 with Flye. It counts every difference an assembly carries,
+including the errors of a poorly polished de novo assembly, which SKA2 skips. It was no better on mitogenomes.
+See [Methods](Methods#4-comparison) and [Validation](Validation#snp-methods-ska2-and-minimap2).
+
 **What does `--ska-min-freq` below 1 do?**
 SKA2 then keeps the SNP sites that some genomes lack (they get a gap in the alignment), as long as at least that
 fraction of the genomes has them: a pan-genome SNP alignment instead of core SNPs. It helps when core SNPs are few

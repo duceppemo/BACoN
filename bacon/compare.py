@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
+import math
 import re
 import shutil
 from collections import Counter
@@ -210,6 +212,154 @@ def run_ska(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# minimap2 (each genome projected onto the reference's coordinates)
+# ---------------------------------------------------------------------------------------------------------------
+
+MINIMAP2_ALIGNMENT = "minimap2.snps.fasta"  # The SNP sites kept by min_freq: distances and tree
+MINIMAP2_VARIABLE = "minimap2.variable.fasta"  # Every position where genomes differ: the VCF
+# The reference sequence and position of each column of MINIMAP2_VARIABLE, and whether it is in MINIMAP2_ALIGNMENT
+MINIMAP2_POSITIONS = "minimap2.positions.tsv"
+_CS = re.compile(r"([=:*+\-~])([A-Za-z0-9]+)")
+
+
+# A base with at least UNCERTAIN_NS N bases within UNCERTAIN_WINDOW positions of it is taken as N: in a stretch
+# where the consensus could not decide most positions (reads of two diverged sequences, about half each), the
+# bases it did call are as uncertain (validation/results/2026-10-15_minimap2)
+UNCERTAIN_WINDOW = 50
+UNCERTAIN_NS = 3
+
+
+def mask_uncertain(bases: list[str], window: int = UNCERTAIN_WINDOW, ns: int = UNCERTAIN_NS) -> list[str]:
+    """`bases` with every base (A, C, G, T) that has at least `ns` N within `window` positions of it made N."""
+    where = [i for i, b in enumerate(bases) if b == "N"]
+    return [b if b not in NUCLEOTIDES
+            or bisect.bisect_right(where, i + window) - bisect.bisect_left(where, i - window) < ns else "N"
+            for i, b in enumerate(bases)]
+
+
+def project(paf: str, lengths: dict[str, int]) -> dict[str, list[str]]:
+    """A genome's base at every position of each reference sequence, from its alignments to the reference (PAF with
+    `cs:Z:` tags, long form): '-' where the genome has a deletion, N where no alignment covers it, or where two
+    alignments cover it with different bases (two copies of a repeat that differ, or a contig of another origin
+    such as a nuclear copy of the organelle genome over the organelle's own), and where N bases crowd around it
+    (mask_uncertain); insertions in the genome are left out."""
+    seqs = {name: [""] * length for name, length in lengths.items()}
+    for f in (line.split("\t") for line in paf.splitlines() if line.strip()):
+        target = f[5]
+        if target not in seqs:
+            continue
+        cs = next((x[5:] for x in f[12:] if x.startswith("cs:Z:")), None)
+        if cs is None:
+            raise BaconError("minimap2 wrote an alignment without its difference string (cs tag)")
+        seq, t = seqs[target], int(f[7])
+        for op, value in _CS.findall(cs):
+            if op == ":":  # Identical bases, short form: no bases to read (BACoN asks for --cs=long)
+                raise BaconError("minimap2 wrote a short difference string (cs tag): --cs=long is needed")
+            if op in "=*-":
+                # '=': identical bases; '*': the reference's base, then the genome's; '-': reference bases
+                # missing from the genome
+                bases = value.upper() if op == "=" else value[1].upper() if op == "*" else "-" * len(value)
+                for base in bases:
+                    seq[t] = base if seq[t] in ("", base) else "N"
+                    t += 1
+            elif op == "~":  # An intron (spliced alignments only, not made by the asm presets): skipped
+                t += int(re.search(r"\d+", value).group())  # type: ignore[union-attr]
+    # Bases amid N bases (the genome's own or conflicting alignments; not positions left uncovered) are uncertain
+    seqs = {name: mask_uncertain(s) for name, s in seqs.items()}
+    keep = frozenset("ACGT-")  # Not the string "ACGT-": the empty string (not covered) is in every string
+    return {name: [b if b in keep else "N" for b in s] for name, s in seqs.items()}
+
+
+def run_minimap2(reference: Path, assemblies: dict[str, Path], out_dir: Path, log_dir: Path, *, threads: int,
+                 min_freq: float) -> tuple[Path, Path]:
+    """SNPs from each genome aligned to the reference (minimap2 -x asm20) and read position by position in the
+    reference's coordinates (see project): no k-mer context is needed around a site, so the indels of a consensus
+    (homopolymers of older Nanopore reads) do not hide the SNPs next to them.
+
+    `min_freq` is the fraction of the sequences (the genomes and the reference) that must have a base (A, C, G or
+    T) at a position for it to be kept, as SKA2's: 1 keeps the positions every genome covers."""
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    log_file = log_dir / "minimap2.log"
+    refs = [Record(r.header, r.seq.upper()) for r in read_records(reference)]
+    lengths = {r.name: len(r.seq) for r in refs}
+    # Ambiguity codes of the reference become N, as in the alignments of the other methods (clean_alignment)
+    rows: dict[str, str] = {"Reference": re.sub("[^ACGT-]", "N", "".join(r.seq for r in refs))}
+    for name, path in sorted(assemblies.items()):
+        paf = out_dir / f".{name}.paf"
+        run(["minimap2", "-x", "asm20", "-c", "--cs=long", "-t", str(threads), str(reference), str(path)],
+            log_file, stdout=paf, what=f"(aligning {name} to the reference)")
+        projected = project(paf.read_text(), lengths)
+        paf.unlink()
+        rows[name] = "".join("".join(projected[r.name]) for r in refs)
+    needed = math.ceil(min_freq * len(rows) - 1e-9)  # Not min_freq * rows: 0.55 * 100 is 55.000000000000007
+    variable, core = [], []
+    for i, column in enumerate(zip(*rows.values())):
+        if len(NUCLEOTIDES.intersection(column)) >= 2:
+            variable.append(i)
+            if sum(c in NUCLEOTIDES for c in column) >= needed:
+                core.append(i)
+    write_fasta(out_dir / MINIMAP2_VARIABLE,
+                [Record(name, "".join(seq[i] for i in variable)) for name, seq in rows.items()])
+    aln = out_dir / MINIMAP2_ALIGNMENT
+    write_fasta(aln, [Record(name, "".join(seq[i] for i in core)) for name, seq in rows.items()])
+    starts = []  # (offset in the concatenated reference, name) of each reference sequence
+    offset = 0
+    for r in refs:
+        starts.append((offset, r.name))
+        offset += len(r.seq)
+    in_core = set(core)
+    lines = []
+    for i in variable:
+        start, name = starts[bisect.bisect_right(starts, (i, "\uffff")) - 1]
+        lines.append(f"{name}\t{i - start + 1}\t{int(i in in_core)}\n")
+    tmp = out_dir / (MINIMAP2_POSITIONS + ".tmp")
+    tmp.write_text("".join(lines))
+    tmp.replace(out_dir / MINIMAP2_POSITIONS)
+    return aln, aln
+
+
+def minimap2_vcf(out_dir: Path, reference: Path, out: Path, source: str) -> int:
+    """The VCF of a minimap2 comparison, from every position where genomes differ (whatever min_freq, as SKA2's
+    VCF): REF the reference's base, ALT the other bases in the order the genomes carry them, GT per genome ('.' for
+    N or a deletion). Returns the records."""
+    records = {r.name: r for r in read_records(out_dir / MINIMAP2_VARIABLE)}
+    reference_row = records.pop("Reference").seq
+    names = sorted(records)
+    sites = [line.split("\t")[:2] for line in (out_dir / MINIMAP2_POSITIONS).read_text().splitlines()]
+    rows: dict[tuple[str, int], list[str]] = {}
+    for i, (chrom, pos) in enumerate(sites):
+        ref = reference_row[i]
+        if ref not in NUCLEOTIDES:
+            continue
+        alts: list[str] = []
+        genotypes = []
+        for name in names:
+            base = records[name].seq[i]
+            if base == ref:
+                genotypes.append("0")
+            elif base in NUCLEOTIDES:
+                if base not in alts:
+                    alts.append(base)
+                genotypes.append(str(alts.index(base) + 1))
+            else:
+                genotypes.append(".")
+        if alts:
+            rows[(chrom, int(pos))] = [chrom, pos, ".", ref, ",".join(alts), ".", "PASS", ".", "GT", *genotypes]
+    lengths = {r.name: len(r.seq) for r in read_records(reference)}
+    header = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *names]
+    meta = ['##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">']
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        _write_vcf_file(tmp, source, lengths, meta, header, rows, {name: i for i, name in enumerate(lengths)})
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(out)
+    return len(rows)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # VCF
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -327,6 +477,8 @@ def write_vcf(method: str, reference: Path, out_dir: Path, log_dir: Path, *, thr
     raw = out_dir / "snps.raw.vcf"
     out = out_dir / "snps.vcf"
     out.unlink(missing_ok=True)
+    if method == "minimap2":
+        return out, minimap2_vcf(out_dir, reference, out, source)
     try:
         if method == "ska":
             mapped_to = out_dir / SKA_REFERENCE

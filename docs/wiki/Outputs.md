@@ -20,7 +20,7 @@ OUTPUT/
 │   └── <sample>/                          the assembler's own folder
 ├── 4_compared/
 │   ├── added_genomes/<name>.fasta          genomes given with --add-genomes, as compared
-│   └── <method>/                           ska, ska_<min-freq>, or parsnp
+│   └── <method>/                           ska, minimap2 (or <method>_<min-freq>), or parsnp
 │       ├── snp_distances.tsv               pairwise SNP distances, Reference first
 │       ├── tree.nwk                        midpoint-rooted tree (Newick)
 │       ├── tree.svg                        picture of the tree
@@ -208,6 +208,11 @@ nucleotides (A, C, G, T; gaps and N are ignored), with the reference as `Referen
 - **SKA2** (`4_compared/ska/`, or `ska_<min-freq>/`): `ska.snps.fasta` is the alignment of the SNP sites (the
   columns with at least two different nucleotides).
   A SNP in an inverted repeat is counted once (its two copies share the same split k-mer).
+- **minimap2** (`4_compared/minimap2/`, or `minimap2_<min-freq>/`): `minimap2.snps.fasta` is the alignment of
+  the SNP sites kept by `--ska-min-freq` (distances and tree). `minimap2.variable.fasta` holds every position
+  where genomes differ. `minimap2.positions.tsv` gives, for each column of the latter: the reference sequence, the
+  position, and `1` if the column is in `minimap2.snps.fasta`. A SNP in an inverted repeat is counted at both of
+  its positions.
 - **Parsnp** (`4_compared/parsnp/`): `parsnp.core.fasta` is the core-genome alignment, used for the tree;
   `parsnp.snps.fasta` the SNP sites; plus Parsnp's own files.
 
@@ -225,6 +230,8 @@ exactly the SNPs of the truth.
   [Methods](Methods#4-comparison)). All SNPs are listed, whatever `--ska-min-freq` (which only
   affects the alignment, the distances and the tree). A SNP in both copies of an inverted repeat is listed at
   both of its positions; a difference between the two copies of one genome is ambiguous and is not listed.
+- **minimap2**: from `minimap2.variable.fasta`: every position where genomes differ, whatever `--ska-min-freq`,
+  with `.` for a genome whose base there is `N` or a gap.
 - **Parsnp**: from HarvestTools: the SNPs of the core-genome alignment, with Parsnp's filters in the FILTER
   column: `PASS`, or the reasons a SNP was left out of the alignment, and so of the distances and the tree
   (`ALN`, `CID`, `LCB`, `IND`, `N`, several joined by `:`; see [Methods](Methods#4-comparison)). The report shows
