@@ -78,10 +78,11 @@ PY
 } > "$out/versions.txt"
 
 for scenario in "${scenarios[@]}"; do
-    bacon_run "$scenario" samtools                  # the default: templated assembly, SKA2 core SNPs
+    # The defaults (--snp-method auto): templated assembly compared with minimap2, Flye with SKA2
+    bacon_run "$scenario" samtools
     bacon_run "$scenario" flye -a flye
-    # minimap2 comparisons of the same assemblies (the assembly step is reused from the checkpoint)
-    bacon_run "$scenario" samtools --snp-method minimap2
+    # The other method on the same assemblies (the assembly step is reused from the checkpoint)
+    bacon_run "$scenario" samtools --snp-method ska
     bacon_run "$scenario" flye -a flye --snp-method minimap2
     if [ "$group" = all ]; then
         bacon_run "$scenario" myloasm -a myloasm

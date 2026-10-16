@@ -56,7 +56,7 @@ colours of the heatmap and of the highlighted cells are kept when printing):
   or a value is held by failed samples only, a line under the bar charts gives each value's marker and number of
   samples. The groups' legend is the list of identical genomes.
 - **Tree**: drawn from `tree.nwk`, midpoint-rooted and ladderized, with the supports on the internal branches, a
-  scale bar (with its equivalent number of SNPs for SKA2), and a coloured square with a thin dark edge for each
+  scale bar (with its equivalent number of SNPs for SKA2 and minimap2), and a coloured square with a thin dark edge for each
   group of identical genomes (12 colours, then grey); or why there is none. With a colour column, colour is given
   to the column only: each leaf gets the marker of its value, a colour and a shape (a hollow circle when the
   genome has none, as the reference), and the value in muted text after the name, instead of the group square.

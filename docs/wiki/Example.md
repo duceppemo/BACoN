@@ -86,7 +86,7 @@ of every SNP of the VCF (`planted_effects.tsv`), and that the report shows the a
 exits with an error if anything differs:
 
 ```
-OK: all 6 pairwise SNP distances match the truth (example_output/bacon/4_compared/ska/snp_distances.tsv)
+OK: all 6 pairwise SNP distances match the truth (example_output/bacon/4_compared/minimap2/snp_distances.tsv)
 OK: the 20 SNPs are annotated as planted (12 coding changes: 5 synonymous, 6 missense, 1 nonsense)
 OK: report.html has the annotation and the metadata (example_output/bacon/report.html)
 ```
@@ -121,7 +121,7 @@ the genomes of each value of `group`.
 
 ![SNP distances](https://raw.githubusercontent.com/duceppemo/BACoN/main/docs/images/example_report_distances.png)
 
-**Genome map and SNPs.** `example_output/bacon/4_compared/ska/snps.vcf` lists the 20 planted SNPs at their
+**Genome map and SNPs.** `example_output/bacon/4_compared/minimap2/snps.vcf` lists the 20 planted SNPs at their
 positions in the reference, with the genotype of each sample. The genome map shows them over the 23 genes of
 `reference.gb` (the + strand above the centre line, the − strand below; `orf01` and `orf04`, with 2 SNPs each,
 are labelled) and the LSC/IRb/SSC/IRa band derived from the annotated inverted repeats (the example's 3 kb repeat
@@ -154,9 +154,9 @@ Running the same command again with other options reruns only what changes ([Usa
   is rebuilt. Without `--metadata`, the copy `metadata.tsv` that the first run wrote is removed.
 - `-r example_output/data/reference.gb` without `--annotation`: the GenBank file is the reference and its own
   annotation; `reference.fasta` in the output folder is identical, so nothing is redone either.
-- `-a flye` assembles de novo; `--snp-method parsnp` compares the assemblies with Parsnp instead of SKA2. Both
-  give the same 20 SNPs and distances on this example (with Parsnp, `4_compared/parsnp/snps.vcf` holds the same
-  20 records, and `python example/check_example.py example_output parsnp` passes the three checks).
+- `-a flye` assembles de novo, and compares the assemblies with SKA2 (the default for de novo assemblies);
+  `--snp-method parsnp` compares them with Parsnp instead. All give the same 20 SNPs and distances on this example
+  (`python example/check_example.py example_output ska`, or `parsnp`, passes the three checks).
 
 For real data, see the [Tutorial](Tutorial) (28 potato cultivars) and
 [its report](https://duceppemo.github.io/BACoN/reports/tutorial_potato_report.html).

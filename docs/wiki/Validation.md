@@ -64,7 +64,7 @@ assemblies:
 | Clair3 (reads aligned to the reference; consensus = reference + SNPs) | **3.8** | 56 (misses every true indel) |
 | BACoN Flye, `--snp-method minimap2` | 5.7 | 69 |
 | BACoN templated, `--snp-method minimap2` | 12.4 | **15** |
-| BACoN templated, SKA2 (default) | 46.6 | 15 |
+| BACoN templated, SKA2 (default before 0.4.0) | 46.6 | 15 |
 | ptGAUL + SKA2 / Snippy / MAFFT | 44.7 / 46.8 / 902 (two misaligned plastomes) | 275 |
 
 Every Nanopore assembly kept 400–740 homopolymer indels per plastome with these reads. On the mitogenomes,
@@ -101,13 +101,13 @@ another variant within 15 bases in some sample:
 
 | Mean absolute error of the 496 distances | Templated | Flye |
 |---|---|---|
-| SKA2 (default) | 31.0 | 33.8 |
+| SKA2 | 31.0 | 33.8 |
 | minimap2 | **0.87** (0.25 where the truth can judge) | 6.9 |
 | Clair3, for comparison | 0.54 (0.31 where the truth can judge) | |
 
-BACoN templated with minimap2 found 99.7% of the SNPs with no false call, as Clair3 did. So minimap2 is
-recommended for templated assemblies of older reads and of genomes that differ at many nearby positions; SKA2
-stays the default.
+BACoN templated with minimap2 found 99.7% of the SNPs with no false call, as Clair3 did. Since 0.4.0,
+minimap2 is the default comparison of templated assemblies (`--snp-method auto`); de novo assemblies are still
+compared with SKA2, which skips their uncorrected errors.
 
 ## Simulated data with a known truth
 
@@ -133,7 +133,7 @@ Results with the programs of BACoN 0.3:
 
 | SNP method (on the Flye assemblies, plastid) | Exact distances | Remark |
 |---|---|---|
-| SKA2 core (default) | 45/45 | counts a SNP in the inverted repeat once |
+| SKA2 core | 45/45 | counts a SNP in the inverted repeat once |
 | SKA2 pan (`--ska-min-freq 0.5`) | 45/45 | |
 | Parsnp `-c` | 36/45 | misses SNPs in the inverted repeat; off by one next to the deletion |
 | Parsnp default | 22/36 | dropped the 10x sample |

@@ -20,7 +20,8 @@ position SKA2 compared, so there is nothing to build a tree on, and `--ska-min-f
 distances are all 0.
 
 **Which `--snp-method`?**
-SKA2 (default) needs the same 15 bases on either side of a SNP in every genome. It loses SNPs in two cases:
+The default, `auto`, compares templated assemblies with minimap2 and de novo assemblies (Flye, myloasm) with SKA2.
+SKA2 needs the same 15 bases on either side of a SNP in every genome. It loses SNPs in two cases:
 - **Older R9.4.1 reads:** their consensus keeps an indel every few hundred bases. On 24 *Arabidopsis* plastomes,
   SKA2 found distances 46 SNPs too low on average.
 - **Genomes that differ at many nearby positions**, even with current reads. On 32 human mitogenomes (R10.4.1),
@@ -32,8 +33,10 @@ SKA2 (default) needs the same 15 bases on either side of a SNP in every genome. 
 - human mitogenomes: within 1 SNP for most pairs (templated), like Clair3.
 
 It counts every difference an assembly carries, including the errors of a poorly polished de novo assembly, which
-SKA2 skips. SKA2 was exact on genomes with few, scattered SNPs (the Col-0 lines, the simulations). With the
-templated assembly, minimap2 was as good or better on every dataset tested.
+SKA2 skips: hence SKA2 for de novo assemblies. SKA2 was exact on genomes with few, scattered SNPs (the Col-0
+lines, the simulations). With the templated assembly, minimap2 was as good or better on every dataset tested.
+Before 0.4.0, SKA2 was the default for every assembly: an earlier run's `4_compared/ska/` is kept, and the
+default now adds `4_compared/minimap2/` next to it.
 See [Methods](Methods#4-comparison) and [Validation](Validation#snp-methods-ska2-and-minimap2).
 
 **What does `--ska-min-freq` below 1 do?**

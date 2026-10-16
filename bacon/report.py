@@ -1310,7 +1310,7 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
         parts.append(f"Each genome was aligned to the reference with minimap2{_tool(info, 'minimap2')} (-x asm20) "
                      "and read position by position in the reference's coordinates (insertions left out; a base "
                      "was taken as N where two alignments gave different bases, or with at least 3 N within 50 "
-                     f"positions); SNPs were the positions {scope} where genomes differ.")
+                     f"positions); SNPs were the positions {scope} at which the genomes differ.")
     elif method == "parsnp" and compared:
         parts.append(f"The core genome was aligned to the reference with Parsnp{_tool(info, 'parsnp')} (-c); SNPs "
                      f"were extracted with HarvestTools{_tool(info, 'harvesttools')}.")

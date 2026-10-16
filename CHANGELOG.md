@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-16)
+
+### Changed
+- **The default comparison of templated assemblies is now minimap2** (`--snp-method auto`, the new default:
+  minimap2 for templated assemblies, SKA2 for Flye and myloasm). With the templated assembly, minimap2 was as good
+  as SKA2 or better on every dataset of the validation (below). De novo assemblies stay with SKA2, which skips
+  their uncorrected errors. The distances of a default run therefore change. A SNP in the inverted repeat now
+  counts at both of its positions, and the results are in `4_compared/minimap2/`. Resuming a folder of an earlier
+  version adds that comparison and keeps `4_compared/ska/`. `--snp-method ska` gives the 0.3 behaviour.
 
 ### Added
 - `--snp-method minimap2`: each assembly is aligned to the reference (`minimap2 -x asm20`) and read position by
@@ -14,7 +22,7 @@
   - Bases amid crowded `N` (3 within 50 positions) and positions where two alignments disagree are left out.
   - It counts every difference an assembly carries, including the errors of a poorly polished de novo assembly
     (potato Flye plastomes).
-  - `--ska-min-freq` applies to it too. SKA2 stays the default.
+  - `--ska-min-freq` applies to it too.
   - Records: `validation/results/2026-10-15_minimap2` and `2026-10-16_human_mt`.
 - Validation: BACoN against Clair3, ptGAUL, Snippy, MAFFT and Parsnp on 24 *Arabidopsis* accessions (R9.4.1,
   Illumina truth; record `2026-10-15_accessions`, summarized in the Validation page). BACoN's templated plastomes

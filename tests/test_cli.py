@@ -35,7 +35,7 @@ def test_version_flag(capsys):
 def test_defaults():
     args = build_parser().parse_args(["-r", "ref.fa", "-i", "in", "-o", "out"])
     assert (args.baiting_method, args.assembly_method, args.snp_method, args.tree) == (
-        "minimap2", "samtools", "ska", "fasttree")
+        "minimap2", "samtools", "auto", "fasttree")
     assert args.kmer_size == 31 and args.min_read_length == 500 and args.ska_min_freq == 1.0
     assert args.annotation is None
 

@@ -75,7 +75,7 @@ class Settings:
     flye_iterations: int = 3
     template_gaps: str = "n"
     genome_size: int | None = None
-    snp_method: str = "ska"
+    snp_method: str = "auto"  # auto: minimap2 for templated assemblies, ska for de novo ones (resolve_snp_method)
     ska_min_freq: float = 1.0
     add_genomes: list[Path] = field(default_factory=list)
     tree: str = "fasttree"
@@ -230,6 +230,16 @@ def _same_files(saved: object, current: list[list[object]]) -> bool:
 # Running
 # ---------------------------------------------------------------------------------------------------------------
 
+def resolve_snp_method(snp_method: str, assembler: str) -> str:
+    """The comparison method: 'auto' is minimap2 for templated assemblies and SKA2 for de novo ones. minimap2 needs
+    no identical context around a SNP, which SKA2 lacks next to other variants or consensus indels, but it counts
+    every difference an assembly carries, including the uncorrected errors of a de novo assembly, which SKA2's
+    split k-mers skip (validation/results/2026-10-16_human_mt)."""
+    if snp_method != "auto":
+        return snp_method
+    return "minimap2" if assembler == "samtools" else "ska"
+
+
 def needed_tools(s: Settings) -> list[str]:
     tools = ["minimap2"] if s.baiting == "minimap2" else ["bbduk.sh"]
     if s.keep_bam and s.baiting == "minimap2":
@@ -237,7 +247,8 @@ def needed_tools(s: Settings) -> list[str]:
     tools += ["filtlong", {"flye": "flye", "myloasm": "myloasm", "samtools": "samtools"}[s.assembler]]
     if "minimap2" not in tools:  # Templated assembly; the off-reference share of de novo assemblies
         tools.append("minimap2")
-    tools += {"parsnp": ["parsnp", "harvesttools"], "ska": ["ska"], "minimap2": [], "none": []}[s.snp_method]
+    method = resolve_snp_method(s.snp_method, s.assembler)
+    tools += {"parsnp": ["parsnp", "harvesttools"], "ska": ["ska"], "minimap2": [], "none": []}[method]
     if s.snp_method != "none":
         tools.append({"fasttree": "FastTree", "iqtree": "iqtree"}[s.tree])
     return tools
@@ -724,6 +735,11 @@ def run(s: Settings) -> int:
 
 def _run(s: Settings, started: float) -> int:
     log.info("BACoN %s", __version__)
+    if s.snp_method == "auto":  # Resolved once: checkpoints, folders, run_info.json and the report see the method
+        s.snp_method = resolve_snp_method(s.snp_method, s.assembler)
+        log.info("Comparison method: %s (the default for %s assemblies)",
+                 {"minimap2": "minimap2", "ska": "SKA2"}[s.snp_method],
+                 "templated" if s.assembler == "samtools" else "de novo")
     tools = require(needed_tools(s))
     samples = _load_samples(s)
     if s.add_genomes and s.snp_method == "none":
@@ -976,8 +992,11 @@ def _compare(s: Settings, states: list[SampleState], reference: Path, root: Path
 
 def _comparison_files_exist(result: dict) -> bool:
     """Whether a saved comparison's files are still there: its distances, its alignment and its tree (when it made
-    one: not without a SNP site shared by all the genomes)."""
-    return Path(result.get("distances") or "").is_file() and all(
+    one: not without a SNP site shared by all the genomes), and for minimap2 the files its VCF is made from."""
+    folder = Path(result.get("distances") or "").parent
+    vcf_inputs = ([folder / compare.MINIMAP2_VARIABLE, folder / compare.MINIMAP2_POSITIONS]
+                  if result.get("method") == "minimap2" else [])
+    return Path(result.get("distances") or "").is_file() and all(p.is_file() for p in vcf_inputs) and all(
         Path(result[key]).is_file() for key in ("alignment", "tree") if result.get(key))
 
 

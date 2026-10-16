@@ -260,6 +260,54 @@ def test_minimap2_comparison(stubs, dataset, tmp_path):
     assert "minimap2 SNPs" in report and "aligned to the reference with minimap2" in report
 
 
+@pytest.mark.parametrize(("assembler", "method"), [("samtools", "minimap2"), ("flye", "ska")])
+def test_auto_snp_method_follows_the_assembler(stubs, dataset, tmp_path, assembler, method):
+    """The default comparison: minimap2 for templated assemblies, SKA2 for de novo ones, recorded as resolved."""
+    from bacon.pipeline import resolve_snp_method
+    assert resolve_snp_method("parsnp", "samtools") == "parsnp" and resolve_snp_method("auto", "myloasm") == "ska"
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, assembler=assembler, snp_method="auto")) == 0
+    assert (out / "4_compared" / method / "snp_distances.tsv").exists()
+    assert ("ska" in calls(stubs)) == (method == "ska")
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["comparison"]["method"] == method and info["settings"]["snp_method"] == method
+    # Naming the method it resolved to is the same comparison: kept, not made again
+    assert run(settings(ref, reads, out, assembler=assembler, snp_method=method)) == 0
+    assert f"Comparison with {method}: already done" in (out / "bacon.log").read_text()
+
+
+def test_needed_tools_follow_the_default_comparison(tmp_path):
+    from bacon.pipeline import needed_tools
+    base = {"reference": tmp_path / "r.fasta", "output": tmp_path / "o"}
+    assert needed_tools(Settings(**base)) == ["minimap2", "filtlong", "samtools", "FastTree"]
+    for assembler in ("flye", "myloasm"):
+        assert "ska" in needed_tools(Settings(**base, assembler=assembler))
+    assert needed_tools(Settings(**base, snp_method="none")) == ["minimap2", "filtlong", "samtools"]
+
+
+def test_folder_of_the_old_default_resumes_with_minimap2(stubs, dataset, tmp_path):
+    """A templated run compared with SKA2 (the default before 0.4.0) rerun with the defaults: only the comparison is
+    made again, with minimap2; the SKA2 comparison is kept."""
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, assembler="samtools", snp_method="ska")) == 0
+    before = calls(stubs)
+    assert run(settings(ref, reads, out, assembler="samtools", snp_method="auto")) == 0
+    made = calls(stubs)[len(before):]
+    assert "samtools" not in made and "ska" not in made and "filtlong" not in made
+    assert (out / "4_compared" / "ska" / "snp_distances.tsv").exists()
+    assert (out / "4_compared" / "minimap2" / "snp_distances.tsv").exists()
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["comparison"]["method"] == "minimap2"
+    assert "aligned to the reference with minimap2" in (out / "report.html").read_text()
+    # The files minimap2's VCF is made from are part of the comparison: without them it is made again
+    (out / "4_compared" / "minimap2" / "minimap2.positions.tsv").unlink()
+    (out / "4_compared" / "minimap2" / "snps.vcf").unlink()
+    assert run(settings(ref, reads, out, assembler="samtools", snp_method="auto")) == 0
+    assert (out / "4_compared" / "minimap2" / "snps.vcf").exists()
+
+
 def test_full_run(stubs, dataset, tmp_path):
     ref, reads = dataset
     out = tmp_path / "out"

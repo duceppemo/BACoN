@@ -9,7 +9,7 @@ and for each sample:
 3. **assembles** them: a templated consensus of the reads aligned to the reference (samtools, the default), or a
    de novo assembly (Flye or myloasm);
 
-then **compares** the samples: SNPs (SKA2 split k-mers by default, or a Parsnp core-genome alignment), a matrix
+then **compares** the samples: SNPs (each assembly read along the reference with minimap2, the default for templated assemblies; SKA2 split k-mers, the default for de novo ones; or a Parsnp core-genome alignment), a matrix
 of pairwise SNP distances, a VCF of the SNPs relative to the reference, and a tree (FastTree or IQ-TREE). Everything is summarized in an HTML report, and in
 MultiQC sections.
 

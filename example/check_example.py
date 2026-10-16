@@ -2,7 +2,8 @@
 distances, the region, gene, context and effect of every SNP of the run's VCF, and the report's annotation and
 metadata. Used by run_example.sh; `check(output_folder)` returns the failures and prints one OK line per check.
 
-Usage: python example/check_example.py OUTPUT_FOLDER [SNP_METHOD]
+Usage: python example/check_example.py OUTPUT_FOLDER [SNP_METHOD]  (default minimap2: the comparison of a
+templated run)
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ REPORT_TEXTS = [('<table class="snps', "the SNP table"), ("in the LSC", "the reg
                 ("coloured by <b>group</b>", "the colour column"), ("site 2", "the metadata columns")]
 
 
-def check(out: Path, method: str = "ska") -> list[str]:
+def check(out: Path, method: str = "minimap2") -> list[str]:
     """The failures of the three checks (empty when the run agrees with the truth); an OK line is printed for each
     check that passes."""
     out = Path(out)
@@ -87,7 +88,7 @@ def check(out: Path, method: str = "ska") -> list[str]:
 def main(argv: list[str]) -> None:
     if len(argv) not in (2, 3):
         sys.exit("Usage: python check_example.py OUTPUT_FOLDER [SNP_METHOD]")
-    failures = check(Path(argv[1]), argv[2] if len(argv) == 3 else "ska")
+    failures = check(Path(argv[1]), argv[2] if len(argv) == 3 else "minimap2")
     if failures:
         sys.exit("FAILED: " + "\n        ".join(failures))
 

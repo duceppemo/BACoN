@@ -39,7 +39,7 @@ bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -t 32 -p 8 --annotation NC_
 ```
 
 The defaults: baiting with minimap2, Filtlong capping each sample at 100x, templated assembly with samtools,
-core SNPs with SKA2, and a FastTree tree. It takes about 3 minutes. `--annotation` gives the report the genes
+SNPs read along the reference with minimap2 (the default for templated assemblies), and a FastTree tree. It takes about 3 minutes. `--annotation` gives the report the genes
 and regions of the plastome and the effect of each SNP; it changes nothing else, so it can be added to a
 finished run (nothing is redone). `-r NC_008096.2.gb` alone does the same: the sequence of the GenBank record is
 the reference and its features the annotation, and `reference.fasta` is identical to the one made from the
@@ -67,31 +67,42 @@ Sample     Status  Raw_reads  Raw_bases  Baited_reads  Baited_pct  Filtered_read
 - The consensus lengths fall into two groups: about 155,170 bp and about 155,390 bp. Samples of the second group
   have 119–153 `N` bases, nearly all in one region, next to position 52,580.
 
-## 4. SNPs and tree: `4_compared/ska/`
+## 4. SNPs and tree: `4_compared/minimap2/`
 
-The SNP alignment (`ska.snps.fasta`) has 118 SNP sites between the 28 plastomes and the reference. The cultivars fall into
-three groups:
+Each templated assembly is aligned to the reference and read position by position. The SNP alignment
+(`minimap2.snps.fasta`) has 170 SNP sites: the positions that every plastome covers and where they differ (a SNP
+of the inverted repeat counts at both of its positions). The cultivars fall into three groups:
 
 | Group | Cultivars | SNPs to the reference | Within the group |
 |---|---|---|---|
 | T-type | 14_6_3, 16-35-5, 16_1_2, Bagira, Bankir, Iskra, Luks, Shah, Terra, Zdraven | 1 | identical |
-| Lineage A | 15-27-1, Legenda | 67 | identical |
-| Lineage B | 12_22_134, 14_4_1, 15_22_4, 16_4_3, Alaska, Amur, Argo, Baron, Bravo, Gornyak, Irbitskiy, Kamenskiy, Mishka, Otrada, Start, Utro_ranneye | 67–76 | 0–13 |
+| Lineage A | 15-27-1, Legenda | 96 | identical |
+| Lineage B | 12_22_134, 14_4_1, 15_22_4, 16_4_3, Alaska, Amur, Argo, Baron, Bravo, Gornyak, Irbitskiy, Kamenskiy, Mishka, Otrada, Start, Utro_ranneye | 92–101 | 0–19 |
 
-Lineage A is 66 SNPs from the T-type group, lineage B 66–75, and the two lineages are 76–85 SNPs apart. Lineage B
-holds three distinct plastomes: 11 identical cultivars, a group of four (14_4_1, 16_4_3, Baron, Start) 5 SNPs
-away, and 15_22_4, 12–13 SNPs from both.
+Lineage A is 95 SNPs from the T-type group and lineage B 91–100; the two lineages are 120–129 SNPs apart. Lineage
+B holds five distinct plastomes:
+- 9 identical cultivars (12_22_134, Alaska, Amur, Argo, Gornyak, Irbitskiy, Kamenskiy, Mishka, Utro_ranneye);
+- a group of four (14_4_1, 16_4_3, Baron, Start), 6 SNPs away;
+- 15_22_4, 15 SNPs from both;
+- Bravo and Otrada, 4 and 2 SNPs from the nine.
 
-`snps.vcf` gives the genotype of each cultivar at 135 SNP positions of the reference, more than the 118 SNP sites
-of the alignment: the alignment keeps the SNPs found in every genome and counts a SNP of the inverted repeat once,
-while the VCF lists every SNP position of the reference ([Outputs](Outputs#comparison)).
+Bravo and Otrada differ from the nine only at a hairpin of the reference (positions 145,623–145,647). Lineage B
+carries the inverted loop of that hairpin; the consensus of Bravo has an insertion there instead, and that of
+Otrada two more substitutions. These reads do not settle whether the difference is real or a consensus error at
+the hairpin. `--snp-method ska` skips a SNP with another difference within 15 bases: with it, the two join the
+nine, and lineage B holds three distinct plastomes.
+
+`snps.vcf` gives the genotype of each cultivar at 194 SNP positions of the reference, more than the 170 SNP sites
+of the alignment: the alignment keeps the positions that every genome covers, the VCF every position where the
+genomes differ ([Outputs](Outputs#comparison)).
 
 With the annotation, the report's genome map shows the LSC, IRb, SSC and IRa regions and the genes, and the
-SNP table under it says where each SNP falls: 91 of the 135 are in the LSC, 31 in the SSC and 13 in the
-inverted repeats; 57 are in coding sequences (30 synonymous, 26 missense, and one that changes the stop codon of
-*ndhF* into another), 14 in introns, 2 in rRNA genes, 3 in pseudogenes, 1 in *sprA* (a small plastid RNA, annotated as a
-gene only) and 59 are intergenic (one SNP, where the end of *ndhF* overlaps the *ycf1*
-pseudogene, is counted for both). *ndhA* and *ycf1* carry 7 SNPs each, *ndhF* 6. For example, the SNP at
+SNP table under it says where each SNP falls: 125 of the 194 are in the LSC, 38 in the SSC and 31 in the
+inverted repeats. 63 are in coding sequences (31 synonymous, 31 missense, and one that changes the stop codon of
+*ndhF* into another), 18 in introns, 2 in rRNA genes, 3 in pseudogenes, 1 in *sprA* (a small plastid RNA,
+annotated as a gene only) and 108 are intergenic (one SNP, where the end of *ndhF* overlaps the *ycf1* pseudogene,
+is counted for both). 22 of the intergenic ones fall in 35 bp between *petA* and *psbJ*, where lineage B differs
+from the reference at most positions. *ycf1* carries 10 SNPs, *ndhA* 7, *ndhF* 6. For example, the SNP at
 position 2,669 (C>T, carried by the 16 cultivars of lineage B) changes codon 333 of *matK* from GAC to AAC
 (D333N), and the one at 883 (T>C, in 15-27-1; Legenda has no call there) codon 243 of *psbA* from GAA to GGA
 (E243G).
@@ -117,7 +128,7 @@ sample	lineage
 The tree then shows the lineage after each cultivar's name with its marker (a colour and a shape for each
 lineage), the heatmap gets a band of lineage markers (the groups of identical genomes turn grey, so that colour means the lineage only), and a table
 under the identical genomes counts the cultivars of each lineage in each set of identical plastomes (lineage A
-is one set of 2; lineage B three sets of 11, 4 and 1; the T-type cultivars one set of 10). Real metadata
+is one set of 2; lineage B five sets of 9, 4, 1, 1 and 1; the T-type cultivars one set of 10). Real metadata
 (origin, breeding programme, year) is used the same way.
 
 ## 5. The 241 bp marker
@@ -139,8 +150,9 @@ bacon -r NC_008096.2.fasta -i reads/ -o bacon_potato -a flye -t 48 -p 12
 
 reuses the baited and filtered reads and assembles each sample with Flye (about 10 minutes). The Flye
 assembly of Alaska has an insertion of exactly 241 bp at position 52,578. Flye also reports 17 of the 28
-plastomes as one circular contig. Its SNP distances (`4_compared/ska/snp_distances.tsv`, replaced) are
-identical to those of the templated assembly for all 406 pairs of genomes (the 28 cultivars and the
+plastomes as one circular contig. De novo assemblies are compared with SKA2 by default (`4_compared/ska/`): unlike
+minimap2, SKA2 skips their uncorrected errors. Its SNP distances are identical to those of the templated
+assemblies compared with SKA2 (`--snp-method ska`) for all 406 pairs of genomes (the 28 cultivars and the
 reference).
 
 ## What this shows
@@ -148,7 +160,8 @@ reference).
 - Genome skimming data from a few hundred megabases per sample is enough for complete plastomes.
 - The templated assembly gives the SNPs and small indels in minutes; a de novo assembly resolves the insertions
   and the structure, and confirms the SNPs independently.
-- Identical plastomes (distance 0) are common: these 28 cultivars carry only five distinct plastomes.
+- Identical plastomes (distance 0) are common: these 28 cultivars carry only seven distinct plastomes (five with
+  SKA2), two of which differ only at one hairpin.
 
 ## References
 

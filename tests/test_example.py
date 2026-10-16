@@ -160,7 +160,7 @@ def _fake_run(example, reference, where):
     (where / "data").mkdir(parents=True)
     for name in ("reference.gb", "planted_effects.tsv"):
         (where / "data" / name).write_bytes((out / name).read_bytes())
-    compared = where / "bacon" / "4_compared" / "ska"
+    compared = where / "bacon" / "4_compared" / "minimap2"
     compared.mkdir(parents=True)
     (where / "bacon" / "reference.fasta").write_bytes((out / "reference.fasta").read_bytes())
     names = ["Reference", *example.SAMPLES]
@@ -190,7 +190,7 @@ def test_check_passes_a_perfect_run(example, reference, checker, tmp_path, capsy
 
 def test_check_fails_a_snp_on_another_sequence_or_a_wrong_effect(example, reference, checker, tmp_path, capsys):
     run = _fake_run(example, reference, tmp_path / "run")
-    vcf = run / "bacon" / "4_compared" / "ska" / "snps.vcf"
+    vcf = run / "bacon" / "4_compared" / "minimap2" / "snps.vcf"
     lines = vcf.read_text().splitlines()
     first = next(i for i, line in enumerate(lines) if not line.startswith("#"))
     lines[first] = "plasmid" + lines[first][len("organelle"):]  # The CHROM of one record

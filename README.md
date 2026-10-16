@@ -19,7 +19,7 @@ skimming, and works best with targeted sequencing that enriches the region of in
 
 ```
 reads ──► 1. bait (minimap2) ──► 2. filter (Filtlong) ──► 3. assemble ──────────────► 4. compare
-                                                          templated: samtools consensus    SNPs: SKA2 or Parsnp
+                                                          templated: samtools consensus    SNPs: minimap2, SKA2 or Parsnp
                                                           de novo:   Flye or myloasm       tree: FastTree or IQ-TREE
 ```
 
@@ -38,7 +38,7 @@ The bioconda package is named `bacon-nanopore` (conda-forge already has an unrel
 `reads/` holds one fastq file per sample, or one folder per sample (such as MinKNOW's `fastq_pass/barcode01/`).
 Open `results/report.html` for an overview: samples with their read counts, depth and assembly, the tree, a
 heatmap of the SNP distances, and a methods paragraph. The same results are in `summary.tsv`,
-`4_compared/ska/snp_distances.tsv`, `4_compared/ska/tree.nwk` and `4_compared/ska/snps.vcf`, and MultiQC picks up BACoN's
+`4_compared/minimap2/snp_distances.tsv`, `4_compared/minimap2/tree.nwk` and `4_compared/minimap2/snps.vcf`, and MultiQC picks up BACoN's
 `*_mqc.json` files. Rerunning the same command resumes where it stopped; changing a parameter reruns only the
 steps it affects. With `--annotation chloroplast.gb` (or a GenBank file as `-r`), the report also shows the
 genes and the effect of each SNP; with `--metadata samples.tsv` (a table with a `sample` column and any others,
@@ -49,7 +49,7 @@ To check an installation, run the example (simulated reads with known SNPs; a fe
 repository, not in the conda package:
 
 ```bash
-curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.3.9.tar.gz | tar -xz --strip-components=1 BACoN-0.3.9/example
+curl -sL https://github.com/duceppemo/BACoN/archive/refs/tags/v0.4.0.tar.gz | tar -xz --strip-components=1 BACoN-0.4.0/example
 bash example/run_example.sh
 ```
 
@@ -73,7 +73,7 @@ Everything else is in the [wiki](https://github.com/duceppemo/BACoN/wiki), whose
 
 If BACoN is useful in your work, please cite it (see [`CITATION.cff`](CITATION.cff)):
 
-> Duceppe, M.-O. (2026). BACoN: Bait, Assemble and Compare Nanopore reads (v0.3.9). Zenodo. https://doi.org/10.5281/zenodo.22970412
+> Duceppe, M.-O. (2026). BACoN: Bait, Assemble and Compare Nanopore reads (v0.4.0). Zenodo. https://doi.org/10.5281/zenodo.22970412
 
 and the programs it runs: minimap2, Filtlong, samtools or Flye or myloasm, SKA2 or Parsnp, and FastTree or
 IQ-TREE ([references](https://github.com/duceppemo/BACoN/wiki/Methods#references)).

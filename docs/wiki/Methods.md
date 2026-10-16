@@ -135,7 +135,7 @@ assembly with good depth are a hint of a mixture.
 
 **SNPs.**
 
-- **SKA2** (default, `--snp-method ska`) splits every genome into split k-mers (two 15-mers around a middle
+- **SKA2** (`--snp-method ska`; the default for de novo assemblies) splits every genome into split k-mers (two 15-mers around a middle
   base) and aligns the middle bases of the split k-mers found in the genomes; it needs no reference and no
   alignment. `--ska-min-freq 1` (default) keeps SNPs whose context is in every genome: core SNPs.
   Lower values keep SNPs missing from some genomes (a pan-genome SNP alignment with gaps, like kSNP, which
@@ -145,7 +145,7 @@ assembly with good depth are a hint of a mixture.
   when more than half of the assemblies of the samples have a circular contig (Flye and myloasm report them; templated
   assemblies follow the reference and are never flagged circular, so with them the SNPs within 15 bases of the
   ends of the reference are not compared: a split k-mer needs 15 bases on either side of its middle base).
-- **minimap2** (`--snp-method minimap2`) aligns each genome to the reference (`minimap2 -x asm20 -c --cs=long`)
+- **minimap2** (`--snp-method minimap2`; the default for templated assemblies) aligns each genome to the reference (`minimap2 -x asm20 -c --cs=long`)
   and reads its base at every position of the reference. No context is needed around a site, so the
   indels of a consensus do not hide the SNPs next to them. Those are the homopolymer errors of R9.4.1 reads,
   400–490 per plastome on the *Arabidopsis* accessions of the [validation](Validation), where SKA2 lost a third
@@ -162,10 +162,11 @@ assembly with good depth are a hint of a mixture.
   A SNP in an inverted repeat is counted at both of its positions (twice), as a read-mapping pipeline counts it;
   SKA2 counts it once. Every difference an assembly carries counts, including errors of a de novo assembly that
   SKA2's k-mers skip. On the potato plastomes, unpolished stretches of some Flye assemblies (about 1.7
-  indels and 1.7 substitutions per 100 bases) added up to 195 SNPs to a pair. Recommended for templated assemblies, especially of older
-  Nanopore reads (R9.4.1) and of genomes that differ at many nearby positions. On 32 human mitogenomes (R10.4.1),
-  SKA2's core kept 174 of 452 variable positions and its distances were 31 SNPs too low; minimap2 kept 447 and
-  was within 1 SNP for most pairs. SKA2 stays the default. Results in [Validation](Validation#snp-methods-ska2-and-minimap2).
+  indels and 1.7 substitutions per 100 bases) added up to 195 SNPs to a pair. Since 0.4.0 it is the default for templated assemblies
+  (`--snp-method auto`): with them it was as good as SKA2 or better on every dataset of the validation. On 32
+  human mitogenomes (R10.4.1), SKA2's core kept 174 of 452 variable positions and its distances were 31 SNPs too
+  low; minimap2 kept 447 and was within 1 SNP for most pairs. De novo assemblies are compared with SKA2 by
+  default, so that their uncorrected errors are skipped. Results in [Validation](Validation#snp-methods-ska2-and-minimap2).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
   with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
   divergent, which in the validation removed a low-depth sample. A genome much shorter than the reference can
