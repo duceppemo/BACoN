@@ -98,7 +98,9 @@ Limits of the templated assembly:
   are kept, such as the 241 bp that distinguishes potato cytoplasm types ([Tutorial](Tutorial)), but the
   bases of an insertion the reads do not agree on are `N`: Flye resolved that insertion fully.
 - Where fewer than three reads align, or the reads disagree, the consensus has `N` (`N_bases`, and a note in
-  `summary.tsv`).
+  `summary.tsv`). A call needs a quality of at least 20 (`samtools consensus -C 20`; samtools' default, 10,
+  before 0.4.1): with few reads, a base called from a mixture of bases is `N` rather than a SNP
+  ([validation](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-16_v0.4.0/SUMMARY.md)).
   This is `--template-gaps n`, the default; with `--template-gaps reference`, uncovered positions at the ends of
   each sequence get the reference's bases instead (inner gaps stay `N`).
 - Long runs of one base come out one or two bases short in places, a bias of Nanopore reads: 15–23 indels per

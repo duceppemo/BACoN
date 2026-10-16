@@ -1,0 +1,25 @@
+cutoff	dataset	N_median	snp_sites	mean_abs_error	mean_signed_error	exact_pairs	pairs	note
+10	acc_cp	6.0	459	12.4	-12.21	6	276	
+10	acc_mt	16359.5	234	10.85	9.3	16	276	
+10	human	0.0	447	0.87	0.41	193	496	
+10	col0_cp	0.0	0					max distance 0
+10	col0_mt	113.5	0					max distance 0
+10	potato	133.0	170					7 distinct; Bravo 4, Otrada 2 SNPs from 12_22_134
+15	acc_cp	6.0	459	12.4	-12.21	6	276	
+15	acc_mt	16361.0	232	10.47	8.87	17	276	
+15	human	0.0	447	0.87	0.41	193	496	
+15	col0_cp	0.0	0					max distance 0
+15	col0_mt	114.5	0					max distance 0
+15	potato	134.5	170					7 distinct; Bravo 4, Otrada 2 SNPs from 12_22_134
+20	acc_cp	6.0	458	12.76	-12.6	6	276	
+20	acc_mt	16361.5	230	10.41	8.63	18	276	
+20	human	0.0	447	0.87	0.41	193	496	
+20	col0_cp	0.0	0					max distance 0
+20	col0_mt	116.5	0					max distance 0
+20	potato	137.0	170					7 distinct; Bravo 4, Otrada 2 SNPs from 12_22_134
+30	acc_cp	6.0	458	12.76	-12.6	6	276	
+30	acc_mt	16363.5	229	10.29	8.18	27	276	
+30	human	0.0	447	0.87	0.41	193	496	
+30	col0_cp	0.0	0					max distance 0
+30	col0_mt	117.0	0					max distance 0
+30	potato	138.5	169					7 distinct; Bravo 4, Otrada 1 SNPs from 12_22_134

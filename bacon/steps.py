@@ -409,7 +409,7 @@ def assemble_myloasm(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, 
 
 
 def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDirs, log_dir: Path, *,
-                      threads: int, reference_length: int, fill_gaps: bool) -> StepResult:
+                      threads: int, reference_length: int, fill_gaps: bool, cutoff: int = 20) -> StepResult:
     """Templated assembly: samtools consensus of the reads aligned to the reference with minimap2."""
     work = dirs.clear_work(name)
     for old in (dirs.graphs / f"{name}.gfa", dirs.graphs / f"{name}.png"):  # From an earlier de novo assembly
@@ -424,9 +424,10 @@ def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDir
     consensus = work / "consensus.fasta"
     # -a: every position of the reference sequences that have reads, N where no read (a reference sequence
     # without any read is left out); ONT R10.4 SUP error profile; insertions shown, deletions removed, so the
-    # consensus follows the sample, not the reference.
+    # consensus follows the sample, not the reference; -C: a call below this quality is N.
     run(["samtools", "consensus", "-a", "-X", "r10.4_sup", "--show-ins", "yes", "--show-del", "no",
-         "-d", "3", "-f", "fasta", "-o", str(consensus), str(bam)], log_file, what=f"(consensus {name})")
+         "-d", "3", "-C", str(cutoff), "-f", "fasta", "-o", str(consensus), str(bam)], log_file,
+        what=f"(consensus {name})")
     records = [r for r in read_records(consensus) if r.seq]
     if fill_gaps:  # Replace N runs by the reference: only safe when the sample is known to match it there
         refs = {r.name: r.seq for r in read_records(reference)}

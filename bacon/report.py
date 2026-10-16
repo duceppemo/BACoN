@@ -1279,8 +1279,9 @@ def methods_text(info: dict, rows: list[dict[str, str]] | None = None,
                 if s.get("template_gaps") == "reference" else "")
         parts.append("Each sample was assembled by reference-guided consensus: reads were aligned to the "
                      "reference with minimap2 and the consensus called with samtools consensus"
-                     f"{_tool(info, 'samtools')} (-X r10.4_sup, minimum depth 3; positions with less support, or "
-                     f"where the reads disagree, are N{gaps}).")
+                     f"{_tool(info, 'samtools')} (-X r10.4_sup, minimum depth 3, minimum call quality "
+                     f"{s.get('consensus_cutoff', 10)}; positions with less support, or where the reads disagree, "
+                     f"are N{gaps}).")
     elif assembler == "flye":
         overlap = f", minimum overlap {s['min_size']} bp" if s.get("min_size") else ""
         parts.append(f"Each sample was assembled de novo with Flye{_tool(info, 'flye')} (--{s.get('read_type')}, "

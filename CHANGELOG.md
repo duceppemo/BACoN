@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- The templated consensus needs a call quality of at least 20 (`samtools consensus -C 20`; samtools' default 10
+  before). With few reads, a base called from a mixture of bases became a SNP that the minimap2 comparison counted;
+  it is now `N`. On the *Arabidopsis* mitogenomes (R9.4.1, Illumina truth) the distance error fell from 10.85 to
+  10.41; the plastomes lost one SNP site (error 12.40 to 12.76); the human mitogenomes, the Col-0 lines and every
+  simulated distance were unchanged, with a few more `N` where support is weak. Folders of earlier versions remake
+  their templated assemblies on the next run. Record: `validation/results/2026-10-16_v0.4.0`, which also holds the
+  simulated validation of 0.4.0.
+
 ## 0.4.0 (2026-10-16)
 
 ### Changed

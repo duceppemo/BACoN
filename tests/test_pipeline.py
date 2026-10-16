@@ -277,6 +277,16 @@ def test_auto_snp_method_follows_the_assembler(stubs, dataset, tmp_path, assembl
     assert f"Comparison with {method}: already done" in (out / "bacon.log").read_text()
 
 
+def test_consensus_cutoff_is_recorded_and_reported(stubs, dataset, tmp_path):
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, assembler="samtools")) == 0
+    assert json.loads((out / "run_info.json").read_text())["settings"]["consensus_cutoff"] == 20
+    assert "minimum call quality 20" in (out / "report.html").read_text()
+    log = (out / "logs" / "3_assemble" / "s1.log").read_text()
+    assert "-C 20" in log
+
+
 def test_needed_tools_follow_the_default_comparison(tmp_path):
     from bacon.pipeline import needed_tools
     base = {"reference": tmp_path / "r.fasta", "output": tmp_path / "o"}
@@ -960,6 +970,9 @@ def test_checkpoints_of_0_3_7_are_reused(stubs, dataset, tmp_path, assembler, ke
     stubs.unlink()
     run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam))
     made = sorted(calls(stubs))  # Only the sample that failed at baiting is tried again (samtools: its BAM)
+    if assembler == "samtools":  # 0.4.1 calls the consensus with -C 20 (0.3.7: 10): the assemblies are made again
+        assert "filtlong" not in made and made.count("samtools") >= 3 and made.count("minimap2") >= 1 + 3
+        return
     assert made == ["minimap2"] + ["samtools"] * (3 if keep_bam else 0)  # In any order (parallel samples)
     if keep_bam:  # Made with --keep-bam, resumed without: nothing to do either
         _as_0_3_7(out, assembler, keep_bam)

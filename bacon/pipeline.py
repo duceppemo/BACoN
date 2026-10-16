@@ -74,6 +74,10 @@ class Settings:
     min_size: int | None = None
     flye_iterations: int = 3
     template_gaps: str = "n"
+    # Templated assembly: samtools consensus -C, the quality a call needs (lower: N). Not an option: 20 since 0.4.1
+    # (10, samtools' default, before), so that a base called from a few mixed reads becomes N rather than a SNP
+    # (validation/results/2026-10-16_v0.4.0)
+    consensus_cutoff: int = 20
     genome_size: int | None = None
     snp_method: str = "auto"  # auto: minimap2 for templated assemblies, ska for de novo ones (resolve_snp_method)
     ska_min_freq: float = 1.0
@@ -780,6 +784,7 @@ def _run(s: Settings, started: float) -> int:
                    **({"by_reference": True} if by_reference else {})},
         "assemble": {"assembler": s.assembler, "genome_size": genome_size,
                      "template_gaps": s.template_gaps if s.assembler == "samtools" else None,
+                     **({"consensus_cutoff": s.consensus_cutoff} if s.assembler == "samtools" else {}),
                      **(flye_options if s.assembler == "flye" else {})},
     }
     # BACoN <= 0.3.7 also recorded --keep-bam and Flye's options whatever the assembler (as 0.3.2 for minimap2):
@@ -817,7 +822,8 @@ def _run(s: Settings, started: float) -> int:
                 res.stats.update(_off_reference(name, res.output, reference, log_dir, threads))
             return res
         return steps.assemble_samtools(name, reads, reference, dirs, log_dir,
-                                       fill_gaps=s.template_gaps == "reference", **common)
+                                       fill_gaps=s.template_gaps == "reference", cutoff=s.consensus_cutoff,
+                                       **common)
 
     functions = {"bait": bait, "filter": filt, "assemble": assemble}
     labels = {"bait": f"Baiting reads matching the reference with {s.baiting}",
