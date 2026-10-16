@@ -1,0 +1,11 @@
+bacon: BACoN 0.3.9 (commit 4d406e8)
+minimap2: 2.31-r1302
+samtools: samtools 1.24
+filtlong: Filtlong v0.3.1
+flye: 2.9.6-b1802
+ska: ska 0.5.1
+FastTree: FastTree 2.2.0
+clair3: Clair3 v2.0.3
+minimap2 (clair3 env): 2.31-r1302
+snp-dists: snp-dists 0.8.2
+samtools (truth): samtools 1.20

@@ -8,12 +8,14 @@
   plastomes keep 400–490 homopolymer indels, and SKA2 drops a site when one lies within 15 bases of it in any
   genome. On 24 *Arabidopsis* accessions (Illumina truth), the mean error of the plastome distances fell from 46.6
   SNPs (SKA2, all too low) to 12.4 (templated) and from 45.3 to 5.7 (Flye).
-  - Equal to SKA2 on the simulated scenarios and the Col-0 lines; no better on mitogenomes.
+  - On 32 human mitogenomes (R10.4.1, Illumina truth), the distance error fell from 31.0 (SKA2) to 0.87
+    (templated), against 0.54 for Clair3. These genomes differ at many nearby positions, which SKA2's core loses.
+  - Equal to SKA2 on the simulated scenarios and the Col-0 lines; no better on the *Arabidopsis* mitogenomes.
   - Bases amid crowded `N` (3 within 50 positions) and positions where two alignments disagree are left out.
   - It counts every difference an assembly carries, including the errors of a poorly polished de novo assembly
     (potato Flye plastomes).
   - `--ska-min-freq` applies to it too. SKA2 stays the default.
-  - Record: `validation/results/2026-10-15_minimap2`.
+  - Records: `validation/results/2026-10-15_minimap2` and `2026-10-16_human_mt`.
 - Validation: BACoN against Clair3, ptGAUL, Snippy, MAFFT and Parsnp on 24 *Arabidopsis* accessions (R9.4.1,
   Illumina truth; record `2026-10-15_accessions`, summarized in the Validation page). BACoN's templated plastomes
   had the fewest substitution errors of the assemblers (15 in 24, against 69 for Flye and 275 for ptGAUL).

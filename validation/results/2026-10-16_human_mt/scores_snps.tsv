@@ -1,0 +1,6 @@
+method	samples	true_snps	found	recall	calls_at_callable	true_calls	precision
+bacon_ska_samtools	32	1181	1018	0.862	1018	1018	1.0
+bacon_minimap2_samtools	32	1181	1177	0.997	1177	1177	1.0
+bacon_ska_flye	32	1181	1016	0.86	1016	1016	1.0
+bacon_minimap2_flye	32	1181	1174	0.994	1174	1174	1.0
+clair3	32	1181	1176	0.996	1176	1176	1.0

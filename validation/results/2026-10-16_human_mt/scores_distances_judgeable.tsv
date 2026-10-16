@@ -1,0 +1,4 @@
+method	samples	pairs	exact	within_1	within_5	mean_abs_error	mean_signed_error	max_abs_error
+clair3	32	496	406	464	496	0.31	-0.31	4
+bacon_minimap2_samtools	32	496	406	464	496	0.25	-0.25	3
+bacon_minimap2_flye	32	496	379	420	492	0.53	-0.53	11

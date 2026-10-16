@@ -20,12 +20,20 @@ position SKA2 compared, so there is nothing to build a tree on, and `--ska-min-f
 distances are all 0.
 
 **Which `--snp-method`?**
-SKA2 (default) needs the same 15 bases on either side of a SNP in every genome. It is exact on R10.4.1 reads,
-but with the consensus of older R9.4.1 reads, whose homopolymer errors leave an indel every few hundred bases,
-it loses SNPs. On 24 *Arabidopsis* plastomes (R9.4.1), it found distances 46 SNPs too low on average.
-`--snp-method minimap2` reads each assembly position by position along the reference. It got these distances to
-12 SNPs too low with templated assemblies, and to 0.6 with Flye. It counts every difference an assembly carries,
-including the errors of a poorly polished de novo assembly, which SKA2 skips. It was no better on mitogenomes.
+SKA2 (default) needs the same 15 bases on either side of a SNP in every genome. It loses SNPs in two cases:
+- **Older R9.4.1 reads:** their consensus keeps an indel every few hundred bases. On 24 *Arabidopsis* plastomes,
+  SKA2 found distances 46 SNPs too low on average.
+- **Genomes that differ at many nearby positions**, even with current reads. On 32 human mitogenomes (R10.4.1),
+  most variable positions have another variant within 15 bases in some sample, and SKA2's distances were 31 SNPs
+  too low.
+
+`--snp-method minimap2` reads each assembly position by position along the reference:
+- *Arabidopsis* plastomes: 12 SNPs too low with templated assemblies, and 0.6 with Flye;
+- human mitogenomes: within 1 SNP for most pairs (templated), like Clair3.
+
+It counts every difference an assembly carries, including the errors of a poorly polished de novo assembly, which
+SKA2 skips. SKA2 was exact on genomes with few, scattered SNPs (the Col-0 lines, the simulations). With the
+templated assembly, minimap2 was as good or better on every dataset tested.
 See [Methods](Methods#4-comparison) and [Validation](Validation#snp-methods-ska2-and-minimap2).
 
 **What does `--ska-min-freq` below 1 do?**

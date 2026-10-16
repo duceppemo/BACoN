@@ -94,7 +94,20 @@ absolute error of the 276 pairwise distances:
 - **Where minimap2 counts errors SKA2 skips:** on the potato plastomes, the Flye and templated distances agree on
   48 of 406 pairs (SKA2: 326), because minimap2 counts the unpolished stretches of some Flye assemblies.
 
-So minimap2 is an option, recommended for templated assemblies of R9.4.1 reads; SKA2 stays the default.
+On 32 human mitogenomes from the 1000 Genomes long-read cohort (R10.4.1; the
+[human mitogenome record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-16_human_mt/SUMMARY.md);
+Illumina truth of the same cell lines), SKA2 failed although the reads are current. Most variable positions have
+another variant within 15 bases in some sample:
+
+| Mean absolute error of the 496 distances | Templated | Flye |
+|---|---|---|
+| SKA2 (default) | 31.0 | 33.8 |
+| minimap2 | **0.87** (0.25 where the truth can judge) | 6.9 |
+| Clair3, for comparison | 0.54 (0.31 where the truth can judge) | |
+
+BACoN templated with minimap2 found 99.7% of the SNPs with no false call, as Clair3 did. So minimap2 is
+recommended for templated assemblies of older reads and of genomes that differ at many nearby positions; SKA2
+stays the default.
 
 ## Simulated data with a known truth
 

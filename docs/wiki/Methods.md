@@ -162,8 +162,10 @@ assembly with good depth are a hint of a mixture.
   A SNP in an inverted repeat is counted at both of its positions (twice), as a read-mapping pipeline counts it;
   SKA2 counts it once. Every difference an assembly carries counts, including errors of a de novo assembly that
   SKA2's k-mers skip. On the potato plastomes, unpolished stretches of some Flye assemblies (about 1.7
-  indels and 1.7 substitutions per 100 bases) added up to 195 SNPs to a pair. Recommended for templated assemblies of older Nanopore reads
-  (R9.4.1); SKA2 stays the default. Results in [Validation](Validation#snp-methods-ska2-and-minimap2).
+  indels and 1.7 substitutions per 100 bases) added up to 195 SNPs to a pair. Recommended for templated assemblies, especially of older
+  Nanopore reads (R9.4.1) and of genomes that differ at many nearby positions. On 32 human mitogenomes (R10.4.1),
+  SKA2's core kept 174 of 452 variable positions and its distances were 31 SNPs too low; minimap2 kept 447 and
+  was within 1 SNP for most pairs. SKA2 stays the default. Results in [Validation](Validation#snp-methods-ska2-and-minimap2).
 - **Parsnp** (`--snp-method parsnp`) aligns the core genome of the assemblies to the reference. BACoN runs it
   with `-c`, which turns off Parsnp's divergence (MUMi) filter: by default Parsnp drops genomes it finds too
   divergent, which in the validation removed a low-depth sample. A genome much shorter than the reference can

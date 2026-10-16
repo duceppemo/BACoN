@@ -1,0 +1,6 @@
+method	samples	pairs	exact	within_1	within_5	mean_abs_error	mean_signed_error	max_abs_error	zero_pairs
+bacon_ska_samtools	32	496	2	2	2	31.0	-31.0	68	HG02024-HG02025: 0; HG00731-HG01061: 0
+bacon_minimap2_samtools	32	496	193	406	496	0.87	0.41	4	HG02024-HG02025: 0; HG00731-HG01061: 2
+bacon_ska_flye	32	496	2	2	2	33.79	-33.79	74	HG02024-HG02025: 0; HG00731-HG01061: 0
+bacon_minimap2_flye	32	496	3	13	219	6.91	-6.9	23	HG02024-HG02025: 0; HG00731-HG01061: 2
+clair3	32	496	320	436	496	0.54	-0.03	4	HG02024-HG02025: 0; HG00731-HG01061: 2
