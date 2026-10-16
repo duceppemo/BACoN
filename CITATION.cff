@@ -5,8 +5,8 @@ title: "BACoN: Bait, Assemble and Compare Nanopore reads"
 authors:
   - family-names: Duceppe
     given-names: Marc-Olivier
-version: 0.3.9
-date-released: "2026-10-13"
+version: 0.4.0
+date-released: "2026-10-16"
 doi: 10.5281/zenodo.22970412
 identifiers:
   - type: doi
