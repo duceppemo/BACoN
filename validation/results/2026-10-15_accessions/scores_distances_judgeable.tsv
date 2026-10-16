@@ -1,0 +1,9 @@
+method	organelle	accessions	pairs	exact	within_1	within_5	mean_abs_error	mean_signed_error	max_abs_error
+clair3_cp	cp	24	276	26	77	180	4.48	-3.86	15
+snippy_cp	cp	24	276	0	0	0	63.26	63.26	116
+clair3_mt	mt	24	276	70	181	272	1.28	-0.62	7
+snippy_mt	mt	24	276	1	1	1	34.24	34.24	77
+bacon_minimap2_cp_samtools	cp	24	276	6	19	89	8.63	-8.24	24
+bacon_minimap2_cp_flye	cp	24	276	15	46	160	5.56	3.04	21
+bacon_minimap2_mt_samtools_fref	mt	24	276	44	142	269	2.07	0.45	18
+bacon_minimap2_mt_flye_fref	mt	24	276	5	17	76	13.34	10.11	42

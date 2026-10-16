@@ -1,0 +1,13 @@
+method	organelle	accessions	true_snps	found	recall	calls_at_callable	true_calls	precision
+bacon_ska_cp_samtools	cp	23	1827	1354	0.741	1368	1354	0.99
+bacon_ska_cp_flye	cp	23	1827	1399	0.766	1437	1399	0.974
+bacon_ska_mt_samtools_fref	mt	24	1367	963	0.704	975	963	0.988
+bacon_ska_mt_flye_fref	mt	24	1367	924	0.676	1125	924	0.821
+bacon_minimap2_cp_samtools	cp	24	1827	1591	0.871	1723	1591	0.923
+bacon_minimap2_cp_flye	cp	24	1827	1668	0.913	1959	1668	0.851
+bacon_minimap2_mt_samtools_fref	mt	24	1367	1297	0.949	1433	1297	0.905
+bacon_minimap2_mt_flye_fref	mt	24	1367	1094	0.8	1565	1094	0.699
+clair3_cp	cp	24	1827	1727	0.945	1773	1727	0.974
+snippy_cp	cp	24	1827	1349	0.738	1532	1349	0.881
+clair3_mt	mt	24	1367	1319	0.965	1334	1319	0.989
+snippy_mt	mt	24	1367	958	0.701	1192	958	0.804

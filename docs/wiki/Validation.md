@@ -54,6 +54,25 @@ on the machine with 16 threads, per line: BACoN 9–15 min per organelle and 1.3
 run). The record also corrects the share of the truth covered given in the mitogenome record (an erratum: complete
 genomes cover 0.998–1.0 of their truth, not 0.6–0.99).
 
+On 24 natural accessions with older R9.4.1 reads (the
+[accession record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-15_accessions/SUMMARY.md);
+Illumina truth), mean absolute error of the 276 plastome distances, and substitution errors of the plastome
+assemblies:
+
+| Pipeline | Plastome distance error | Substitutions in the 24 plastomes |
+|---|---|---|
+| Clair3 (reads aligned to the reference; consensus = reference + SNPs) | **3.8** | 56 (misses every true indel) |
+| BACoN Flye, `--snp-method minimap2` | 5.7 | 69 |
+| BACoN templated, `--snp-method minimap2` | 12.4 | **15** |
+| BACoN templated, SKA2 (default) | 46.6 | 15 |
+| ptGAUL + SKA2 / Snippy / MAFFT | 44.7 / 46.8 / 902 (two misaligned plastomes) | 275 |
+
+Every Nanopore assembly kept 400–740 homopolymer indels per plastome with these reads. On the mitogenomes,
+BACoN's Flye assemblies compared with SKA2 had the smallest distance error (9.6, against 25.1 for Clair3). Most
+of that error is at positions where the Illumina reads are mixed (nuclear copies, repeats), which the truth
+leaves undecided. Where the truth can judge, Clair3 and BACoN's templated mitogenomes with minimap2 err by 1.3
+and 2.1 SNPs.
+
 ## SNP methods: SKA2 and minimap2
 
 The [minimap2 record](https://github.com/duceppemo/BACoN/blob/main/validation/results/2026-10-15_minimap2/SUMMARY.md)

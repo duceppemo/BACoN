@@ -14,6 +14,12 @@
     (potato Flye plastomes).
   - `--ska-min-freq` applies to it too. SKA2 stays the default.
   - Record: `validation/results/2026-10-15_minimap2`.
+- Validation: BACoN against Clair3, ptGAUL, Snippy, MAFFT and Parsnp on 24 *Arabidopsis* accessions (R9.4.1,
+  Illumina truth; record `2026-10-15_accessions`, summarized in the Validation page). BACoN's templated plastomes
+  had the fewest substitution errors of the assemblers (15 in 24, against 69 for Flye and 275 for ptGAUL).
+  Clair3 gave the most accurate plastome distances (error 3.8), then BACoN with minimap2 (5.7 Flye, 12.4
+  templated). Masking mixed sites in the templated consensus (samtools `-A`, or the Nanopore base counts) was
+  tested and not kept.
 - `--filter-by-reference`: Filtlong ranks the reads by their k-mers found in the reference (`--assembly`) instead
   of by base qualities. By default Filtlong prefers long reads, and among the baited reads of a mitogenome are long
   reads of which only a stretch matches it (nuclear copies of mitochondrial DNA, plastid reads): they filled the
