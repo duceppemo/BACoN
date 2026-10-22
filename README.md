@@ -18,10 +18,7 @@ samples, assembles them, and compares the samples: SNP distances and a tree. It 
 skimming, and works best with targeted sequencing that enriches the region of interest.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipeline_dark.svg">
-    <img src="docs/images/pipeline_light.svg" alt="reads → 1 bait (minimap2 or BBDuk) → 2 filter (Filtlong) → 3 assemble (templated: samtools consensus; de novo: Flye or myloasm) → 4 compare (SNPs: minimap2, SKA2 or Parsnp; tree: FastTree or IQ-TREE) → report" width="920">
-  </picture>
+  <img src="docs/images/pipeline.svg" alt="reads → 1 bait (minimap2 or BBDuk) → 2 filter (Filtlong) → 3 assemble (templated: samtools consensus; de novo: Flye or myloasm) → 4 compare (SNPs: minimap2, SKA2 or Parsnp; tree: FastTree or IQ-TREE) → report" width="920">
 </p>
 
 ## Quick start
