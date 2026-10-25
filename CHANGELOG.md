@@ -10,6 +10,20 @@
   simulated distance were unchanged, with a few more `N` where support is weak. Folders of earlier versions remake
   their templated assemblies on the next run. Record: `validation/results/2026-10-16_v0.4.0`, which also holds the
   simulated validation of 0.4.0.
+- Sample names that differ only by case ("S1" and "s1") are refused: their outputs are one file on a
+  case-insensitive file system (macOS), and the mix was never safe to resume.
+
+### Fixed
+- An input (`-i`, a sample sheet, a reads file listed in one, the target of a link, or a hard link to a baited or
+  filtered file) inside the output folder is refused at startup: the baiting used to truncate and then delete the
+  user's reads with `-i OUT/1_extracted -o OUT`. `--add-genomes` files inside the output folder are refused too
+  (the assembly step rewrites `all_assemblies/`).
+- A sample failing at a step no longer keeps that sample's outputs of the later steps (filtered reads, published
+  assembly, Flye or myloasm graph) from an earlier run, and a failed reassembly leaves no older assembly for the
+  report to pick up.
+- A GenBank annotation without locus tags where two same-named genes share an exon (trans-spliced rps12) kept the
+  second copy without its CDS: a feature now attaches to the gene that contains it, not the first that overlaps.
+  For a gene spanning the origin of a circular sequence, intron and UTR are now told apart along the gene.
 
 ## 0.4.0 (2026-10-16)
 

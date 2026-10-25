@@ -312,6 +312,29 @@ def test_effect_through_a_shared_exon_given_once(tmp_path):
                                               ("rps12", "GCT>GTT", "A2V", "missense")]
 
 
+def test_shared_exon_copies_without_locus_tags_keep_their_own_cds(tmp_path):
+    # The same, with /gene only (third-party annotators): the second CDS overlaps both genes through the shared
+    # exon but lies inside the second only
+    features = """
+    gene            join(1..9,22..32)
+                    /gene="rps12"
+    CDS             join(1..9,22..32)
+                    /gene="rps12"
+    gene            join(1..9,36..46)
+                    /gene="rps12"
+    CDS             join(1..9,36..46)
+                    /gene="rps12"
+    """
+    ann = _ann(tmp_path, features)
+    genes = ann.sequences["ref.1"].genes
+    assert [(g.kind, g.exons, [c.parts for c in g.cds]) for g in genes] == [
+        ("CDS", [(1, 9), (22, 32)], [[(1, 9), (22, 32)]]), ("CDS", [(1, 9), (36, 46)], [[(1, 9), (36, 46)]])]
+    assert _effects(ann, 5, "C", "A")[1] == [("rps12", "GCT>GAT", "A2D", "missense")]
+    assert _effects(ann, 23, "G", "A")[1] == [("rps12", "GGT>GAT", "G4D", "missense")]  # The first copy's exon 2
+    info, effects = _effects(ann, 40, "T", "C")  # The second copy's exon 2: GGT TTA AAC -> G L N
+    assert info.context == "CDS" and effects == [("rps12", "TTA>TCA", "L5S", "missense")]
+
+
 def test_transl_except_codon_gives_no_effect(tmp_path):
     from bacon.annotation import _transl_except
     seq = "ATGGCTTGAAAATAG" + "C" * 105  # M A Sec K *
@@ -1935,3 +1958,27 @@ def test_intergenic_neighbours_of_a_gene_across_the_origin(tmp_path):
     ''')
     assert _effects(ann, 15, SEQ[14], "A" if SEQ[14] != "A" else "C")[0].context == "intergenic between o and a"
     assert _effects(ann, 95, SEQ[94], "A" if SEQ[94] != "A" else "C")[0].context == "intergenic between b and o"
+
+
+def test_intron_and_utr_of_a_gene_across_the_origin(tmp_path):
+    # Told along the gene, not by coordinate: 1..15 follows 100..120
+    ann = _ann(tmp_path, '''
+    gene            join(100..120,1..15)
+                    /gene="o"
+    CDS             join(109..120,1..9)
+                    /gene="o"
+    ''')
+    contexts = {pos: _effects(ann, pos, SEQ[pos - 1], "A" if SEQ[pos - 1] != "A" else "C")[0].context
+                for pos in (5, 12, 105, 115)}
+    assert contexts == {5: "CDS", 12: "UTR", 105: "UTR", 115: "CDS"}
+    # Two exons with the intron across the origin (116..4), and one with the intron before it (106..112)
+    for cds, expected in (("join(100..115,5..12)", {102: "CDS", 118: "intron", 2: "intron", 14: "UTR"}),
+                          ("join(103..105,113..120,1..9)", {101: "UTR", 109: "intron", 2: "CDS", 12: "UTR"})):
+        ann = _ann(tmp_path, f'''
+        gene            join(100..120,1..15)
+                        /gene="o"
+        CDS             {cds}
+                        /gene="o"
+        ''')
+        assert {pos: _effects(ann, pos, SEQ[pos - 1], "A" if SEQ[pos - 1] != "A" else "C")[0].context
+                for pos in expected} == expected, cds

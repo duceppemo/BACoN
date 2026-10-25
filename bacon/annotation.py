@@ -579,15 +579,39 @@ class Gene:
     def contains(self, pos: int) -> bool:
         return any(s <= pos <= e for s, e in self.extent)
 
-    def context(self, pos: int) -> str:
-        """What the position is in: CDS, tRNA, rRNA, ncRNA, pseudogene, intron, UTR or gene."""
+    def _walk(self, length: int) -> list[tuple[int, int]]:
+        """The ranges of the extent in order along the gene: by coordinate, or, on a circular sequence of
+        `length`, from the range after the widest gap between them, the origin's included (a gene across the
+        origin starts before it)."""
+        parts = sorted(self.extent)
+        if length and len(parts) > 1:
+            gaps = [s2 - e1 for (_, e1), (s2, _) in zip(parts, parts[1:])]
+            widest = max(range(len(gaps)), key=gaps.__getitem__)
+            if gaps[widest] > length - parts[-1][1] + parts[0][0]:
+                parts = parts[widest + 1:] + parts[:widest + 1]
+        return parts
+
+    def context(self, pos: int, length: int = 0) -> str:
+        """What the position is in: CDS, tRNA, rRNA, ncRNA, pseudogene, intron, UTR or gene. Intron (between the
+        first and last exon bases) or UTR is told along the gene, not by coordinate: `length`, that of a circular
+        sequence, places a gene across its origin."""
         if self.kind == "pseudogene":
             return "pseudogene"
         if any(s <= pos <= e for s, e in self.exons):
             return self.kind if self.kind != "other" else "gene"
-        if self.exons and self.exons[0][0] < pos < self.exons[-1][1]:
+        if not self.exons:
+            return "gene"
+        here, offsets, done = None, [], 0
+        for s, e in self._walk(length):
+            if s <= pos <= e:
+                here = done + pos - s
+            for es, ee in self.exons:
+                if max(s, es) <= min(e, ee):
+                    offsets += [done + max(s, es) - s, done + min(e, ee) - s]
+            done += e - s + 1
+        if here is not None and offsets and min(offsets) < here < max(offsets):
             return "intron"
-        return "UTR" if self.exons else "gene"
+        return "UTR"
 
     def kind_text(self) -> str:
         return {"CDS": "protein-coding gene", "tRNA": "tRNA gene", "rRNA": "rRNA gene", "ncRNA": "non-coding RNA",
@@ -785,7 +809,11 @@ def genes_from_genbank(features: list[RawFeature], default_table: int = DEFAULT_
         if f.type != "CDS" and f.type not in RNA_TYPES:
             continue
         keys = [(f.seq, f.qualifiers[k]) for k in ("locus_tag", "gene") if f.qualifiers.get(k)]
-        candidates = [g for key in keys for g in by_key.get(key, []) if _overlaps(g.extent, f.location.parts)]
+        candidates = []
+        for key in keys:  # Of each name, a gene containing the feature before one only overlapping it (an exon
+            # shared by the two rps12 copies overlaps both, without locus tags to tell them apart)
+            named = [g for g in by_key.get(key, []) if _overlaps(g.extent, f.location.parts)]
+            candidates += sorted(named, key=lambda g: not _contains(g.extent, f.location.parts))
         if not candidates and not keys:
             candidates = [g for g in gene_features if g.seq == f.seq and g.strand == f.location.strand
                           and _contains(g.extent, f.location.parts)]
@@ -1841,7 +1869,8 @@ def annotate_snp(seq_ann: SequenceAnnotation, pos: int, ref: str, alts: list[str
     region = seq_ann.region_at(pos)
     effects: list[Effect] = []
     if genes:
-        contexts = list(dict.fromkeys(g.context(pos) for g in genes))
+        circular_length = seq_ann.length if seq_ann.circular else 0
+        contexts = list(dict.fromkeys(g.context(pos, circular_length) for g in genes))
         seen: set[tuple[str, str, str, str, str]] = set()
         for g in genes:
             if g.kind == "pseudogene":
