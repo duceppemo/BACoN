@@ -142,11 +142,24 @@ class Checkpoints:
     def save(self, step: str, fingerprint: str, results: dict) -> None:
         """Save a step's checkpoint; a failure (a full disk) is a BaconError, which stops the run (the programs
         still running are killed): the progress could not be recorded."""
+        self._write(step, {"fingerprint": fingerprint, "root": self.root, "results": results})
+
+    def forget(self, step: str, names: set[str]) -> None:
+        """Drop these samples' results from a step's checkpoint, whatever parameters it was made with (its folder
+        kept: the paths of a moved folder's checkpoint are those of its old place)."""
+        try:
+            data = json.loads(self.path(step).read_text())
+        except (OSError, ValueError):
+            return
+        results = data.get("results") if isinstance(data, dict) else None
+        if isinstance(results, dict) and names & results.keys():
+            self._write(step, {**data, "results": {k: v for k, v in results.items() if k not in names}})
+
+    def _write(self, step: str, data: dict) -> None:
         tmp = self.path(step).with_suffix(".tmp")
         try:
             self.folder.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(json.dumps({"fingerprint": fingerprint, "root": self.root, "results": results},
-                                      indent=1, default=str))
+            tmp.write_text(json.dumps(data, indent=1, default=str))
             tmp.replace(self.path(step))
         except OSError as exc:
             tmp.unlink(missing_ok=True)
@@ -442,6 +455,25 @@ def _check_inputs_kept(s: Settings) -> None:
                              "rewritten by each run: give the original file")
 
 
+def _check_reads_outside(s: Settings, samples: list[Sample]) -> None:
+    """Refuse, before anything is written, a reads file in the output folder (listed in a sample sheet, the
+    target of a link, or a hard link to a baited or filtered file): a step's output can be that file, which the
+    step overwrites (and deletes when the sample fails)."""
+    written = {}  # (st_dev, st_ino) of the files BACoN wrote under 1_extracted and 2_filtered
+    for folder in (s.output / FOLDERS["bait"], s.output / FOLDERS["filter"]):
+        if folder.is_dir():
+            written.update({(st.st_dev, st.st_ino): out for out in folder.iterdir() if (st := out.stat())})
+    for x in samples:
+        for f in x.files:
+            if any(p.is_relative_to(s.output) for p in (_resolved_folder(f), f.resolve())):
+                raise BaconError(f"Sample {x.name}: the reads file {f} cannot be inside the output folder "
+                                 f"{s.output}")
+            st = f.stat()
+            if st.st_nlink > 1 and (st.st_dev, st.st_ino) in written:
+                raise BaconError(f"Sample {x.name}: the reads file {f} is the same file (a hard link) as "
+                                 f"{written[(st.st_dev, st.st_ino)]}, which BACoN rewrites: give a copy")
+
+
 def _open_bytes(path: Path):
     """The file's bytes, decompressed when it is gzipped (detected from its content)."""
     with open(path, "rb") as fh:
@@ -691,9 +723,19 @@ def run(s: Settings) -> int:
     if s.input and s.input.is_dir() and (s.output == s.input or s.output.is_relative_to(s.input)):
         # Its files would be taken for a sample's reads on the next run
         raise BaconError(f"The output folder {s.output} cannot be the input folder or inside it")
+    if s.input and s.input != s.output and s.input.is_relative_to(s.output):
+        # BACoN writes and deletes reads files there: a step's output can be the input itself
+        raise BaconError(f"The input {s.input} cannot be inside the output folder {s.output}")
     if s.output.exists() and not s.output.is_dir():
         raise BaconError(f"The output folder {s.output} is a file")
     _check_inputs_kept(s)
+    if s.sample_sheet and any(p.is_relative_to(s.output)
+                              for p in (s.sample_sheet.absolute(), _resolved_folder(s.sample_sheet))):
+        raise BaconError(f"The sample sheet {s.sample_sheet} cannot be inside the output folder {s.output}")
+    for g in s.add_genomes:
+        if any(p.is_relative_to(s.output) for p in (g, g.resolve())):
+            # The assembly step deletes and rewrites all_assemblies/<sample>.fasta before the comparison copies it
+            raise BaconError(f"--add-genomes {g} cannot be inside the output folder {s.output}: give a copy")
     try:
         s.output.mkdir(parents=True, exist_ok=True)
         lock = open(s.output / ".bacon.lock", "w")  # noqa: SIM115 - held until the end of the run
@@ -746,6 +788,7 @@ def _run(s: Settings, started: float) -> int:
                  "templated" if s.assembler == "samtools" else "de novo")
     tools = require(needed_tools(s))
     samples = _load_samples(s)
+    _check_reads_outside(s, samples)
     if s.add_genomes and s.snp_method == "none":
         log.warning("--add-genomes is ignored: there is no comparison with --snp-method none")
     elif s.add_genomes:
@@ -809,6 +852,18 @@ def _run(s: Settings, started: float) -> int:
                                      reference=reference if s.filter_by_reference else None)
 
     dirs = steps.AssemblyDirs(folder["assemble"])
+
+    def clear_later(name: str, step: str) -> None:
+        """Delete the sample's outputs of the steps after `step`, at which it failed: those of an earlier run would
+        pass for this run's (the report reads every assembly of all_assemblies)."""
+        later = STEPS[STEPS.index(step) + 1:-1]
+        if "filter" in later:
+            for fmt in ("fastq", "fasta"):  # Its own file only: <name>.fastq.gz is no other sample's
+                (folder["filter"] / f"{name}{steps.reads_suffix(fmt)}").unlink(missing_ok=True)
+        if "assemble" in later:
+            dirs.clear(name)
+        for other in later:
+            checkpoints.forget(other, {name})
 
     def assemble(st: SampleState, threads: int) -> steps.StepResult:
         assert st.reads is not None
@@ -894,6 +949,9 @@ def _run(s: Settings, started: float) -> int:
             new = _run_parallel(todo, functions[step], s, step, logs / LOG_FOLDERS[step], on_done=done)
             refreshed |= {name for name, res in new.items() if not res.get("failed")}
         _apply(states, results, step)
+        for st in states:
+            if st.failed == f"failed ({step})":
+                clear_later(st.sample.name, step)
         if all(st.failed for st in states):
             _finish(s, states, tools, None, started, annotation, metadata, regions)
             raise BaconError(f"All samples failed at the {step} step; see the logs in {logs}")

@@ -169,3 +169,19 @@ def test_linked_subfolders_are_followed_and_folders_without_reads_are_reported(t
                                                              "chunk_2.fastq.gz"]
     assert [f.name for f in samples["barcode03"].files] == ["chunk_0.fastq.gz", "chunk_1.fastq.gz"]
     assert f"Skipping folder {d / 'barcode02'}: no fasta/fastq files" in caplog.text
+
+
+def test_sample_names_that_differ_only_by_case_are_rejected(tmp_path, fastq):
+    """On a case-insensitive file system (macOS), S1 and s1 would write the same files."""
+    for name in ("a", "b"):
+        fastq(f"{name}.fastq.gz", [("r", "ACGT")])
+    sheet = tmp_path / "sheet.tsv"
+    sheet.write_text("sample\tfile\nS1\ta.fastq.gz\ns1\tb.fastq.gz\n")
+    with pytest.raises(BaconError, match="Sample names 'S1' .* and 's1' .* differ only by case"):
+        read_sample_sheet(sheet)
+    (tmp_path / "in").mkdir()
+    fastq("in/S1.fastq.gz", [("r", "ACGT")])
+    fastq("in/s1.fastq.gz", [("r", "ACGT")])
+    if len(list((tmp_path / "in").iterdir())) == 2:  # On a case-insensitive file system they are one file
+        with pytest.raises(BaconError, match="differ only by case"):
+            discover(tmp_path / "in")

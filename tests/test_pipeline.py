@@ -54,9 +54,11 @@ STUBS = {
             if len(lines[i + 1]) >= min_len:
                 print("\\n".join(lines[i:i + 4]))
     """,
-    # Writes a one-contig circular assembly made of the first read.
+    # Writes a one-contig circular assembly made of the first read; STUB_FLYE_FAIL: fails.
     "flye": """
         import gzip, os, sys
+        if os.environ.get("STUB_FLYE_FAIL"):
+            sys.exit("simulated crash")
         args = sys.argv[1:]
         out = args[args.index("--out-dir") + 1]
         if " " in os.path.abspath(args[args.index("--nano-hq") + 1]):  # As Flye
@@ -1207,6 +1209,92 @@ def test_output_folder_cannot_be_in_the_input_folder(stubs, dataset, tmp_path):
         with pytest.raises(BaconError, match="cannot be the input folder or inside it"):
             run(settings(ref, reads, out))
     assert not (reads / "bacon").exists()
+
+
+def test_inputs_inside_the_output_folder_are_refused(stubs, dataset, tmp_path):
+    """A step's output can be the input itself (-i OUT/1_extracted: the baiting would write the reads it reads,
+    then delete them as the output of a failed sample)."""
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none"))
+    baited = out / "1_extracted" / "s1.fastq.gz"
+    before = baited.read_bytes()
+    for given in (out / "1_extracted", baited):
+        with pytest.raises(BaconError, match="The input .* cannot be inside the output folder"):
+            run(settings(ref, given, out, snp_method="none"))
+    sheet = tmp_path / "sheet.tsv"
+    sheet.write_text(f"sample\tfile\ns1\t{baited}\n")
+    with pytest.raises(BaconError, match=r"Sample s1: the reads file .*s1\.fastq\.gz cannot be inside the output"):
+        run(settings(ref, None, out, input=None, sample_sheet=sheet, snp_method="none"))
+    links = tmp_path / "links"
+    links.mkdir()
+    (links / "s1.fastq.gz").symlink_to(baited)
+    with pytest.raises(BaconError, match="cannot be inside the output folder"):
+        run(settings(ref, links, out, snp_method="none"))
+    assert baited.read_bytes() == before
+    inner = out / "sheet.tsv"
+    inner.write_text(f"sample\tfile\ns1\t{reads / 's1.fastq.gz'}\n")
+    with pytest.raises(BaconError, match="The sample sheet .* cannot be inside the output folder"):
+        run(settings(ref, None, out, input=None, sample_sheet=inner, snp_method="none"))
+    sheet_link = tmp_path / "sheet_link.tsv"
+    inner_sheet = out / "linked_sheet.tsv"
+    inner_sheet.write_text(f"sample\tfile\ns1\t{reads / 's1.fastq.gz'}\n")
+    sheet_link.symlink_to(inner_sheet)
+    with pytest.raises(BaconError, match="The sample sheet .* cannot be inside the output folder"):
+        run(settings(ref, None, out, input=None, sample_sheet=sheet_link, snp_method="none"))
+    hard = tmp_path / "hard"
+    hard.mkdir()
+    os.link(baited, hard / "s1.fastq.gz")  # Same file as the baited output, under a path outside the output
+    with pytest.raises(BaconError, match=r"is the same file \(a hard link\) as .*1_extracted.*: give a copy"):
+        run(settings(ref, hard, out, snp_method="none"))
+    assert baited.read_bytes() == before
+    with pytest.raises(BaconError, match="--add-genomes .* cannot be inside the output folder"):
+        run(settings(ref, reads, out, snp_method="none",
+                     add_genomes=[out / "3_assembled" / "all_assemblies" / "s1.fasta"]))
+
+
+@pytest.mark.parametrize("step", ["bait", "filter"])
+def test_a_sample_failing_at_a_step_keeps_no_outputs_of_the_later_steps(stubs, dataset, tmp_path, step):
+    """Its filtered reads and assembly of an earlier run would pass for this run's (the report reads every
+    assembly in all_assemblies)."""
+    ref, reads = dataset
+    out = tmp_path / "out"
+    run(settings(ref, reads, out, snp_method="none"))
+    asm = out / "3_assembled"
+    later = {"filter": [out / "2_filtered" / "s1.fastq.gz"],
+             "assemble": [asm / "all_assemblies" / "s1.fasta", asm / "assembly_graphs" / "s1.gfa", asm / "s1"]}
+    assert all(path.exists() for paths in later.values() for path in paths)
+    _reads(reads / "s1.fastq.gz", [("off1", 900)] if step == "bait" else [("on1", 50)])  # None baited, or too short
+    run(settings(ref, reads, out, snp_method="none"))
+    assert summary(out)["s1"]["Status"] == f"failed ({step})"
+    gone = later["assemble"] + (later["filter"] if step == "bait" else [])
+    assert not any(path.exists() for path in gone)
+    for checkpoint in ("filter", "assemble")[1 if step == "filter" else 0:]:
+        assert "s1" not in json.loads((out / ".checkpoints" / f"{checkpoint}.json").read_text())["results"]
+    assert (out / "2_filtered" / "s2.fastq.gz").exists() and (asm / "all_assemblies" / "s2.fasta").exists()
+    for other in ("s2", "s3"):  # Every sample failing stops the run before the later steps save their checkpoints
+        _reads(reads / f"{other}.fastq.gz", [("off1", 900)] if step == "bait" else [("on1", 50)])
+    with pytest.raises(BaconError, match=f"All samples failed at the {step} step"):
+        run(settings(ref, reads, out, snp_method="none"))
+    for checkpoint in ("filter", "assemble")[1 if step == "filter" else 0:]:
+        results = json.loads((out / ".checkpoints" / f"{checkpoint}.json").read_text())["results"]
+        assert not {"s2", "s3"} & results.keys()
+
+
+def test_a_sample_failing_at_the_assembly_keeps_no_earlier_assembly(stubs, dataset, tmp_path, monkeypatch):
+    """The assembler clears the sample's published assembly before it starts: a failed reassembly must not leave
+    the previous run's fasta for the report to pick up."""
+    ref, reads = dataset
+    out = tmp_path / "out"
+    assert run(settings(ref, reads, out, snp_method="none")) == 0
+    published = out / "3_assembled" / "all_assemblies" / "s1.fasta"
+    graph = out / "3_assembled" / "assembly_graphs" / "s1.gfa"
+    assert published.exists() and graph.exists()
+    monkeypatch.setenv("STUB_FLYE_FAIL", "1")
+    with pytest.raises(BaconError, match="All samples failed at the assemble step"):
+        run(settings(ref, reads, out, snp_method="none", redo="assemble"))
+    assert summary(out)["s1"]["Status"] == "failed (assemble)"
+    assert not published.exists() and not graph.exists()
 
 
 def test_guess_root_with_a_sample_named_distances():

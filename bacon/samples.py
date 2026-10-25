@@ -134,11 +134,18 @@ def read_sample_sheet(path: Path) -> list[Sample]:
 
 
 def _finalize(candidates: list[tuple[str, list[Path], object]], source: Path) -> list[Sample]:
-    seen: dict[str, object] = {}
+    # Names compared lower-cased: on a case-insensitive file system (macOS, Windows) S1 and s1 would write the
+    # same files
+    seen: dict[str, tuple[str, object]] = {}
     for name, _, origin in candidates:
-        if name in seen:
-            raise BaconError(f"Two inputs give the same sample name {name!r}: {seen[name]} and {origin}")
-        seen[name] = origin
+        if name.lower() in seen:
+            other, other_origin = seen[name.lower()]
+            if other == name:
+                raise BaconError(f"Two inputs give the same sample name {name!r}: {other_origin} and {origin}")
+            raise BaconError(f"Sample names {other!r} (from {other_origin}) and {name!r} (from {origin}) differ "
+                             "only by case: on a case-insensitive file system (macOS) they would write the same "
+                             "files; rename one")
+        seen[name.lower()] = name, origin
     samples = [s for name, files, origin in candidates if (s := _make_sample(name, files, origin))]
     if not samples:
         raise BaconError(f"No fasta/fastq files with reads found in {source}")

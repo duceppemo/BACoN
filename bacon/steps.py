@@ -246,6 +246,13 @@ class AssemblyDirs:
         shutil.rmtree(work, ignore_errors=True)
         return work
 
+    def clear(self, name: str) -> None:
+        """Every file of an earlier assembly of the sample deleted: its assembly, graph and working folder."""
+        self.clear_work(name)
+        for old in (self.graphs / f"{name}.gfa", self.graphs / f"{name}.png"):
+            old.unlink(missing_ok=True)
+        (self.assemblies / f"{name}.fasta").unlink(missing_ok=True)
+
 
 def _publish_assembly(name: str, contigs: Path, dirs: AssemblyDirs, *, rename: bool,
                       circular: set[str] | None = None) -> list[Record]:
@@ -316,7 +323,8 @@ def _flye_info(info: Path) -> dict[str, dict[str, str]]:
 def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, genome_size: int,
                   read_type: str, min_overlap: int | None, iterations: int, threads: int,
                   reference_length: int) -> StepResult:
-    work = dirs.clear_work(name)
+    dirs.clear(name)  # A failed reassembly must leave no older assembly
+    work = dirs.work(name)
     dirs.root.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}.log"
     # Flye refuses reads whose path has a space, and runs some programs through a shell (a space in its output
@@ -393,7 +401,8 @@ def _is_float(text: str) -> bool:
 
 def assemble_myloasm(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, threads: int,
                      reference_length: int) -> StepResult:
-    work = dirs.clear_work(name)
+    dirs.clear(name)  # A failed reassembly must leave no older assembly
+    work = dirs.work(name)
     dirs.root.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}.log"
     run(["myloasm", str(reads), "--output-dir", str(work), "--threads", str(threads)], log_file,
@@ -411,9 +420,8 @@ def assemble_myloasm(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, 
 def assemble_samtools(name: str, reads: Path, reference: Path, dirs: AssemblyDirs, log_dir: Path, *,
                       threads: int, reference_length: int, fill_gaps: bool, cutoff: int = 20) -> StepResult:
     """Templated assembly: samtools consensus of the reads aligned to the reference with minimap2."""
-    work = dirs.clear_work(name)
-    for old in (dirs.graphs / f"{name}.gfa", dirs.graphs / f"{name}.png"):  # From an earlier de novo assembly
-        old.unlink(missing_ok=True)
+    dirs.clear(name)  # Also an earlier (possibly de novo) run's graph and assembly: none may outlive a failure
+    work = dirs.work(name)
     work.mkdir(parents=True)
     log_file = log_dir / f"{name}.log"
     bam = work / "aligned.bam"
