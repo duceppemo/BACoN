@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added
+- `--min-aligned-frac` (default 0.5; 0 disables; minimap2 baiting only): a baited read is kept only when it is
+  aligned over at least this fraction of min(read length, reference length), its split alignments summed. Long
+  reads holding only a short homologous stretch — such as nuclear reads carrying a copy of organelle DNA
+  (NUMTs), which the per-read baiting decision used to keep whole — are dropped. `summary.tsv` gains
+  `Bait_hit_reads` (reads with any alignment) next to `Baited_reads` (reads kept): on a mitochondria-depleted
+  PromethION library, 6,960 reads matched a *Globodera* mitochondrial reference but only 29 were mostly on it,
+  and the unfiltered assembly was 92% nuclear. Folders of earlier versions rebait on the next run (the baiting
+  itself changed); `--min-aligned-frac 0` restores the old behaviour and resumes them unchanged.
+- `--flye-meta {auto,on,off}` (default auto): Flye metagenome mode, whose locally adaptive coverage keeps
+  molecules of very different copy numbers — a multipartite organelle complement spanned 6–493× in one baited
+  read set. `auto` turns it on when the reference holds more than one sequence; single-sequence references
+  keep Flye's plain mode (tidier single-contig output). When off or not applicable, earlier folders resume
+  unchanged.
+
 ### Changed
 - The templated consensus needs a call quality of at least 20 (`samtools consensus -C 20`; samtools' default 10
   before). With few reads, a base called from a mixture of bases became a SNP that the minimap2 comparison counted;

@@ -221,3 +221,84 @@ def test_off_reference_share(tmp_path):
     assert 25 < pct < 27  # 7000 of 27000 bases
     (tmp_path / "same.fa").write_text(f">c1\n{ref}\n")
     assert off_reference(tmp_path / "same.fa", tmp_path / "ref.fa", tmp_path / "log", 1) < 1
+
+
+def test_spans_from_paf_sums_split_alignments(tmp_path):
+    from bacon.steps import _spans_from_paf
+    paf = tmp_path / "a.paf"
+    paf.write_text("r1\t1000\t0\t400\t+\tref\t9000\t0\t400\t380\t400\t60\n"
+                   "r1\t1000\t600\t1000\t+\tref\t9000\t8600\t9000\t390\t400\t60\n"   # Supplementary piece
+                   "r2\t20000\t100\t300\t+\tref\t9000\t50\t250\t180\t200\t60\n")
+    spans = _spans_from_paf(paf)
+    assert spans == {"r1": (1000, 800), "r2": (20000, 200)}
+
+
+def test_spans_from_sam_names_cigars(tmp_path):
+    from bacon.steps import _spans_from_sam_names_cigars
+    lines = tmp_path / "names"
+    # r1: primary 400M600S, supplementary 600H400M (hard clips keep the full length); r2: mostly clipped
+    lines.write_text("r1\t400M600S\nr1\t600H400M\nr2\t100S200M19700S\nr3\t*\n")
+    spans = _spans_from_sam_names_cigars(lines)
+    assert spans == {"r1": (1000, 800), "r2": (20000, 200)}
+
+
+def test_mostly_on_reference_fraction_of_read_or_reference():
+    from bacon.steps import mostly_on_reference
+    spans = {"mito": (1000, 800),        # 80% of the read aligned
+             "numt": (20000, 200),       # A 200 bp homologous insert in a long nuclear read
+             "locus": (20000, 8500)}     # Covers a 9 kb reference whole: passes, however long the read
+    assert mostly_on_reference(spans, 9000, 0.5) == {"mito", "locus"}
+    assert mostly_on_reference(spans, 9000, 0.0) == {"mito", "numt", "locus"}
+
+
+@pytest.mark.skipif(not shutil.which("minimap2"), reason="minimap2 is not installed")
+def test_bait_minimap2_drops_numt_like_reads(tmp_path):
+    import random
+
+    from bacon.samples import Sample
+    from bacon.steps import bait_minimap2
+    rng = random.Random(7)
+    genome = "".join(rng.choice("ACGT") for _ in range(3000))
+    other = "".join(rng.choice("ACGT") for _ in range(3000))
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(f">r\n{genome}\n")
+    reads = tmp_path / "reads.fastq"
+    on_target = genome[:1500]
+    numt_like = other[:1200] + genome[500:1000] + other[1200:]  # 500 of 4,700 bp on the reference
+    reads.write_text(f"@mito\n{on_target}\n+\n{'I' * len(on_target)}\n"
+                     f"@numt\n{numt_like}\n+\n{'I' * len(numt_like)}\n")
+    sample = Sample("s", [reads], "fastq")
+    strict = bait_minimap2(sample, ref, tmp_path / "strict", tmp_path, threads=1, keep_bam=False,
+                           reference_length=3000, min_aligned_frac=0.5)
+    assert strict.stats["Baited_reads"] == 1 and strict.stats["Bait_hit_reads"] == 2
+    loose = bait_minimap2(sample, ref, tmp_path / "loose", tmp_path, threads=1, keep_bam=False,
+                          reference_length=3000, min_aligned_frac=0.0)
+    assert loose.stats["Baited_reads"] == 2
+
+
+def test_assemble_flye_meta_flag(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import bacon.steps as steps_module
+    from bacon.steps import AssemblyDirs, assemble_flye
+    commands = []
+
+    def fake_run(cmd, log_file, **kwargs):
+        commands.append(cmd)
+        if cmd[0] == "flye":
+            out = Path(cmd[cmd.index("--out-dir") + 1])
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "assembly.fasta").write_text(">contig_1\nACGT\n")
+            (out / "assembly_info.txt").write_text(
+                "#seq_name\tlength\tcov.\tcirc.\trepeat\tmult.\talt_group\tgraph_path\n"
+                "contig_1\t4\t30\tY\tN\t1\t*\t1\n")
+
+    monkeypatch.setattr(steps_module, "run", fake_run)
+    reads = tmp_path / "reads.fastq"
+    reads.write_text("@r\nACGT\n+\nIIII\n")
+    for meta, expected in ((True, True), (False, False)):
+        dirs = AssemblyDirs(tmp_path / f"asm_{meta}")
+        result = assemble_flye("s", reads, dirs, tmp_path, genome_size=4, read_type="nano-hq",
+                               min_overlap=None, iterations=1, threads=1, reference_length=4, meta=meta)
+        assert ("--meta" in commands[-1]) is expected
+        assert result.stats["Circular_contigs"] == 1

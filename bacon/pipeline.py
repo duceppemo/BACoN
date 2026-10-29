@@ -65,6 +65,9 @@ class Settings:
     kmer: int = 31
     hdist: int = 1
     keep_bam: bool = False
+    # Keep a baited read only when aligned over this fraction of min(read length, reference length): long reads
+    # holding only a short homologous stretch (a NUMT in a nuclear read) are dropped. 0 disables; minimap2 only.
+    min_aligned_frac: float = 0.5
     min_read_length: int = 500
     keep_percent: float = 95.0
     target_depth: int = 100
@@ -73,6 +76,9 @@ class Settings:
     read_type: str = "nano-hq"
     min_size: int | None = None
     flye_iterations: int = 3
+    # Flye --meta: locally adaptive coverage, for references of several molecules at different copy numbers.
+    # "auto": on when the reference holds more than one sequence; "on"/"off" force it.
+    flye_meta: str = "auto"
     template_gaps: str = "n"
     # Templated assembly: samtools consensus -C, the quality a call needs (lower: N). Not an option: 20 since 0.4.1
     # (10, samtools' default, before), so that a base called from a few mixed reads becomes N rather than a SNP
@@ -800,9 +806,16 @@ def _run(s: Settings, started: float) -> int:
     metadata = _prepare_metadata(s, samples)  # Fails fast on a bad file or column; not part of any checkpoint
     reference, reference_length = _prepare_reference(s)
     genome_size = s.genome_size or reference_length
+    reference_sequences = sum(1 for _ in read_records(reference))
     log.info("Reference %s: %s bp in %d sequence(s)%s", s.reference.name, f"{reference_length:,}",
-             sum(1 for _ in read_records(reference)),
+             reference_sequences,
              f"; genome size set to {genome_size:,} bp" if s.genome_size else "")
+    min_aligned_frac = s.min_aligned_frac if s.baiting == "minimap2" else 0.0
+    flye_meta = s.assembler == "flye" and (s.flye_meta == "on"
+                                           or (s.flye_meta == "auto" and reference_sequences > 1))
+    if flye_meta and s.flye_meta == "auto":
+        log.info("Flye runs in metagenome mode (--meta): the reference holds %d sequences, whose copy numbers "
+                 "may differ (--flye-meta off disables)", reference_sequences)
     annotation, regions = _prepare_annotation(s, reference)  # Fails fast on a bad annotation; not in a checkpoint
     log.info("%d sample(s): %s", len(samples), ", ".join(x.name for x in samples))
 
@@ -821,14 +834,17 @@ def _run(s: Settings, started: float) -> int:
     params = {
         "bait": {"reference": _md5(reference),
                  "method": s.baiting, "kmer": s.kmer if s.baiting == "bbduk" else None,
-                 **({"hdist": s.hdist} if s.baiting == "bbduk" else {})},
+                 **({"hdist": s.hdist} if s.baiting == "bbduk" else {}),
+                 # Omitted when off, so folders of earlier versions (which never filtered) resume unchanged
+                 **({"min_aligned_frac": min_aligned_frac} if min_aligned_frac else {})},
         "filter": {"min_length": s.min_read_length, "keep_percent": s.keep_percent,
                    "target_depth": s.target_depth, "genome_size": genome_size,
                    **({"by_reference": True} if by_reference else {})},
         "assemble": {"assembler": s.assembler, "genome_size": genome_size,
                      "template_gaps": s.template_gaps if s.assembler == "samtools" else None,
                      **({"consensus_cutoff": s.consensus_cutoff} if s.assembler == "samtools" else {}),
-                     **(flye_options if s.assembler == "flye" else {})},
+                     **(flye_options if s.assembler == "flye" else {}),
+                     **({"meta": True} if flye_meta else {})},  # Omitted when off: earlier folders resume
     }
     # BACoN <= 0.3.7 also recorded --keep-bam and Flye's options whatever the assembler (as 0.3.2 for minimap2):
     # the checkpoints of a folder it made are reused when nothing else changed, made with --keep-bam or without.
@@ -839,7 +855,8 @@ def _run(s: Settings, started: float) -> int:
 
     def bait(st: SampleState, threads: int) -> steps.StepResult:
         if s.baiting == "minimap2":
-            return steps.bait_minimap2(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.keep_bam)
+            return steps.bait_minimap2(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.keep_bam,
+                                       reference_length=reference_length, min_aligned_frac=min_aligned_frac)
         # The memory is shared between the samples baited at the same time
         return steps.bait_bbduk(st.sample, reference, folder["bait"], logs / "1_bait", threads, s.kmer, s.hdist,
                                 max(1, s.memory_gb // max(1, min(s.parallel, baiting["samples"]))))
@@ -871,7 +888,8 @@ def _run(s: Settings, started: float) -> int:
         common = {"threads": threads, "reference_length": reference_length}
         if s.assembler in ("flye", "myloasm"):
             res = (steps.assemble_flye(name, reads, dirs, log_dir, genome_size=genome_size, read_type=s.read_type,
-                                       min_overlap=s.min_size, iterations=s.flye_iterations, **common)
+                                       min_overlap=s.min_size, iterations=s.flye_iterations, meta=flye_meta,
+                                       **common)
                    if s.assembler == "flye" else steps.assemble_myloasm(name, reads, dirs, log_dir, **common))
             if res.output is not None:
                 res.stats.update(_off_reference(name, res.output, reference, log_dir, threads))
