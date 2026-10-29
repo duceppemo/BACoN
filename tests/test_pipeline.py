@@ -37,11 +37,16 @@ STUBS = {
                     print(f"{name}\\t{length}\\t0\\t{length}\\t+\\tref\\t1000\\t0\\t{length}\\t{length}\\t{length}\\t60"
                           + cs)
             sys.exit()
+        sam = "-a" in sys.argv  # --keep-bam: SAM records (fully aligned, cigar 100M), as minimap2 -a
         for f in files:
             with (gzip.open(f, "rt") if f.endswith(".gz") else open(f)) as fh:
                 for i, line in enumerate(fh):
                     if i % 4 == 0 and line[1:].startswith("on"):
-                        print(line[1:].split()[0] + "\\t100\\t0\\t100\\t+\\tref\\t1000\\t0\\t100\\t90\\t100\\t60")
+                        name = line[1:].split()[0]
+                        if sam:
+                            print(name + "\\t0\\tref\\t1\\t60\\t100M\\t*\\t0\\t0\\t" + "A" * 100 + "\\t*")
+                        else:
+                            print(name + "\\t100\\t0\\t100\\t+\\tref\\t1000\\t0\\t100\\t90\\t100\\t60")
     """,
     # Keeps reads at least --min_length long.
     "filtlong": """
@@ -964,13 +969,15 @@ def _as_0_3_7(out: Path, assembler: str = "flye", keep_bam: bool = False) -> Non
 
 @pytest.mark.parametrize("assembler, keep_bam", [("flye", False), ("samtools", False), ("myloasm", True)])
 def test_checkpoints_of_0_3_7_are_reused(stubs, dataset, tmp_path, assembler, keep_bam):
+    # With --min-aligned-frac 0: the default (0.5, since 0.5.0) changes the baiting itself, so folders of earlier
+    # versions legitimately rebait under it; the fingerprint compatibility is tested with the filter off.
     ref, reads = dataset
     out = tmp_path / "out"
-    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam))
+    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam, min_aligned_frac=0.0))
     assert summary(out)["s1"]["Status"] == "ok"
     _as_0_3_7(out, assembler, keep_bam)
     stubs.unlink()
-    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam))
+    run(settings(ref, reads, out, assembler=assembler, keep_bam=keep_bam, min_aligned_frac=0.0))
     made = sorted(calls(stubs))  # Only the sample that failed at baiting is tried again (samtools: its BAM)
     if assembler == "samtools":  # 0.4.1 calls the consensus with -C 20 (0.3.7: 10): the assemblies are made again
         assert "filtlong" not in made and made.count("samtools") >= 3 and made.count("minimap2") >= 1 + 3
@@ -979,7 +986,7 @@ def test_checkpoints_of_0_3_7_are_reused(stubs, dataset, tmp_path, assembler, ke
     if keep_bam:  # Made with --keep-bam, resumed without: nothing to do either
         _as_0_3_7(out, assembler, keep_bam)
         stubs.unlink()
-        run(settings(ref, reads, out, assembler=assembler))
+        run(settings(ref, reads, out, assembler=assembler, min_aligned_frac=0.0))
         assert calls(stubs) == ["minimap2"]
 
 

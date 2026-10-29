@@ -52,14 +52,61 @@ def reads_suffix(fmt: str) -> str:
 # 1. Baiting
 # ---------------------------------------------------------------------------------------------------------------
 
-def _names_from_paf(paf: Path) -> set[str]:
+def _spans_from_paf(paf: Path) -> dict[str, tuple[int, int]]:
+    """Per read: (read length, aligned bases summed over its alignments — primary and supplementary, so a read
+    split over a circular reference's junction counts whole)."""
+    spans: dict[str, tuple[int, int]] = {}
     with open(paf, encoding="ascii", errors="replace") as fh:  # As the reads are read (seqio)
-        return {line.split("\t", 1)[0] for line in fh if line.strip()}
+        for line in fh:
+            fields = line.split("\t", 4)
+            if len(fields) < 5:
+                continue
+            name, length, aligned = fields[0], int(fields[1]), spans.get(fields[0], (0, 0))[1]
+            spans[name] = (length, aligned + int(fields[3]) - int(fields[2]))
+    return spans
+
+
+_CIGAR_OPS = re.compile(r"(\d+)([MIDNSHP=X])")
+
+
+def _spans_from_sam_names_cigars(path: Path) -> dict[str, tuple[int, int]]:
+    """Like `_spans_from_paf`, from a file of `name<TAB>cigar` lines (mapped records of a BAM). The read length
+    counts hard clips, so supplementary records give the full read; the aligned span is the read's part in the
+    alignment (M/I/=/X)."""
+    spans: dict[str, tuple[int, int]] = {}
+    with open(path, encoding="ascii", errors="replace") as fh:
+        for line in fh:
+            name, _, cigar = line.rstrip("\n").partition("\t")
+            if not cigar or cigar == "*":
+                continue
+            length = aligned = 0
+            for n, op in _CIGAR_OPS.findall(cigar):
+                if op in "MIS=XH":
+                    length += int(n)
+                if op in "MI=X":
+                    aligned += int(n)
+            previous = spans.get(name, (0, 0))
+            spans[name] = (max(length, previous[0]), previous[1] + aligned)
+    return spans
+
+
+def mostly_on_reference(spans: dict[str, tuple[int, int]], reference_length: int,
+                        min_aligned_frac: float) -> set[str]:
+    """The reads aligned over at least `min_aligned_frac` of their length (or of the reference's, when the read
+    is longer — a read covering a short reference whole passes, however long its off-target rest). Guards the
+    bait against long reads kept for a short homologous insert, such as a NUMT in a nuclear read."""
+    names = set()
+    for name, (length, aligned) in spans.items():
+        denominator = min(length, reference_length) or 1
+        if min(aligned, denominator) / denominator >= min_aligned_frac:
+            names.add(name)
+    return names
 
 
 def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path, threads: int,
-                  keep_bam: bool) -> StepResult:
-    """Keep the reads with at least one alignment to the reference."""
+                  keep_bam: bool, *, reference_length: int = 0, min_aligned_frac: float = 0.0) -> StepResult:
+    """Keep the reads with at least one alignment to the reference; with `min_aligned_frac`, only those mostly
+    on the reference (`mostly_on_reference`)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{sample.name}.log"
     mm2 = ["minimap2", "-x", "map-ont", "--secondary=no", "-t", str(threads)]
@@ -73,14 +120,35 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
                  ["samtools", "sort", "-@", str(max(1, threads // 4)), "-o", str(bam), "-"]], log_file,
                 what=f"(mapping {sample.name})")
             run(["samtools", "index", str(bam)], log_file)
-            run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1"]], log_file, stdout=names_file)
-            with open(names_file, encoding="ascii", errors="replace") as fh:
-                names = {line.strip() for line in fh if line.strip()}
+            run([["samtools", "view", "-F", "0x4", str(bam)], ["cut", "-f1,6"]], log_file, stdout=names_file)
+            spans = _spans_from_sam_names_cigars(names_file)
         else:
             run([*mm2, str(reference), *files], log_file, stdout=paf, what=f"(mapping {sample.name})")
-            names = _names_from_paf(paf)
+            spans = _spans_from_paf(paf)
+        if min_aligned_frac:
+            names = mostly_on_reference(spans, reference_length, min_aligned_frac)
+        else:
+            names = set(spans)
         total, kept = extract_reads(sample.files, names, output)
-        return _bait_result(output, total, kept)
+        try:
+            result = _bait_result(output, total, kept)
+        except SampleFailed as exc:
+            if min_aligned_frac and spans:
+                raise SampleFailed(
+                    f"{len(spans):,} reads matched the reference, but none over {min_aligned_frac:g} of its "
+                    "length: likely short homologous stretches in off-target reads (such as NUMTs in nuclear "
+                    "reads); check the library's target content, or lower --min-aligned-frac",
+                    exc.stats) from None
+            raise
+        if min_aligned_frac:
+            result.stats["Bait_hit_reads"] = len(spans)
+            dropped = len(spans) - len(names)
+            if spans and dropped / len(spans) > 0.5:
+                result.notes.append(
+                    f"{dropped:,} of {len(spans):,} matching reads were dropped as mostly off-reference "
+                    f"(aligned fraction < {min_aligned_frac:g}): reads carrying only a short homologous stretch, "
+                    "such as nuclear reads holding a copy of organelle DNA")
+        return result
     except BaseException:
         output.unlink(missing_ok=True)  # A failed (or interrupted) sample leaves no reads, partial or stale
         raise
@@ -322,7 +390,7 @@ def _flye_info(info: Path) -> dict[str, dict[str, str]]:
 
 def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, genome_size: int,
                   read_type: str, min_overlap: int | None, iterations: int, threads: int,
-                  reference_length: int) -> StepResult:
+                  reference_length: int, meta: bool = False) -> StepResult:
     dirs.clear(name)  # A failed reassembly must leave no older assembly
     work = dirs.work(name)
     dirs.root.mkdir(parents=True, exist_ok=True)
@@ -344,6 +412,8 @@ def assemble_flye(name: str, reads: Path, dirs: AssemblyDirs, log_dir: Path, *, 
             out = work
         cmd = ["flye", f"--{read_type}", str(reads), "--genome-size", str(genome_size), "--threads", str(threads),
                "--out-dir", str(out), "--iterations", str(iterations)]
+        if meta:  # Locally adaptive coverage: molecules of one complement can differ many-fold in copy number
+            cmd.append("--meta")
         if min_overlap:
             cmd += ["--min-overlap", str(min_overlap)]
         run(cmd, log_file, what=f"(assembling {name})")

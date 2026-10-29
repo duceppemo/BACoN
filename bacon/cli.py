@@ -46,6 +46,16 @@ def _fraction(value: str) -> float:
     return f
 
 
+def _fraction_or_zero(value: str) -> float:
+    try:
+        f = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {value!r}") from None
+    if not 0 <= f <= 1:
+        raise argparse.ArgumentTypeError(f"must be between 0 and 1, got {value}")
+    return f
+
+
 def _kmer(value: str) -> int:
     k = _positive_int(value)
     if k > 31:
@@ -103,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
                            "155 kb plastome needs about 14 GB per sample. Default: 1")
     bait.add_argument("--keep-bam", action="store_true",
                       help="Keep the sorted BAM of the reads aligned to the reference (minimap2 only).")
+    bait.add_argument("--min-aligned-frac", metavar="0.5", type=_fraction_or_zero, default=None,
+                      help="Keep a baited read only when it is aligned over at least this fraction of "
+                           "min(read length, reference length), its split alignments summed: a long read "
+                           "holding only a short homologous stretch — such as a nuclear read with a copy of "
+                           "organelle DNA (NUMT) — is dropped instead of being baited whole. 0 disables; "
+                           "minimap2 only. Default: 0.5")
 
     reads = parser.add_argument_group("read preparation")
     reads.add_argument("--min-read-length", metavar="500", type=_positive_int, default=500,
@@ -134,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "reads. Default: %(default)s")
     asm.add_argument("--min-size", metavar="BP", type=_positive_int, default=None,
                      help="Flye minimum read overlap. Default: automatic.")
+    asm.add_argument("--flye-meta", choices=["auto", "on", "off"], default="auto",
+                     help="Flye metagenome mode (--meta), whose locally adaptive coverage keeps molecules of "
+                          "very different copy numbers (a multipartite organelle complement). auto: on when the "
+                          "reference holds more than one sequence. Default: %(default)s")
     asm.add_argument("-s", "--size", metavar="BP", type=_positive_int, default=None,
                      help="Expected genome size, for Flye and read filtering. Default: the reference length.")
 
@@ -189,6 +209,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.hdist is not None and args.baiting_method != "bbduk":
         log.warning("--hdist only applies to --baiting-method bbduk: ignored with %s", args.baiting_method)
+    if args.min_aligned_frac is not None and args.baiting_method != "minimap2":
+        log.warning("--min-aligned-frac only applies to --baiting-method minimap2 (BBDuk has no alignments): "
+                    "ignored with %s", args.baiting_method)
+    if args.flye_meta != "auto" and args.assembly_method != "flye":
+        log.warning("--flye-meta only applies to --assembly-method flye: ignored with %s", args.assembly_method)
     max_cpu = usable_cpus()
     threads = args.threads
     if threads > max_cpu:
@@ -209,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         kmer=args.kmer_size,
         hdist=1 if args.hdist is None else args.hdist,
         keep_bam=args.keep_bam,
+        min_aligned_frac=0.5 if args.min_aligned_frac is None else args.min_aligned_frac,
         min_read_length=args.min_read_length,
         keep_percent=args.keep_percent,
         target_depth=args.target_depth,
@@ -216,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         assembler=args.assembly_method,
         read_type=args.read_type,
         min_size=args.min_size,
+        flye_meta=args.flye_meta,
         template_gaps=args.template_gaps,
         genome_size=args.size,
         snp_method=args.snp_method,
