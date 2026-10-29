@@ -125,10 +125,8 @@ def bait_minimap2(sample: Sample, reference: Path, out_dir: Path, log_dir: Path,
         else:
             run([*mm2, str(reference), *files], log_file, stdout=paf, what=f"(mapping {sample.name})")
             spans = _spans_from_paf(paf)
-        if min_aligned_frac:
-            names = mostly_on_reference(spans, reference_length, min_aligned_frac)
-        else:
-            names = set(spans)
+        names = mostly_on_reference(spans, reference_length, min_aligned_frac) if min_aligned_frac \
+            else set(spans)
         total, kept = extract_reads(sample.files, names, output)
         try:
             result = _bait_result(output, total, kept)
